@@ -39,6 +39,7 @@
   let renamedFiles = new Set();
   let aiRenamingPossible = false;
   let cardUpdateThrottle = new Map(); // Prevent rapid updates
+  let currentZenSidebarWidth = ''; // <-- ADDED: Global variable for sidebar width
 
   // Add debug logging function
   function debugLog(message, data = null) {
@@ -101,6 +102,7 @@
               debugLog("AI renaming disabled - Mistral connection failed");
             }
             initDownloadManager();
+            initSidebarWidthSync(); // <-- ADDED: Call to initialize sidebar width syncing
             debugLog("Initialization complete");
           }
         })
@@ -134,7 +136,7 @@
         downloadCardsContainer.setAttribute("style", `
           position: fixed !important;
           left: 20px !important;
-          bottom: 20px !important;
+          bottom: 8px !important;
           z-index: 2147483647 !important;
           max-width: 400px;
           min-width: 280px;
@@ -212,25 +214,46 @@
     if (!cardData) {
       // Create new card
       const cardElement = document.createElement("div");
-      cardElement.className = "modern-download-card";
+      cardElement.className = "modern-download-card"; // Keep class for potential container styling
       cardElement.id = `userchrome-download-card-${Date.now()}`;
-      cardElement.dataset.downloadKey = key; // Use key instead of id
+      cardElement.dataset.downloadKey = key;
+
+      // Style cardElement as the preview pod
+      cardElement.style.position = 'relative';
+      cardElement.style.width = '56px'; 
+      cardElement.style.height = '56px';
+      cardElement.style.borderRadius = '12px';
+      cardElement.style.backgroundColor = 'rgba(40,40,40,0.9)'; // Slightly adjusted background
+      cardElement.style.boxShadow = '0 3px 10px rgba(0,0,0,0.3)';
+      cardElement.style.display = 'flex';
+      cardElement.style.alignItems = 'center';
+      cardElement.style.justifyContent = 'center';
+      cardElement.style.padding = '8px'; 
+      cardElement.style.marginBottom = '10px'; 
+      cardElement.style.boxSizing = 'border-box';
+
+      // Initial styles for entrance animation (bounce for pod)
+      cardElement.style.opacity = '0';
+      cardElement.style.transform = 'scale(0.5) translateY(20px)';
+      cardElement.style.transition = 'opacity 0.3s ease-out, transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
 
       try {
         cardElement.innerHTML = `
-          <div style="background:rgba(0,0,0,0.90);border-radius:14px;box-shadow:0 2px 8px rgba(0,0,0,0.25);display:flex;align-items:center;padding:14px 20px 14px 14px;min-width:340px;max-width:410px;margin-bottom:10px;">
-            <div class="card-preview-container" style="flex:0 0 44px;width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.07);border-radius:8px;overflow:hidden;margin-right:14px;"></div>
-            <div style="flex:1;min-width:0;">
-              <div class="card-status" style="font-size:13px;color:#b5b5b5;margin-bottom:2px;">Starting download...</div>
-              <div class="card-title" style="font-size:15px;font-weight:600;line-height:1.3;color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${displayName}</div>
-              <div class="card-progress" style="font-size:12px;color:#8e8e8e;margin-top:2px;">Calculating size...</div>
-            </div>
-            <span class="card-close-button" title="Close" tabindex="0" role="button" style="margin-left:10px;background:none;border:none;color:#bbb;font-size:18px;cursor:pointer;padding:4px;">✕</span>
+          <div class="card-preview-container" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:6px;">
+            <!-- Preview content (image, text snippet, or icon) will go here -->
+          </div>
+          <div class="details-tooltip" style="position:absolute; bottom: calc(100% + 12px); left: -8px; width: 350px; min-width: 176.3333282470703px; box-sizing: border-box; background:rgba(25,25,25,0.97); border-radius:10px; box-shadow:0 5px 15px rgba(0,0,0,0.35); padding:12px 15px; color:white; z-index:1000; display:flex; flex-direction:column; gap: 5px; pointer-events:none; 
+                                        opacity:0; transform: scaleY(0.8) translateY(10px); transform-origin: bottom left; transition: opacity 0.3s ease-out 0.15s, transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1.1) 0.15s, width 0.2s ease-out;">
+            <div class="card-title" style="font-size:14px; font-weight:500; line-height:1.3; color:#f0f0f0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right: 30px; box-sizing: border-box;">${displayName}</div>
+            <div class="card-status" style="font-size:12px; color:#a0a0a0;">Starting download...</div>
+            <div class="card-progress" style="font-size:11px; color:#888;">Calculating size...</div>
+            <span class="card-close-button" title="Close" tabindex="0" role="button" style="position:absolute; top:6px; right:6px; background:none; border:none; color:#aaa; font-size:18px; cursor:pointer; padding:5px; line-height:1; pointer-events:auto;">✕</span>
+            <div class="tooltip-tail" style="position: absolute; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 8px solid rgba(25,25,25,0.97); bottom: -7px; left: 28px;"></div>
           </div>
         `;
 
-        // Add close handler - FINAL FIX for dynamic key lookup
-        const closeBtn = cardElement.querySelector(".card-close-button");
+        // Add close handler - targets button inside tooltip
+        const closeBtn = cardElement.querySelector(".details-tooltip .card-close-button");
         if (closeBtn) {
           const closeHandler = (e) => {
             e.preventDefault();
@@ -301,10 +324,26 @@
         
         activeDownloadCards.set(key, cardData);
 
-        // Add to container
-        if (downloadCardsContainer) {
-          downloadCardsContainer.appendChild(cardElement);
-          debugLog("[UI] Card created and appended", { key, filename: safeFilename });
+        // Instead of appending and animating here, call the observer function
+        // if it's a truly new card (not just an update that missed the map earlier)
+        // The isNewCardOnInit flag might be true for existing downloads if script reloads, 
+        // so we also check if it's already in the DOM just in case.
+        if (!document.getElementById(cardElement.id)) { 
+          cardData.isWaitingForZenAnimation = true;
+          initZenAnimationObserver(key, cardElement);
+        } else {
+          // If card element somehow already exists in DOM but not in map (e.g. script reload with orphaned cards), 
+          // just ensure it's visible. This is a fallback.
+          cardElement.style.opacity = '1';
+          cardElement.style.transform = 'scale(1) translateY(0)';
+          const tooltip = cardElement.querySelector('.details-tooltip');
+          if (tooltip) {
+            tooltip.style.opacity = '1';
+            tooltip.style.transform = 'scaleY(1) translateY(0)';
+          }
+          if (downloadCardsContainer && !cardElement.parentNode) {
+             downloadCardsContainer.appendChild(cardElement);
+          }
         }
 
       } catch (domErr) {
@@ -316,11 +355,29 @@
       cardData.download = download; // Update download reference
     }
 
-    // Update card content
+    // Update card content (elements are now inside the tooltip)
     const cardElement = cardData.cardElement;
-    const statusElement = cardElement.querySelector(".card-status");
-    const titleElement = cardElement.querySelector(".card-title");
-    const progressElement = cardElement.querySelector(".card-progress");
+    const tooltipElement = cardElement.querySelector(".details-tooltip");
+    
+    // If for some reason tooltip is not there (e.g. error during creation), bail out
+    if (!tooltipElement) {
+        debugLog("Error: Tooltip element not found on existing card.", {key});
+        return cardElement; 
+    }
+
+    // Dynamically set tooltip width based on currentZenSidebarWidth (synced globally)
+    debugLog(`[TooltipWidth] Using global currentZenSidebarWidth: '${currentZenSidebarWidth}'`);
+    if (currentZenSidebarWidth && currentZenSidebarWidth !== "0px" && !isNaN(parseFloat(currentZenSidebarWidth))) {
+        tooltipElement.style.width = `calc(${currentZenSidebarWidth} - 20px)`;
+        debugLog(`[TooltipWidth] Attempting to set tooltip total width to: calc(${currentZenSidebarWidth} - 20px)`);
+    } else {
+        debugLog(`[TooltipWidth] Global currentZenSidebarWidth is invalid ('${currentZenSidebarWidth}') or not a usable number. Using default tooltip width (350px total).`);
+        tooltipElement.style.width = '350px'; // Explicitly set fallback width
+    }
+
+    const statusElement = tooltipElement.querySelector(".card-status");
+    const titleElement = tooltipElement.querySelector(".card-title");
+    const progressElement = tooltipElement.querySelector(".card-progress");
 
     // Update status based on download state
     if (statusElement) {
@@ -426,19 +483,31 @@
         return false;
       }
 
-      // Clean animation
-      cardElement.style.transition = "opacity 0.3s, transform 0.3s";
-      cardElement.style.opacity = "0";
-      cardElement.style.transform = "translateY(-20px)";
+      const tooltipElement = cardElement.querySelector(".details-tooltip");
 
+      // Stage 1: Animate tooltip out
+      if (tooltipElement) {
+        tooltipElement.style.transition = "opacity 0.2s ease-in, transform 0.2s ease-in";
+        tooltipElement.style.opacity = "0";
+        tooltipElement.style.transform = "scaleY(0.8) translateY(10px)";
+      }
+
+      // Stage 2: Animate card pod out (after a delay for tooltip animation)
       setTimeout(() => {
-        if (cardElement.parentNode) {
-          cardElement.parentNode.removeChild(cardElement);
-        }
-        activeDownloadCards.delete(downloadKey);
-        cardUpdateThrottle.delete(downloadKey);
-        debugLog(`Card removed for download: ${downloadKey}`);
-      }, 300);
+        cardElement.style.transition = "opacity 0.3s ease-in, transform 0.3s cubic-bezier(0.55, 0.085, 0.68, 0.53)";
+        cardElement.style.opacity = "0";
+        cardElement.style.transform = "translateX(-70px) scale(0.9)";
+
+        // Stage 3: Remove from DOM after pod animation finishes
+        setTimeout(() => {
+          if (cardElement.parentNode) {
+            cardElement.parentNode.removeChild(cardElement);
+          }
+          activeDownloadCards.delete(downloadKey);
+          cardUpdateThrottle.delete(downloadKey);
+          debugLog(`Card removed for download: ${downloadKey}`);
+        }, 300); // Corresponds to pod animation duration (0.3s)
+      }, tooltipElement ? 150 : 0); // Delay for pod animation: 150ms if tooltip existed, 0 otherwise
 
       return true;
     } catch (e) {
@@ -1191,4 +1260,211 @@ Respond with ONLY the filename.`;
   }
 
   console.log("Download Preview Mistral AI Script (FINAL FIXED): Execution finished, initialization scheduled/complete.");
+
+// --- Sidebar Width Synchronization Logic ---
+function updateCurrentZenSidebarWidth() {
+  const mainWindow = document.getElementById('main-window');
+  const toolbox = document.getElementById('navigator-toolbox');
+
+  if (!toolbox) {
+    debugLog('[SidebarWidthSync] #navigator-toolbox not found. Cannot read --zen-sidebar-width.');
+    // currentZenSidebarWidth = ''; // Let it retain its value if toolbox temporarily disappears? Or clear?
+                                 // For now, if toolbox isn't there, we can't update, so we do nothing to the existing value.
+    return;
+  }
+
+  // Log compact mode for context, but don't block the read based on it.
+  if (mainWindow) {
+    const isCompact = mainWindow.getAttribute('zen-compact-mode') === 'true';
+    debugLog(`[SidebarWidthSync] #main-window zen-compact-mode is currently: ${isCompact}. Attempting to read from #navigator-toolbox.`);
+  } else {
+    debugLog('[SidebarWidthSync] #main-window not found. Attempting to read from #navigator-toolbox.');
+  }
+  
+  const value = getComputedStyle(toolbox).getPropertyValue('--zen-sidebar-width').trim();
+  
+  if (value && value !== "0px" && value !== "") {
+    if (currentZenSidebarWidth !== value) {
+      currentZenSidebarWidth = value;
+      debugLog('[SidebarWidthSync] Updated currentZenSidebarWidth from #navigator-toolbox to:', value);
+      applyGlobalWidthToAllTooltips(); // Apply to existing tooltips
+    } else {
+      debugLog('[SidebarWidthSync] --zen-sidebar-width from #navigator-toolbox is unchanged (' + value + '). No update to tooltips needed.');
+    }
+  } else {
+    // If the value is empty, "0px", or not set, it implies the sidebar isn't in a state where this var is active.
+    // Clear our global var so the tooltip uses its own default width.
+    if (currentZenSidebarWidth !== '') { // Only update if it actually changes to empty
+      currentZenSidebarWidth = ''; 
+      debugLog(`[SidebarWidthSync] --zen-sidebar-width on #navigator-toolbox is '${value}'. Cleared currentZenSidebarWidth. Tooltip will use default width.`);
+      applyGlobalWidthToAllTooltips(); // Apply default width logic to existing tooltips
+    } else {
+      debugLog(`[SidebarWidthSync] --zen-sidebar-width on #navigator-toolbox is '${value}' and currentZenSidebarWidth is already empty. No update needed.`);
+    }
+  }
+}
+
+function initSidebarWidthSync() {
+  const mainWindow = document.getElementById('main-window');
+  const navigatorToolbox = document.getElementById('navigator-toolbox');
+  let resizeTimeoutId = null;
+
+  if (mainWindow) {
+    // Set up a MutationObserver to watch attribute changes on #main-window for zen-compact-mode
+    const mutationObserver = new MutationObserver((mutationsList) => {
+      for (const mutation of mutationsList) {
+        if (
+          mutation.type === 'attributes' &&
+          mutation.attributeName === 'zen-compact-mode'
+        ) {
+          debugLog('[SidebarWidthSync] zen-compact-mode attribute changed. Updating sidebar width.');
+          updateCurrentZenSidebarWidth();
+        }
+      }
+    });
+    mutationObserver.observe(mainWindow, {
+      attributes: true,
+      attributeFilter: ['zen-compact-mode']
+    });
+  } else {
+    debugLog('[SidebarWidthSync] initSidebarWidthSync: #main-window not found. Cannot set up MutationObserver for compact mode.');
+  }
+
+  if (navigatorToolbox) {
+    // Set up a ResizeObserver to watch for size changes on #navigator-toolbox
+    const resizeObserver = new ResizeObserver(entries => {
+      // Debounce the resize event
+      clearTimeout(resizeTimeoutId);
+      resizeTimeoutId = setTimeout(() => {
+        for (let entry of entries) {
+          // We don't strictly need to check entry.contentRect here as getComputedStyle will get the current var value
+          debugLog('[SidebarWidthSync] #navigator-toolbox resized. Updating sidebar width.');
+          updateCurrentZenSidebarWidth();
+        }
+      }, 250); // 250ms debounce period
+    });
+    resizeObserver.observe(navigatorToolbox);
+    debugLog('[SidebarWidthSync] ResizeObserver started on #navigator-toolbox.');
+  } else {
+    debugLog('[SidebarWidthSync] initSidebarWidthSync: #navigator-toolbox not found. Cannot set up ResizeObserver.');
+  }
+
+  // Run it once at init in case the attribute/size is already set at load
+  debugLog('[SidebarWidthSync] Initial call to update sidebar width.');
+  updateCurrentZenSidebarWidth();
+}
+
+function applyGlobalWidthToAllTooltips() {
+  debugLog('[TooltipWidth] Attempting to apply global width to all active tooltips.');
+  if (!currentZenSidebarWidth || currentZenSidebarWidth === "0px" || isNaN(parseFloat(currentZenSidebarWidth))) {
+    debugLog('[TooltipWidth] No valid global currentZenSidebarWidth to apply. Existing tooltips will retain their current width or fall back to default if they re-render.');
+    // If currentZenSidebarWidth is invalid, we might want to set all tooltips to default 350px.
+    // However, createOrUpdateCard already handles this for new/updated cards.
+    // For existing ones, letting them keep their last valid calculated width might be less jarring than all snapping to default.
+    return;
+  }
+
+  for (const cardData of activeDownloadCards.values()) {
+    if (cardData && cardData.cardElement) {
+      const tooltipElement = cardData.cardElement.querySelector(".details-tooltip");
+      if (tooltipElement) {
+        const newWidth = `calc(${currentZenSidebarWidth} - 20px)`; // Respecting your -20px adjustment
+        tooltipElement.style.width = newWidth;
+        // Minimal log here to avoid flooding if many cards exist
+        // debugLog(`[TooltipWidth] Refreshed tooltip for key ${cardData.key || 'unknown'} to width: ${newWidth}`); 
+      }
+    }
+  }
+  debugLog('[TooltipWidth] Finished applying global width to tooltips.');
+}
+
+// --- Zen Animation Synchronization Logic ---
+function triggerCardEntrance(downloadKeyToTrigger, cardElementToAnimateIn) {
+  if (!cardElementToAnimateIn) return;
+
+  const cardData = activeDownloadCards.get(downloadKeyToTrigger);
+  if (cardData) {
+    // Ensure this runs only once or if explicitly told by fallback
+    if (!cardData.isWaitingForZenAnimation && !cardData.fallbackTriggered) return; 
+    cardData.isWaitingForZenAnimation = false;
+    cardData.fallbackTriggered = true; // Mark that it has been triggered, even if by fallback
+  }
+
+  if (downloadCardsContainer && !cardElementToAnimateIn.parentNode) {
+    downloadCardsContainer.appendChild(cardElementToAnimateIn);
+    debugLog("[UI] Card appended via triggerCardEntrance", { key: downloadKeyToTrigger });
+  } else if (!downloadCardsContainer) {
+    debugLog("[UI] Error: downloadCardsContainer not found in triggerCardEntrance", { key: downloadKeyToTrigger });
+    return;
+  } else {
+    debugLog("[UI] Card already parented or no container, proceeding with animation", { key: downloadKeyToTrigger });
+  }
+
+  // Trigger entrance animations for the card
+  setTimeout(() => {
+    cardElementToAnimateIn.style.opacity = '1';
+    cardElementToAnimateIn.style.transform = 'scale(1) translateY(0)';
+    
+    const tooltip = cardElementToAnimateIn.querySelector('.details-tooltip');
+    if (tooltip) {
+        tooltip.style.opacity = '1';
+        tooltip.style.transform = 'scaleY(1) translateY(0)';
+    }
+    debugLog("[UI] Card entrance animation triggered", { key: downloadKeyToTrigger });
+  }, 10); // Small delay to allow initial styles to apply if just appended
+}
+
+function initZenAnimationObserver(downloadKey, cardElement) {
+  debugLog("[ZenSync] Initializing observer for key:", downloadKey);
+  let observer = null;
+  let fallbackTimeoutId = null;
+
+  const zenAnimationHost = document.querySelector('zen-download-animation');
+
+  if (zenAnimationHost && zenAnimationHost.shadowRoot) {
+    debugLog("[ZenSync] Found zen-download-animation host and shadowRoot.");
+
+    observer = new MutationObserver((mutationsList, obs) => {
+      for (const mutation of mutationsList) {
+        if (mutation.type === 'childList' && mutation.removedNodes.length > 0) {
+          for (const removedNode of mutation.removedNodes) {
+            if (removedNode.nodeType === Node.ELEMENT_NODE && removedNode.classList.contains('zen-download-arc-animation')) {
+              debugLog("[ZenSync] Detected .zen-download-arc-animation removal. Triggering card entrance.", { key: downloadKey });
+              clearTimeout(fallbackTimeoutId); // Clear the safety fallback
+              triggerCardEntrance(downloadKey, cardElement);
+              obs.disconnect(); // Stop observing
+              observer = null; // Clean up observer reference
+              return; // Exit once detected
+            }
+          }
+        }
+      }
+    });
+
+    observer.observe(zenAnimationHost.shadowRoot, { childList: true });
+    debugLog("[ZenSync] Observer started on shadowRoot.");
+
+    // Safety fallback timeout
+    fallbackTimeoutId = setTimeout(() => {
+      debugLog("[ZenSync] Fallback timeout reached. Triggering card entrance.", { key: downloadKey });
+      if (observer) {
+        observer.disconnect();
+        observer = null;
+      }
+      triggerCardEntrance(downloadKey, cardElement); 
+      // Mark cardData to prevent double trigger if observer fires late
+      const cardData = activeDownloadCards.get(downloadKey);
+      if(cardData) cardData.fallbackTriggered = true;
+
+    }, 3000); // 3-second fallback
+
+  } else {
+    debugLog("[ZenSync] zen-download-animation host or shadowRoot not found. Triggering card entrance immediately.", { key: downloadKey });
+    triggerCardEntrance(downloadKey, cardElement);
+    // Mark cardData to prevent double trigger if observer somehow gets setup later
+    const cardData = activeDownloadCards.get(downloadKey);
+    if(cardData) cardData.fallbackTriggered = true; 
+  }
+}
+
 })(); 
