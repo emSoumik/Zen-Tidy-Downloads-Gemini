@@ -1,4 +1,7 @@
-// userChrome.js / tidy-downloads.uc.js
+// ==UserScript==
+// @include   main
+// @ignorecache
+// ==/UserScript==
 (function () {
   "use strict";
 
