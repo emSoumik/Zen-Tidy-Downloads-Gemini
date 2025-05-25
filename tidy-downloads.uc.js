@@ -1,5 +1,7 @@
-// userChrome.js / download_preview_mistral_pixtral_rename.uc.js - FINAL FIXED VERSION
-// AI-powered download preview and renaming with Mistral vision API support
+// ==UserScript==
+// @include   main
+// @ignorecache
+// ==/UserScript==
 (function () {
   "use strict";
 
