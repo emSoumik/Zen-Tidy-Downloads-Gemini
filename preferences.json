@@ -1,24 +1,40 @@
 [
   {
     "property": "extensions.downloads.mistral_api_key",
-    "label": "Insert Mistral API key for downloads script.",
+    "label": "Mistral API key for AI-powered download renaming",
     "type": "string",
-    "placeholder": "API Key"
+    "placeholder": "Enter your Mistral API key here"
+  },
+  {
+    "type": "separator",
+    "label": "Download Behavior"
+  },
+  {
+    "property": "extensions.downloads.disable_autohide",
+    "type": "checkbox",
+    "label": "Disable automatic card hiding after 20 seconds",
+    "defaultValue": false
+  },
+  {
+    "property": "extensions.downloads.enable_ai_renaming",
+    "type": "checkbox", 
+    "label": "Enable AI-powered file renaming",
+    "defaultValue": true
   },
   {
     "type": "separator",
     "label": "Debugging"
   },
   {
-    "property": "extensions.downloads.disable_autohide",
+    "property": "extensions.downloads.enable_debug",
     "type": "checkbox",
-    "label": "Disable card auto-hide",
+    "label": "Enable debugging logs in browser console (Ctrl + Shift + J)",
     "defaultValue": false
   },
   {
-    "property": "extensions.downloads.enable_debug",
+    "property": "extensions.downloads.debug_ai_only",
     "type": "checkbox",
-    "label": "Enable debugging logs in the browser (Ctrl + Shift + J)",
-    "defaultValue": false
+    "label": "Show only AI renaming debug logs (requires debug enabled)",
+    "defaultValue": true
   }
-]
+] 
