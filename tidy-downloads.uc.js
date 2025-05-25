@@ -16,7 +16,7 @@
   const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
   const DISABLE_AUTOHIDE_PREF = "extensions.downloads.disable_autohide";
   const AI_RENAMING_MAX_FILENAME_LENGTH = 70;
-  const CARD_AUTOHIDE_DELAY_MS = 20000;
+  const CARD_AUTOHIDE_DELAY_MS = 30000;
   const MAX_CARDS_DOM_LIMIT = 10;
   const CARD_INTERACTION_GRACE_PERIOD_MS = 5000;
   const PREVIEW_SIZE = "42px";
@@ -167,7 +167,7 @@
         style.textContent = `
           #userchrome-download-cards-container {
             position: absolute !important;
-            left: 17px !important;
+            left: 13px !important;
             bottom: 8px !important;
             z-index: 999 !important;
             max-width: min-content;
@@ -200,6 +200,7 @@
             transform: scale(1) translateY(0);
           }
           .card-preview-container {
+            pointer-events: auto;
             width:100%;
             height:100%;
             display:flex;
@@ -213,7 +214,7 @@
             bottom: calc(100% + 12px);
             left: -5px;
             width: 350px;
-            min-width: 176.3333282470703px;
+            min-width: 200px;
             box-sizing: border-box;
             background: rgba(0,0,0,0.90);
             backdrop-filter: blur(10px);
@@ -280,7 +281,7 @@
             font-size: 8px;
             color: #fff;
             opacity: 0.3;
-            display: none;
+            display: inline-block;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -540,8 +541,6 @@
             }
           };
           closeBtn.addEventListener("click", closeHandler);
-          // Add mousedown listener as a potential workaround for Windows double-click issue
-          closeBtn.addEventListener("mousedown", closeHandler);
           closeBtn.addEventListener("keydown", (e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
@@ -650,10 +649,6 @@
           };
 
           undoBtn.addEventListener("click", undoHandler);
-          // Add mousedown listener as a potential workaround for Windows double-click issue
-          undoBtn.addEventListener("mousedown", undoHandler);
-          // Add mouseup listener as another potential workaround
-          undoBtn.addEventListener("mouseup", undoHandler);
           undoBtn.addEventListener("keydown", async (e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
@@ -759,9 +754,9 @@
       );
     } else {
       debugLog(
-        `[TooltipWidth] Global currentZenSidebarWidth is invalid ('${currentZenSidebarWidth}') or not a usable number. Using default tooltip width (350px total).`
+        `[TooltipWidth] Global currentZenSidebarWidth is invalid ('${currentZenSidebarWidth}') or not a usable number. Using default tooltip width (250px total).`
       );
-      tooltipElement.style.width = "350px"; // Explicitly set fallback width
+      tooltipElement.style.width = "250px"; // Explicitly set fallback width
     }
 
     const statusElement = tooltipElement.querySelector(".card-status");
