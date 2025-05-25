@@ -1,3 +1,18 @@
 {
+  "id": "zen-tidy-downloads",
+  "name": "Tidy Downloads",
+  "description": "Clean up your downloads with AI ",
+  "homepage": "https://github.com/Anoms12/Zen-Tidy-Downloads",
   "js": "https://raw.githubusercontent.com/Anoms12/Zen-Tidy-Downloads/refs/heads/main/tidy-downloads.uc.js"
+  "preferences": "https://raw.githubusercontent.com/Anoms12/Zen-Tidy-Downloads/main/preferences.json",
+  "author": "Anoms12",
+  "version": "9",
+  "tags": [
+      "sine",
+      "fx-autoconfig",
+      "Downloads",
+      "Tidy Pack"
+  ],
+  "createdAt": "2025-05-24",
+  "updatedAt": "2025-05-24"
 }
