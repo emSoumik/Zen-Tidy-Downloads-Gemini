@@ -8,7 +8,7 @@
   "js": true,
   "preferences": "https://raw.githubusercontent.com/Anoms12/Zen-Tidy-Downloads/main/preferences.json",
   "author": "Anoms12",
-  "version": "0.9",
+  "version": "0.9.1",
   "tags": [
     "sine",
     "fx-autoconfig",
@@ -16,5 +16,5 @@
     "Tidy Pack"
   ],
   "createdAt": "2025-05-24",
-  "updatedAt": "2025-05-24"
+  "updatedAt": "2025-05-25"
 }
