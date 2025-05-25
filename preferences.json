@@ -1,24 +1,24 @@
 [
-    {
+  {
     "property": "extensions.tab_sort.mistral_api_key",
-    "label": "Insert mistral api key for downloads script.",
+    "label": "Insert Mistral API key for downloads script.",
     "type": "string",
-    "placeholder": "API Key."
+    "placeholder": "API Key"
   },
-    {
+  {
     "type": "separator",
     "label": "Debugging"
   },
   {
     "property": "extensions.downloads.disable_autohide",
     "type": "checkbox",
-    "label": "Disable card autohide.",
-    "defaultValue": "false"
+    "label": "Disable card auto-hide",
+    "defaultValue": false
   },
   {
     "property": "extensions.downloads.enable_debug",
     "type": "checkbox",
-    "label": "Enables debbuging logs in the browser (ctrl + shift + j).",
-    "defaultValue": "false"
+    "label": "Enable debugging logs in the browser (Ctrl + Shift + J)",
+    "defaultValue": false
   }
 ]
