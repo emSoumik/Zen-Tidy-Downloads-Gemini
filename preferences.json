@@ -1,6 +1,6 @@
 [
   {
-    "property": "extensions.tab_sort.mistral_api_key",
+    "property": "extensions.downloads.mistral_api_key",
     "label": "Insert Mistral API key for downloads script.",
     "type": "string",
     "placeholder": "API Key"
