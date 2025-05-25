@@ -3,7 +3,7 @@
   "name": "Tidy Downloads",
   "description": "Clean up your downloads with AI",
   "homepage": "https://github.com/Anoms12/Zen-Tidy-Downloads",
-  "js": "true",
+  "js": true,
   "preferences": "https://raw.githubusercontent.com/Anoms12/Zen-Tidy-Downloads/main/preferences.json",
   "author": "Anoms12",
   "version": "9",
