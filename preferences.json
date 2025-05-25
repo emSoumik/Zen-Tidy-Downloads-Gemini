@@ -1,0 +1,24 @@
+[
+    {
+    "property": "extensions.tab_sort.mistral_api_key",
+    "label": "Insert mistral api key for downloads script.",
+    "type": "string",
+    "placeholder": "API Key."
+  },
+    {
+    "type": "separator",
+    "label": "Debugging"
+  },
+  {
+    "property": "extensions.downloads.disable_autohide",
+    "type": "checkbox",
+    "label": "Disable card autohide.",
+    "defaultValue": "false"
+  },
+  {
+    "property": "extensions.downloads.enable_debug",
+    "type": "checkbox",
+    "label": "Enables debbuging logs in the browser (ctrl + shift + j).",
+    "defaultValue": "false"
+  }
+]
