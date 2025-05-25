@@ -15,12 +15,12 @@
   let ENABLE_AI_RENAMING = true;
   const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
   const DISABLE_AUTOHIDE_PREF = "extensions.downloads.disable_autohide";
+  const DEBUG_LOGGING_PREF = "extensions.downloads.enable_debug";
   const AI_RENAMING_MAX_FILENAME_LENGTH = 70;
   const CARD_AUTOHIDE_DELAY_MS = 15000;
   const MAX_CARDS_DOM_LIMIT = 10;
   const CARD_INTERACTION_GRACE_PERIOD_MS = 5000;
   const PREVIEW_SIZE = "42px";
-  const DEBUG_LOGGING = true;
   const MAX_FILE_SIZE_FOR_AI = 50 * 1024 * 1024; // 50MB limit
   const IMAGE_EXTENSIONS = new Set([
     ".jpg",
@@ -47,6 +47,7 @@
   let aiRenamingPossible = false;
   let cardUpdateThrottle = new Map(); // Prevent rapid updates
   let currentZenSidebarWidth = ""; // <-- ADDED: Global variable for sidebar width
+  let DEBUG_LOGGING = false;
 
   // Add debug logging function
   function debugLog(message, data = null) {
@@ -92,7 +93,7 @@
   function init() {
     debugLog("Starting initialization");
     if (!window.Downloads?.getList) {
-      console.error("Download Preview Mistral AI: Downloads API not available");
+      if (DEBUG_LOGGING) console.error("Download Preview Mistral AI: Downloads API not available");
       aiRenamingPossible = false;
       ENABLE_AI_RENAMING = false;
       return;
@@ -103,6 +104,7 @@
           if (list) {
             debugLog("Downloads API verified");
             await verifyMistralConnection();
+            DEBUG_LOGGING = getPref(DEBUG_LOGGING_PREF, false);
             if (aiRenamingPossible) {
               debugLog("AI renaming enabled - all systems verified");
             } else {
@@ -114,12 +116,12 @@
           }
         })
         .catch((e) => {
-          console.error("Downloads API verification failed:", e);
+          if (DEBUG_LOGGING) console.error("Downloads API verification failed:", e);
           aiRenamingPossible = false;
           ENABLE_AI_RENAMING = false;
         });
     } catch (e) {
-      console.error("Download Preview Mistral AI: Init failed", e);
+      if (DEBUG_LOGGING) console.error("Download Preview Mistral AI: Init failed", e);
       aiRenamingPossible = false;
       ENABLE_AI_RENAMING = false;
     }
@@ -412,9 +414,9 @@
             })
           );
         })
-        .catch((e) => console.error("DL Preview Mistral AI: List error:", e));
+        .catch((e) => { if (DEBUG_LOGGING) console.error("DL Preview Mistral AI: List error:", e); });
     } catch (e) {
-      console.error("DL Preview Mistral AI: Init error", e);
+      if (DEBUG_LOGGING) console.error("DL Preview Mistral AI: Init error", e);
     }
   }
 
@@ -812,7 +814,7 @@
           ) {
             setTimeout(() => {
               processDownloadForAIRenaming(download, safeFilename, key).catch(
-                (e) => console.error("Error in AI renaming:", e)
+                (e) => { if (DEBUG_LOGGING) console.error("Error in AI renaming:", e); }
               );
             }, 1500); // Delay to ensure file is fully written before AI processing starts
           } else {
@@ -967,7 +969,7 @@
 
       return true;
     } catch (e) {
-      console.error("Error removing card:", e);
+      if (DEBUG_LOGGING) console.error("Error removing card:", e);
       return false;
     }
   }
@@ -984,7 +986,7 @@
         removeCard(downloadKey, false);
       }, CARD_AUTOHIDE_DELAY_MS);
     } catch (e) {
-      console.error("Error scheduling card removal:", e);
+      if (DEBUG_LOGGING) console.error("Error scheduling card removal:", e);
     }
   }
 
@@ -1005,7 +1007,7 @@
       }
       return defaultValue;
     } catch (e) {
-      console.error("Error getting preference:", e);
+      if (DEBUG_LOGGING) console.error("Error getting preference:", e);
       return defaultValue;
     }
   }
@@ -1097,10 +1099,12 @@
           );
         };
         img.onerror = () => {
-          debugLog(
-            "[setCompletedFilePreview] Image failed to load (by contentType)",
-            { src: imgSrc }
-          );
+          if (DEBUG_LOGGING) {
+            debugLog(
+              "[setCompletedFilePreview] Image failed to load (by contentType)",
+              { src: imgSrc }
+            );
+          }
           // Fallback to generic icon if even contentType-based image load fails
           setGenericIcon(previewElement, "image/generic"); // Indicate it was thought to be an image
         };
@@ -1135,10 +1139,12 @@
             );
           };
           img.onerror = () => {
-            debugLog(
-              "[setCompletedFilePreview] Image failed to load (by extension)",
-              { src: imgSrc }
-            );
+            if (DEBUG_LOGGING) {
+              debugLog(
+                "[setCompletedFilePreview] Image failed to load (by extension)",
+                { src: imgSrc }
+              );
+            }
             // Fallback to generic icon if even extension-based image load fails
             setGenericIcon(previewElement, "image/generic"); // Indicate it was thought to be an image
           };
@@ -1160,7 +1166,7 @@
         setGenericIcon(previewElement, null); // No path, no content type known
       }
     } catch (e) {
-      debugLog("Error setting file preview:", e);
+      if (DEBUG_LOGGING) debugLog("Error setting file preview:", e);
       previewElement.innerHTML = `<span class="generic-icon">🚫</span>`;
     }
   }
@@ -1481,7 +1487,7 @@ Respond with ONLY the filename.`;
       debugLog("File renamed successfully");
       return true;
     } catch (e) {
-      console.error("Rename failed:", e);
+      if (DEBUG_LOGGING) console.error("Rename failed:", e);
       return false;
     }
   }
@@ -1562,7 +1568,7 @@ Respond with ONLY the filename.`;
 
       return data.choices?.[0]?.message?.content?.trim() || null;
     } catch (error) {
-      console.error("Mistral API error:", error);
+      if (DEBUG_LOGGING) console.error("Mistral API error:", error);
       return null;
     }
   }
@@ -1868,7 +1874,7 @@ Respond with ONLY the filename.`;
         aiRenamingPossible = true;
         ENABLE_AI_RENAMING = true;
       } else {
-        console.error(
+        if (DEBUG_LOGGING) console.error(
           "Mistral API connection failed:",
           await testResponse.text()
         );
@@ -1876,15 +1882,17 @@ Respond with ONLY the filename.`;
         ENABLE_AI_RENAMING = false;
       }
     } catch (e) {
-      console.error("Error verifying Mistral API connection:", e);
+      if (DEBUG_LOGGING) console.error("Error verifying Mistral API connection:", e);
       aiRenamingPossible = false;
       ENABLE_AI_RENAMING = false;
     }
   }
 
-  console.log(
-    "Download Preview Mistral AI Script (FINAL FIXED): Execution finished, initialization scheduled/complete."
-  );
+  if (DEBUG_LOGGING) {
+    console.log(
+      "Download Preview Mistral AI Script (FINAL FIXED): Execution finished, initialization scheduled/complete."
+    );
+  }
 
   // --- Sidebar Width Synchronization Logic ---
   function updateCurrentZenSidebarWidth() {
