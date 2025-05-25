@@ -16,7 +16,7 @@
   const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
   const DISABLE_AUTOHIDE_PREF = "extensions.downloads.disable_autohide";
   const AI_RENAMING_MAX_FILENAME_LENGTH = 70;
-  const CARD_AUTOHIDE_DELAY_MS = 30000;
+  const CARD_AUTOHIDE_DELAY_MS = 15000;
   const MAX_CARDS_DOM_LIMIT = 10;
   const CARD_INTERACTION_GRACE_PERIOD_MS = 5000;
   const PREVIEW_SIZE = "42px";
@@ -142,21 +142,6 @@
       if (!downloadCardsContainer) {
         downloadCardsContainer = document.createElement("div");
         downloadCardsContainer.id = "userchrome-download-cards-container";
-        downloadCardsContainer.setAttribute(
-          "style",
-          `
-          position: absolute !important;
-          left: 17px !important;
-          bottom: 8px !important;
-          z-index: 999 !important;
-          max-width: min-content;
-          min-width: min-content; 
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          pointer-events: auto;
-        `
-        );
         document.body.appendChild(downloadCardsContainer);
       }
 
@@ -175,9 +160,9 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
-            pointer-events: auto;
           }
           .modern-download-card {
+            pointer-events: auto;
             position: relative;
             width: 56px;
             height: 56px;
@@ -636,7 +621,7 @@
               }
 
               // Optional: Schedule removal after a short delay
-              // scheduleCardRemoval(currentCardData.key); // Re-schedule auto-hide if desired after undo
+              scheduleCardRemoval(currentCardData.key); // Re-schedule auto-hide if desired after undo
             } else {
               debugLog("Undo Rename: Failed");
               if (statusEl) {
@@ -729,9 +714,12 @@
       cardData.download = download; // Update download reference
     }
 
-    // Update card content (elements are now inside the tooltip)
-    const cardElement = cardData.cardElement;
-    const tooltipElement = cardElement.querySelector(".details-tooltip");
+          // Update card content (elements are now inside the tooltip)
+          const cardElement = cardData.cardElement;
+          const tooltipElement = cardElement.querySelector(".details-tooltip");
+          debugLog(`Card data stored for downloadKey: ${key}`);
+          debugLog(`Active download cards:`, activeDownloadCards);
+          debugLog(`Active download cards:`, activeDownloadCards);
 
     // If for some reason tooltip is not there (e.g. error during creation), bail out
     if (!tooltipElement) {
@@ -827,9 +815,12 @@
                 (e) => console.error("Error in AI renaming:", e)
               );
             }, 1500); // Delay to ensure file is fully written before AI processing starts
+          } else {
+            // If AI renaming is disabled or not possible, schedule removal now.
+            debugLog("AI renaming skipped or not possible, scheduling card removal now.");
+            scheduleCardRemoval(key);
           }
-          // Schedule auto-hide
-          scheduleCardRemoval(key);
+          // Schedule auto-hide is handled after AI processing completes or is skipped
         }
       } else if (
         typeof download.currentBytes === "number" &&
@@ -915,7 +906,9 @@
   // Improved card removal function
   function removeCard(downloadKey, force = false) {
     try {
+      debugLog(`Attempting to remove card for downloadKey: ${downloadKey}`);
       const cardData = activeDownloadCards.get(downloadKey);
+      debugLog(`Active download cards before removal:`, activeDownloadCards);
       if (!cardData) {
         debugLog(`removeCard: No card data found for key: ${downloadKey}`);
         return false;
@@ -963,9 +956,10 @@
             if (cardElement.parentNode) {
               cardElement.parentNode.removeChild(cardElement);
             }
-            activeDownloadCards.delete(downloadKey);
-            cardUpdateThrottle.delete(downloadKey);
-            debugLog(`Card removed for download: ${downloadKey}`);
+              debugLog(`Card data removed for downloadKey: ${downloadKey}`);
+              activeDownloadCards.delete(downloadKey);
+              cardUpdateThrottle.delete(downloadKey);
+              debugLog(`Card removed for download: ${downloadKey}`);
           }, 300); // Corresponds to pod animation duration (0.3s)
         },
         tooltipElement ? 150 : 0
@@ -983,7 +977,10 @@
       const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
       if (disableAutohide) return;
 
+      debugLog(`Scheduling removal for downloadKey: ${downloadKey}`);
       setTimeout(() => {
+        debugLog(`Removing card for downloadKey: ${downloadKey}`);
+        debugLog(`Active download cards before scheduling removal:`, activeDownloadCards);
         removeCard(downloadKey, false);
       }, CARD_AUTOHIDE_DELAY_MS);
     } catch (e) {
@@ -1209,6 +1206,8 @@
           `Skipping AI rename - file too large: ${formatBytes(file.fileSize)}`
         );
         statusEl.textContent = "File too large for AI analysis";
+        // Schedule auto-hide if file is too large for AI
+        scheduleCardRemoval(key);
         return false;
       }
     } catch (e) {
@@ -1293,6 +1292,8 @@ Respond with ONLY the filename.`;
             ? "⚠️ API rate limit reached"
             : "Could not generate a better name";
         renamedFiles.delete(downloadPath);
+        // Schedule auto-hide if no valid name suggestion
+        scheduleCardRemoval(key);
         return false;
       }
 
@@ -1325,6 +1326,8 @@ Respond with ONLY the filename.`;
       ) {
         debugLog("Skipping rename - name too short or same as original");
         renamedFiles.delete(downloadPath);
+        // Schedule auto-hide if rename is skipped
+        scheduleCardRemoval(key);
         return false;
       }
 
@@ -1371,11 +1374,15 @@ Respond with ONLY the filename.`;
         }
 
         debugLog(`Successfully renamed to: ${cleanName}`);
+        // Schedule auto-hide after successful rename with the new key
+        scheduleCardRemoval(cardData.key);
         return true;
       } else {
         renamedFiles.delete(downloadPath);
         statusEl.textContent = "Rename failed";
         cardElement.classList.remove("renaming");
+        // Schedule auto-hide even if renaming failed
+        scheduleCardRemoval(key);
         return false;
       }
     } catch (e) {
@@ -1383,6 +1390,8 @@ Respond with ONLY the filename.`;
       renamedFiles.delete(downloadPath);
       statusEl.textContent = "Rename error";
       cardElement.classList.remove("renaming");
+      // Schedule auto-hide even if renaming failed
+      scheduleCardRemoval(key);
       return false;
     } finally {
       // Ensure preview element clickability is restored
@@ -1456,17 +1465,17 @@ Respond with ONLY the filename.`;
       // Update card data key mapping
       const cardData = activeDownloadCards.get(key);
       if (cardData) {
-        activeDownloadCards.delete(key);
-        activeDownloadCards.set(newPath, cardData);
-        cardData.key = newPath;
-        // Also update the dataset key on the card element
-        if (cardData.cardElement) {
-          cardData.cardElement.dataset.downloadKey = newPath;
-          debugLog(
-            `Updated card element dataset key from ${key} to ${newPath}`
-          );
-        }
-        debugLog(`Updated card key mapping from ${key} to ${newPath}`);
+              activeDownloadCards.delete(key);
+              activeDownloadCards.set(newPath, cardData);
+              cardData.key = newPath;
+              // Also update the dataset key on the card element
+              if (cardData.cardElement) {
+                cardData.cardElement.dataset.downloadKey = newPath;
+                debugLog(
+                  `Updated card element dataset key from ${key} to ${newPath}`
+                );
+              }
+              debugLog(`Updated card key mapping from ${key} to ${newPath}`);
       }
 
       debugLog("File renamed successfully");
