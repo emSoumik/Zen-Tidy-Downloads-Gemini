@@ -36,5 +36,23 @@
     "type": "checkbox",
     "label": "Show only AI renaming debug logs (requires debug enabled)",
     "defaultValue": true
+  },
+  {
+    "property": "extensions.downloads.stable_focus_mode",
+    "type": "checkbox",
+    "label": "Prevent focus switching during multiple downloads",
+    "defaultValue": true
+  },
+  {
+    "property": "extensions.downloads.progress_update_throttle_ms",
+    "type": "number",
+    "label": "Throttle delay for in-progress download updates (ms)",
+    "defaultValue": 500
+  },
+  {
+    "property": "extensions.downloads.show_old_downloads_hours",
+    "type": "number",
+    "label": "Show old completed downloads on startup (hours)",
+    "defaultValue": 2
   }
 ] 
