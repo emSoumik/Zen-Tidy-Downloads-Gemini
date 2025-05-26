@@ -45,14 +45,16 @@
   },
   {
     "property": "extensions.downloads.progress_update_throttle_ms",
-    "type": "number",
+    "type": "string",
+    "value": "number",
     "label": "Throttle delay for in-progress download updates (ms)",
-    "defaultValue": 500
+    "default": 500
   },
   {
     "property": "extensions.downloads.show_old_downloads_hours",
-    "type": "number",
+    "type": "string",
+    "value": "number",
     "label": "Show old completed downloads on startup (hours)",
-    "defaultValue": 2
+    "default": 2
   }
 ] 
