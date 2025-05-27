@@ -1,5 +1,6 @@
 // ==UserScript==
 // @include   main
+// @loadOrder    99999999999999
 // @ignorecache
 // ==/UserScript==
 
@@ -294,20 +295,7 @@
       if (!cssStylesAvailable) {
         console.log("=== DOWNLOAD PREVIEW SCRIPT DISABLED (CSS NOT FOUND) ===");
         console.log("💡 To bypass this check temporarily, set extensions.downloads.skip_css_check = true in about:config");
-        // Start periodic check every 60 seconds
-        let cssRetryInterval = setInterval(async () => {
-          console.log('[CSS Timing] Periodic retry: checking for CSS...');
-          cssStylesAvailable = checkCSSAvailability();
-          if (cssStylesAvailable) {
-            console.log('[CSS Timing] ✅ CSS detected in periodic retry! Resuming initialization.');
-            clearInterval(cssRetryInterval);
-            await verifyMistralConnection();
-            await initDownloadManager();
-            initSidebarWidthSync();
-            debugLog("Initialization complete (after delayed CSS detection)");
-          }
-        }, 60000); // 60 seconds
-        return; // Exit early for now, will resume from interval if CSS is found
+        return; // Exit early if CSS is not available
       }
     }
     
