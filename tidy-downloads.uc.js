@@ -422,6 +422,12 @@
         downloadCardsContainer = document.createElement("div");
         downloadCardsContainer.id = "userchrome-download-cards-container";
         // Basic styles are now in CSS file, only dynamic overrides here if needed
+        
+        // IMPORTANT: Start completely hidden to prevent flashing
+        downloadCardsContainer.style.display = "none";
+        downloadCardsContainer.style.opacity = "0";
+        downloadCardsContainer.style.visibility = "hidden";
+        
         document.body.appendChild(downloadCardsContainer);
 
         // Create the single master tooltip element (fixed position at the top of the container)
@@ -977,6 +983,14 @@
       // Add to ordered list (newest at the end)
       if (!orderedPodKeys.includes(key)) {
         orderedPodKeys.push(key);
+        
+        // Show the container when we add the first pod
+        if (orderedPodKeys.length === 1 && downloadCardsContainer) {
+          downloadCardsContainer.style.display = "flex";
+          downloadCardsContainer.style.opacity = "1";
+          downloadCardsContainer.style.visibility = "visible";
+        }
+        
         // Focus behavior based on stable_focus_mode preference
         const stableFocusMode = getPref("extensions.downloads.stable_focus_mode", true);
         const currentFocusedData = focusedDownloadKey ? activeDownloadCards.get(focusedDownloadKey) : null;
@@ -1392,6 +1406,13 @@
     const maxVisiblePodsInPile = Math.floor((tooltipWidth - podNominalWidth) / (podNominalWidth - podOverlapAmount)) + 1; 
 
     if (orderedPodKeys.length === 0) {
+        // Hide the entire container when no pods exist
+        if (downloadCardsContainer) {
+            downloadCardsContainer.style.display = "none";
+            downloadCardsContainer.style.opacity = "0";
+            downloadCardsContainer.style.visibility = "hidden";
+        }
+        
         if (masterTooltipDOMElement.style.opacity !== "0") {
             debugLog("[LayoutManager] No pods, ensuring master tooltip is hidden.");
             masterTooltipDOMElement.style.opacity = "0";
@@ -1404,6 +1425,13 @@
         debugLog(`[LayoutManager] Exiting: No OrderedPodKeys.`);
         podsRowContainerElement.style.gap = '0px'; // Reset gap just in case
         return;
+    }
+
+    // Show the container when we have pods
+    if (downloadCardsContainer) {
+        downloadCardsContainer.style.display = "flex";
+        downloadCardsContainer.style.opacity = "1";
+        downloadCardsContainer.style.visibility = "visible";
     }
 
     if (tooltipWidth === 0 && orderedPodKeys.length > 0) {
@@ -1822,6 +1850,13 @@
         // Update UI based on new focus (or lack thereof)
         // This will also hide the master tooltip if no pods are left or re-evaluate layout
         updateUIForFocusedDownload(focusedDownloadKey, false); 
+        
+        // Additional check: if no cards remain, ensure container is hidden
+        if (orderedPodKeys.length === 0 && downloadCardsContainer) {
+          downloadCardsContainer.style.display = "none";
+          downloadCardsContainer.style.opacity = "0";
+          downloadCardsContainer.style.visibility = "hidden";
+        }
 
       }, 300); // Corresponds to pod animation duration
 
