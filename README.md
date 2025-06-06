@@ -6,6 +6,6 @@
 
 ## Features
 * AI renaming
-* Undo button fo when you don't like the name
+* Undo button if when you don't like the name
 
-That's all, your just downloading a file. What did you expect?
+That's all, your just downloading a file. _What did you expect?_
