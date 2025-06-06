@@ -1,6 +1,6 @@
 # Zen-Tidy-Downloads
 
-![image](https://github.com/user-attachments/assets/46fe92d1-daca-44bb-b931-bee0d4dded33)
+![image](https://github.com/Anoms12/Zen-Tidy-Downloads/blob/main/image.png?raw=true)
 
 **Rename your downloads with ease, and do it in style!**
 
