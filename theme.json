@@ -4,7 +4,7 @@
   "description": "Clean up your downloads with AI",
   "homepage": "https://github.com/Anoms12/Zen-Tidy-Downloads",
   "readme": "https://raw.githubusercontent.com/Anoms12/Zen-Tidy-Downloads/refs/heads/main/README.md",
-  "image": "https://github.com/1247343406/context-menu-icons-for-Zen/blob/main/image.jpg?raw=true",
+  "image": "https://github.com/Anoms12/Zen-Tidy-Downloads/blob/main/image.png?raw=true",
   "style": "https://raw.githubusercontent.com/Anoms12/Zen-Tidy-Downloads/main/chrome.css",
   "js": true,
   "preferences": "https://raw.githubusercontent.com/Anoms12/Zen-Tidy-Downloads/main/preferences.json",
