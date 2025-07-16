@@ -66,5 +66,5 @@
     "type": "checkbox",
     "label": "Makes the Stuff pile always show (Hold Alt to temporarily hide the pile)",
     "defaultValue": true
-  },
+  }
 ] 
