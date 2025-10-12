@@ -1,22 +1,23 @@
 {
-  "id": "zen-tidy-downloads",
-  "name": "Tidy Downloads",
+  "id": "zen-tidy-downloads-gemini",
+  "name": "Tidy Downloads-Gemini",
   "description": "Clean up your downloads with Gemini AI",
-  "homepage": "https://github.com/Vertex-Mods/Zen-Tidy-Downloads",
-  "readme": "https://raw.githubusercontent.com/Vertex-Mods/Zen-Tidy-Downloads/refs/heads/main/README.md",
-  "image": "https://github.com/Vertex-Mods/Zen-Tidy-Downloads/blob/main/image.png?raw=true",
-  "style": "https://raw.githubusercontent.com/Vertex-Mods/Zen-Tidy-Downloads/main/chrome.css",
+  "homepage": "https://github.com/emSoumik/Zen-Tidy-Downloads-Gemini",
+  "readme": "https://raw.githubusercontent.com/emSoumik/Zen-Tidy-Downloads-Gemini/refs/heads/main/README.md",
+  "image": "https://github.com/emSoumik/Zen-Tidy-Downloads-Gemini/blob/main/image.png?raw=true",
+  "style": "https://raw.githubusercontent.com/emSoumik/Zen-Tidy-Downloads-Gemini/main/chrome.css",
   "js": true,
-  "preferences": "https://raw.githubusercontent.com/Vertex-Mods/Zen-Tidy-Downloads/main/preferences.json",
-  "author": "Vertex",
-  "version": "2.0.0",
+  "preferences": "https://raw.githubusercontent.com/emSoumik/Zen-Tidy-Downloads-Gemini/main/preferences.json",
+  "author": "emSoumik",
+  "version": "2.1.0",
   "tags": [
     "sine",
     "fx-autoconfig",
     "Downloads",
-    "Tidy Pack"
+    "Tidy Pack",
+    "Gemini AI"
   ],
   "createdAt": "2025-05-24",
-  "updatedAt": "2025-07-15",
+  "updatedAt": "2025-10-12",
   "fork": ["zen"]
 }
