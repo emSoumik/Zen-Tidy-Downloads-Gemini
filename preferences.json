@@ -65,13 +65,34 @@
     "default": 500
   },
   {
-    "property": "extensions.downloads.show_old_downloads_hours",
+    "property": "extensions.downloads.autohide_delay_ms",
     "type": "string",
     "value": "number",
-    "label": "Show old completed downloads on startup (hours)",
-    "default": 2
+    "label": "Delay before auto-hiding completed downloads (ms)",
+    "default": 20000
   },
-    {
+  {
+    "property": "extensions.downloads.interaction_grace_period_ms",
+    "type": "string",
+    "value": "number",
+    "label": "Grace period after user interaction (ms)",
+    "default": 5000
+  },
+  {
+    "property": "extensions.downloads.max_filename_length",
+    "type": "string",
+    "value": "number",
+    "label": "Maximum length for AI-generated filenames",
+    "default": 70
+  },
+  {
+    "property": "extensions.downloads.max_file_size_for_ai",
+    "type": "string",
+    "value": "number",
+    "label": "Maximum file size for AI processing (bytes)",
+    "default": 52428800
+  },
+  {
     "type": "separator",
     "label": "Zen Stuff"
   },
@@ -81,4 +102,4 @@
     "label": "Makes the Stuff pile always show (Hold Alt to temporarily hide the pile)",
     "defaultValue": true
   }
-] 
+]

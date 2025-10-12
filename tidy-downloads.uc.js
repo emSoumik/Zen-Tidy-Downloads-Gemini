@@ -90,7 +90,7 @@
     // extensions.downloads.max_filename_length - Maximum length for AI-generated filenames (default: 70)
     // extensions.downloads.skip_css_check - Skip CSS availability check (default: false) - USE ONLY FOR DEBUGGING
     // extensions.downloads.max_file_size_for_ai - Maximum file size for AI processing in bytes (default: 52428800 = 50MB)
-    // extensions.downloads.gemini_model - Gemini model to use (default: "gemini-1.5-flash")
+    // extensions.downloads.gemini_model - Gemini model to use (default: "gemini-2.5-flash-lite")
     // extensions.downloads.stable_focus_mode - Prevent focus switching during multiple downloads (default: true)
     // extensions.downloads.progress_update_throttle_ms - Throttle delay for in-progress download updates (default: 500)
     // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
@@ -3004,7 +3004,7 @@ Respond with ONLY the filename.`;
         }
       }
 
-      const model = getPref("extensions.downloads.gemini_model", "gemini-1.5-flash");
+      const model = getPref("extensions.downloads.gemini_model", "gemini-2.5-flash-lite");
       const payload = {
         contents: [{
           parts: parts
@@ -3219,7 +3219,7 @@ Respond with ONLY the filename.`;
         return;
       }
 
-      const model = getPref("extensions.downloads.gemini_model", "gemini-1.5-flash");
+      const model = getPref("extensions.downloads.gemini_model", "gemini-2.5-flash-lite");
       const testResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
         method: "POST",
         headers: {
