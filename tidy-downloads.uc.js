@@ -2661,25 +2661,15 @@
         
         processState.phase = 'image-analysis';
         if (statusElToUpdate) statusElToUpdate.textContent = "Analyzing image...";
-        const imagePrompt = `You are an expert at creating descriptive, searchable filenames for images. Analyze this image and create a filename that clearly describes what the image shows.
-
-FILENAME CREATION RULES:
-- Use 3-5 specific, descriptive words that capture the main subject, action, or scene
-- Focus on the most important visual elements (people, objects, activities, locations)
-- Use concrete nouns and avoid generic terms like "image", "photo", "picture", "shot"
-- Use hyphens to separate words (no spaces or underscores)
-- Include relevant details like colors, quantities, or specific identifiers when helpful
-- Keep the filename under ${getPref("extensions.downloads.max_filename_length", 70)} characters
-- Make it searchable and meaningful for future reference
-
-EXAMPLES of good filenames:
-- "golden-retriever-puppy-playing-ball" (specific breed, age, activity)
-- "tokyo-skytree-sunset-orange-clouds" (location, landmark, time, colors)
-- "vintage-red-mustang-1967-side-view" (make, model, year, angle)
-- "homemade-chocolate-chip-cookies-baking" (specific food, preparation method)
-- "grand-canyon-south-rim-viewpoint" (specific location, perspective)
-
-Respond with ONLY the filename including the extension "${fileExtension}". No explanation, no quotes, just the filename.`;
+        const imagePrompt = `Create a specific, descriptive filename for this image.
+Rules:
+- Use 2-4 specific words describing the main subject or content
+- Be specific about what's in the image (e.g. "mountain-lake-sunset" not just "landscape")
+- Use hyphens between words
+- No generic words like "image" or "photo"
+- Keep extension "${fileExtension}"
+- Maximum length: ${getPref("extensions.downloads.max_filename_length", 70)} characters
+Respond with ONLY the filename.`;
 
         suggestedName = await callGeminiAPI({
           prompt: imagePrompt,
@@ -2701,39 +2691,16 @@ Respond with ONLY the filename including the extension "${fileExtension}". No ex
         processState.phase = 'metadata-analysis';
         if (statusElToUpdate) statusElToUpdate.textContent = "Generating better name...";
         const sourceURL = download.source?.url || "unknown";
-        const referrerURL = download.source?.referrer || "";
-        const contentType = download.contentType || "unknown";
-
-        // Extract useful context from URLs
-        const urlContext = extractURLContext(sourceURL, referrerURL);
-
-        const metadataPrompt = `You are an expert at creating meaningful filenames for downloaded files. Analyze the available information and create a descriptive, searchable filename.
-
-FILE INFORMATION:
-- Original filename: "${currentFilename}"
-- Download URL: "${sourceURL}"
-- Referrer: "${referrerURL}"
-- Content type: "${contentType}"
-${urlContext ? `- Context: ${urlContext}` : ''}
-
-FILENAME CREATION RULES:
-- Create a filename that describes what this file actually contains or represents
-- Use 3-6 specific words that identify the content, source, or purpose
-- Extract meaningful information from URLs (article titles, product names, usernames, etc.)
-- Include relevant identifiers like dates, versions, authors, or categories when available
-- Use hyphens to separate words (no spaces or underscores)
-- Avoid generic terms like "file", "download", "document", "content"
-- Make it searchable and self-explanatory for future reference
-- Keep under ${getPref("extensions.downloads.max_filename_length", 70)} characters
-
-EXAMPLES of good filenames:
-- "firefox-128-0-release-notes" (software, version, purpose)
-- "python-tutorial-variables-data-types" (topic, specific content)
-- "nikon-d850-camera-specs-pdf" (product, model, content type)
-- "john-doe-resume-software-engineer" (person, document type, profession)
-- "covid-19-vaccine-study-johns-hopkins" (topic, content type, source)
-
-Respond with ONLY the filename including the extension "${fileExtension}". No explanation, no quotes, just the filename.`;
+        const metadataPrompt = `Create a specific, descriptive filename for this ${isImage ? "image" : "file"}.
+Original filename: "${currentFilename}"
+Download URL: "${sourceURL}"
+Rules:
+- Use 2-5 specific words about the content or purpose
+- Be more specific than the original name
+- Use hyphens between words
+- Keep extension "${fileExtension}"
+- Maximum length: ${getPref("extensions.downloads.max_filename_length", 70)} characters
+Respond with ONLY the filename.`;
 
         suggestedName = await callGeminiAPI({
           prompt: metadataPrompt,
@@ -3040,34 +3007,12 @@ Respond with ONLY the filename including the extension "${fileExtension}". No ex
       const model = getPref("extensions.downloads.gemini_model", "gemini-2.5-flash-lite");
       const payload = {
         contents: [{
-          role: "user",
           parts: parts
         }],
         generationConfig: {
-          maxOutputTokens: 150,
-          temperature: 0.1, // Lower temperature for more consistent, deterministic results
-          topP: 0.8,
-          topK: 40,
-          stopSequences: ["\n", ".", "!", "?"], // Stop at end of filename
-        },
-        safetySettings: [
-          {
-            category: "HARM_CATEGORY_HARASSMENT",
-            threshold: "BLOCK_MEDIUM_AND_ABOVE"
-          },
-          {
-            category: "HARM_CATEGORY_HATE_SPEECH",
-            threshold: "BLOCK_MEDIUM_AND_ABOVE"
-          },
-          {
-            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-            threshold: "BLOCK_MEDIUM_AND_ABOVE"
-          },
-          {
-            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-            threshold: "BLOCK_MEDIUM_AND_ABOVE"
-          }
-        ]
+          maxOutputTokens: 100,
+          temperature: 0.2
+        }
       };
 
       debugLog("Sending API request to Gemini");
@@ -3095,40 +3040,7 @@ Respond with ONLY the filename including the extension "${fileExtension}". No ex
       const data = await response.json();
       debugLog("Raw API response:", data);
 
-      let result = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
-
-      // Post-process the AI response to ensure it's a clean filename
-      if (result) {
-        // Remove quotes, extra whitespace, and normalize
-        result = result.replace(/^["'`]|["'`]$/g, '').trim();
-
-        // Remove any explanatory text after the filename
-        const lines = result.split('\n');
-        result = lines[0].trim();
-
-        // Ensure it ends with the correct extension
-        if (!result.toLowerCase().endsWith(fileExtension.toLowerCase())) {
-          result += fileExtension;
-        }
-
-        // Clean up the filename: lowercase, replace spaces/underscores with hyphens, remove invalid chars
-        result = result
-          .toLowerCase()
-          .replace(/[\s_]+/g, '-') // Replace spaces and underscores with hyphens
-          .replace(/[^a-z0-9\-_.]/g, '') // Remove invalid filename characters
-          .replace(/-+/g, '-') // Replace multiple hyphens with single
-          .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
-
-        // Ensure it's not empty and has reasonable length
-        if (result.length < 3 || result.length > getPref("extensions.downloads.max_filename_length", 70)) {
-          debugLog("AI generated filename too short/long, rejecting:", result);
-          return null;
-        }
-
-        debugLog("Cleaned AI filename:", result);
-      }
-
-      return result;
+      return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
     } catch (error) {
       console.error("Gemini API error:", error);
       return null;
@@ -3190,81 +3102,6 @@ Respond with ONLY the filename including the extension "${fileExtension}". No ex
     } catch (e) {
       debugLog("fileToBase64 error:", e);
       return null;
-    }
-  }
-
-  // Extract useful context from URLs for better AI prompts
-  function extractURLContext(sourceURL, referrerURL) {
-    try {
-      if (!sourceURL || sourceURL === "unknown") return "";
-
-      const url = new URL(sourceURL);
-      const pathParts = url.pathname.split('/').filter(p => p);
-      const queryParams = new URLSearchParams(url.search);
-      let context = [];
-
-      // Extract from domain
-      const domain = url.hostname.toLowerCase();
-      if (domain.includes('github.com')) {
-        context.push("GitHub repository file");
-        if (pathParts.length >= 2) {
-          context.push(`${pathParts[0]}-${pathParts[1]}`);
-        }
-      } else if (domain.includes('youtube.com') || domain.includes('youtu.be')) {
-        context.push("YouTube video content");
-      } else if (domain.includes('twitter.com') || domain.includes('x.com')) {
-        context.push("Twitter/X post media");
-      } else if (domain.includes('instagram.com')) {
-        context.push("Instagram media");
-      } else if (domain.includes('reddit.com')) {
-        context.push("Reddit content");
-      } else if (domain.includes('wikipedia.org')) {
-        context.push("Wikipedia article");
-      } else if (domain.includes('stackoverflow.com')) {
-        context.push("Stack Overflow code/technical content");
-      }
-
-      // Extract from path
-      if (pathParts.length > 0) {
-        const lastPart = pathParts[pathParts.length - 1];
-        // Remove file extensions and common suffixes
-        const cleanName = lastPart.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
-
-        // Look for version numbers, dates, or meaningful identifiers
-        const versionMatch = cleanName.match(/(\d+\.?\d*)/g);
-        if (versionMatch) {
-          context.push(`version ${versionMatch.join('.')}`);
-        }
-
-        // Look for dates
-        const dateMatch = cleanName.match(/(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4})/);
-        if (dateMatch) {
-          context.push(`dated ${dateMatch[1].replace(/[-/]/g, '-')}`);
-        }
-      }
-
-      // Extract from query parameters
-      const title = queryParams.get('title') || queryParams.get('name') || queryParams.get('q');
-      if (title && title.length > 3 && title.length < 50) {
-        context.push(`titled "${title.replace(/[^a-zA-Z0-9\s-]/g, '').substring(0, 30)}"`);
-      }
-
-      // Extract from referrer if available
-      if (referrerURL && referrerURL !== "unknown") {
-        try {
-          const referrerDomain = new URL(referrerURL).hostname.toLowerCase();
-          if (referrerDomain !== domain) {
-            context.push(`from ${referrerDomain}`);
-          }
-        } catch (e) {
-          // Ignore referrer parsing errors
-        }
-      }
-
-      return context.length > 0 ? context.join(', ') : "";
-    } catch (e) {
-      debugLog("extractURLContext error:", e);
-      return "";
     }
   }
 
