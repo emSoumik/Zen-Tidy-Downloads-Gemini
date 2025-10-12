@@ -6,9 +6,100 @@
     "placeholder": "Enter your Gemini API key here"
   },
   {
-    "property": "extensions.downloads.enable_ai_renaming",
+    "property": "extensions.downloads.gemini_model",
+    "label": "Gemini model to use for AI renaming",
+    "type": "menulist",
+    "options": [
+      {"label": "Gemini 2.5 Flash (Latest)", "value": "gemini-2.5-flash"},
+      {"label": "Gemini 2.5 Flash Preview (09-2025)", "value": "gemini-2.5-flash-preview-09-2025"},
+      {"label": "Gemini 2.5 Flash Lite (Fast)", "value": "gemini-2.5-flash-lite"},
+      {"label": "Gemini 2.5 Flash Lite Preview (09-2025)", "value": "gemini-2.5-flash-lite-preview-09-2025"},
+      {"label": "Gemini 2.0 Flash", "value": "gemini-2.0-flash"},
+      {"label": "Gemini 2.0 Flash Lite (Fast)", "value": "gemini-2.0-flash-lite"}
+    ],
+    "default": "gemini-2.5-flash-lite"
+  },
+  {
+    "type": "separator",
+    "label": "Download Behavior"
+  },
+  {
+    "property": "extensions.downloads.disable_autohide",
     "type": "checkbox",
+    "label": "Disable automatic card hiding after 20 seconds",
+    "defaultValue": false
+  },
+  {
+    "property": "extensions.downloads.enable_ai_renaming",
+    "type": "checkbox", 
     "label": "Enable AI-powered file renaming",
+    "defaultValue": true
+  },
+  {
+    "type": "separator",
+    "label": "Debugging"
+  },
+  {
+    "property": "extensions.downloads.enable_debug",
+    "type": "checkbox",
+    "label": "Enable debugging logs in browser console (Ctrl + Shift + J)",
+    "defaultValue": false
+  },
+  {
+    "property": "extensions.downloads.debug_ai_only",
+    "type": "checkbox",
+    "label": "Show only AI renaming debug logs (requires debug enabled)",
+    "defaultValue": true
+  },
+  {
+    "property": "extensions.downloads.stable_focus_mode",
+    "type": "checkbox",
+    "label": "Prevent focus switching during multiple downloads",
+    "defaultValue": true
+  },
+  {
+    "property": "extensions.downloads.progress_update_throttle_ms",
+    "type": "string",
+    "value": "number",
+    "label": "Throttle delay for in-progress download updates (ms)",
+    "default": 500
+  },
+  {
+    "property": "extensions.downloads.autohide_delay_ms",
+    "type": "string",
+    "value": "number",
+    "label": "Delay before auto-hiding completed downloads (ms)",
+    "default": 20000
+  },
+  {
+    "property": "extensions.downloads.interaction_grace_period_ms",
+    "type": "string",
+    "value": "number",
+    "label": "Grace period after user interaction (ms)",
+    "default": 5000
+  },
+  {
+    "property": "extensions.downloads.max_filename_length",
+    "type": "string",
+    "value": "number",
+    "label": "Maximum length for AI-generated filenames",
+    "default": 70
+  },
+  {
+    "property": "extensions.downloads.max_file_size_for_ai",
+    "type": "string",
+    "value": "number",
+    "label": "Maximum file size for AI processing (bytes)",
+    "default": 52428800
+  },
+  {
+    "type": "separator",
+    "label": "Zen Stuff"
+  },
+  {
+    "property": "zen.stuff-pile.always-show",
+    "type": "checkbox",
+    "label": "Makes the Stuff pile always show (Hold Alt to temporarily hide the pile)",
     "defaultValue": true
   }
 ]
