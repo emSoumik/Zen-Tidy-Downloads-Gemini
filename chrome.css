@@ -12,10 +12,10 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0px;
+  gap: 8px;
   pointer-events: none;
-  max-width: 380px;
-  max-height: 80vh;
+  max-width: 320px;
+  max-height: 70vh;
   -moz-window-dragging: no-drag;
 }
 
@@ -24,82 +24,82 @@
   position: relative;
   order: 0;
   margin-left: 12px;
-  width: 350px;
+  width: 300px;
   min-width: 176.3333282470703px;
   box-sizing: border-box;
-  background: rgba(0, 0, 0, 0.9);
-  backdrop-filter: blur(40px);
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(10px);
-  border-radius: 10px;
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.35);
-  padding: 8px 18px 6px 7px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  padding: 10px 16px 8px 12px;
   color: white;
   z-index: 51;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   pointer-events: none;
   opacity: 0;
-  transform: scaleY(0.8) translateY(10px);
+  transform: scaleY(0.9) translateY(5px);
   transform-origin: bottom left;
-  transition: opacity 0.3s ease-out 0.15s,
-    transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1.1) 0.15s, width 0.2s ease-out;
-  margin-bottom: 15px;
+  transition: opacity 0.25s ease-out 0.1s,
+    transform 0.25s cubic-bezier(0.25, 0.1, 0.25, 1.1) 0.1s, width 0.2s ease-out;
+  margin-bottom: 10px;
 }
 
 /* Tooltip content elements */
 .card-status {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.3) !important;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4) !important;
   line-height: 1.2;
 }
 
 .card-title {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 500;
   line-height: 1.3;
   color: #fff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-right: 50px;
+  padding-right: 40px;
   box-sizing: border-box;
   margin-top: 1px;
   margin-bottom: 1px;
 }
 
 .card-original-filename {
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.3);
+  font-size: 8px;
+  color: rgba(255, 255, 255, 0.4);
   text-decoration: line-through;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   display: none;
   margin-bottom: 2px;
-  padding-right: 40px;
+  padding-right: 30px;
   box-sizing: border-box;
 }
 
 .card-progress {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.3);
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .card-filesize {
   position: absolute;
-  bottom: 8px;
-  right: 12px;
-  font-size: 9px;
-  color: rgba(255, 255, 255, 0.3);
+  bottom: 6px;
+  right: 10px;
+  font-size: 8px;
+  color: rgba(255, 255, 255, 0.4);
   display: none;
 }
 
 /* Tooltip buttons container */
 .tooltip-buttons-container {
   position: absolute;
-  top: 8px;
-  right: 12px;
+  top: 6px;
+  right: 10px;
   display: flex;
   align-items: center;
 }
@@ -107,25 +107,25 @@
 .card-undo-button {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.4);
   cursor: pointer;
-  padding: 2px 6px 2px 0px;
+  padding: 2px 4px 2px 0px;
   line-height: 1;
   display: none;
   pointer-events: auto;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   vertical-align: middle;
 }
 
 .card-close-button {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.3);
-  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 9px;
   font-weight: bold;
   cursor: pointer;
-  padding: 2px 0px 2px 6px;
+  padding: 2px 0px 2px 4px;
   line-height: 1;
   pointer-events: auto;
   vertical-align: middle;
@@ -156,11 +156,11 @@
 /* Download pods */
 .download-pod {
   position: absolute;
-  width: 52px !important;
-  height: 52px !important;
-  border-radius: 12px;
-  background-color: rgba(0, 0, 0, 0.9);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+  width: 48px !important;
+  height: 48px !important;
+  border-radius: 10px;
+  background-color: rgba(0, 0, 0, 0.8);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -169,28 +169,21 @@
   flex-shrink: 0;
   pointer-events: auto;
   opacity: 0;
-  transform: scale(0.3) translateY(30px);
-  transition: opacity 0.4s ease-out,
-    transform 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55), z-index 0.3s ease-out;
-  backdrop-filter: blur(20px) !important;
+  transform: scale(0.3) translateY(20px);
+  transition: opacity 0.3s ease-out,
+    transform 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55), z-index 0.3s ease-out;
+  backdrop-filter: blur(15px) !important;
 }
 
 .download-pod.focused-pod:hover {
-  transform: scale(1.1) !important;
+  transform: scale(1.05) !important;
 }
 
 .download-pod.focused-pod {
-  box-shadow: 0 0 15px rgba(84, 160, 255, 0.7), 0 3px 10px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 12px rgba(84, 160, 255, 0.5), 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-/* Pod states */
-.download-pod.completed {
-  /* Add any completed state styling here */
-}
-
-.download-pod.error {
-  /* Add any error state styling here */
-}
+/* Pod states - simplified */
 
 .download-pod.canceled {
   &:before {
@@ -243,8 +236,7 @@
   }
 }
 
-.download-pod.renamed-by-ai {
-}
+
 
 .card-preview-container {
   width: 100%;
@@ -289,16 +281,33 @@
 
 @media (max-width: 400px) {
   #userchrome-download-cards-container {
-    max-width: 300px;
+    max-width: 280px;
+    gap: 6px;
   }
 
   .details-tooltip.master-tooltip {
-    width: 280px;
-    margin-left: 10px;
+    width: 260px;
+    margin-left: 8px;
+    padding: 8px 12px 6px 10px;
+  }
+
+  .download-pod {
+    width: 44px !important;
+    height: 44px !important;
   }
 
   #userchrome-pods-row-container {
-    margin-left: 15px;
+    margin-left: 12px;
+  }
+}
+
+@media (max-width: 320px) {
+  #userchrome-download-cards-container {
+    max-width: 240px;
+  }
+
+  .details-tooltip.master-tooltip {
+    width: 220px;
   }
 }
 
@@ -309,9 +318,10 @@
     align-items: flex-end !important;
     .master-tooltip {
       margin-right: 12px !important;
+      margin-left: 0 !important;
     }
     #userchrome-pods-row-container {
-      width: 56px !important;
+      width: 52px !important;
       margin-right: 15px !important;
     }
   }

@@ -4,8 +4,8 @@
 // @ignorecache
 // ==/UserScript==
 
-// userChrome.js / download_preview_mistral_pixtral_rename.uc.js - FINAL FIXED VERSION
-// AI-powered download preview and renaming with Mistral vision API support
+// userChrome.js / download_preview_gemini_rename.uc.js - FINAL FIXED VERSION
+// AI-powered download preview and renaming with Gemini vision API support
 (function () {
   "use strict";
 
@@ -80,7 +80,7 @@
   function initializeMainScript() {
     // --- Configuration via Firefox Preferences ---
     // Available preferences (set in about:config):
-    // extensions.downloads.mistral_api_key - Your Mistral API key (required for AI renaming)
+    // extensions.downloads.gemini_api_key - Your Gemini API key (required for AI renaming)
     // extensions.downloads.enable_debug - Enable debug logging (default: false)
     // extensions.downloads.debug_ai_only - Only log AI-related messages (default: true)
     // extensions.downloads.enable_ai_renaming - Enable AI-powered file renaming (default: true)
@@ -90,14 +90,13 @@
     // extensions.downloads.max_filename_length - Maximum length for AI-generated filenames (default: 70)
     // extensions.downloads.skip_css_check - Skip CSS availability check (default: false) - USE ONLY FOR DEBUGGING
     // extensions.downloads.max_file_size_for_ai - Maximum file size for AI processing in bytes (default: 52428800 = 50MB)
-    // extensions.downloads.mistral_api_url - Mistral API endpoint (default: "https://api.mistral.ai/v1/chat/completions")
-    // extensions.downloads.mistral_model - Mistral model to use (default: "pixtral-large-latest")
+    // extensions.downloads.gemini_model - Gemini model to use (default: "gemini-1.5-flash")
     // extensions.downloads.stable_focus_mode - Prevent focus switching during multiple downloads (default: true)
     // extensions.downloads.progress_update_throttle_ms - Throttle delay for in-progress download updates (default: 500)
     // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
 
     // Legacy constants for compatibility
-    const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
+    const GEMINI_API_KEY_PREF = "extensions.downloads.gemini_api_key";
     const DISABLE_AUTOHIDE_PREF = "extensions.downloads.disable_autohide";
     const IMAGE_LOAD_ERROR_ICON = "🚫";
     const TEMP_LOADER_ICON = "⏳";
@@ -533,7 +532,7 @@
       
       debugLog("Starting initialization");
       if (!window.Downloads?.getList) {
-        console.error("Download Preview Mistral AI: Downloads API not available");
+        console.error("Download Preview Gemini AI: Downloads API not available");
         aiRenamingPossible = false;
         return;
       }
@@ -542,12 +541,12 @@
           .then(async (list) => {
             if (list) {
               debugLog("Downloads API verified");
-              await verifyMistralConnection();
-              console.log("=== MISTRAL VERIFICATION COMPLETE, aiRenamingPossible:", aiRenamingPossible, "===");
+              await verifyGeminiConnection();
+              console.log("=== GEMINI VERIFICATION COMPLETE, aiRenamingPossible:", aiRenamingPossible, "===");
               if (aiRenamingPossible) {
                 debugLog("AI renaming enabled - all systems verified");
               } else {
-                debugLog("AI renaming disabled - Mistral connection failed");
+                debugLog("AI renaming disabled - Gemini connection failed");
               }
               await initDownloadManager();
               initSidebarWidthSync(); // <-- ADDED: Call to initialize sidebar width syncing
@@ -559,7 +558,7 @@
             aiRenamingPossible = false;
           });
       } catch (e) {
-        console.error("Download Preview Mistral AI: Init failed", e);
+        console.error("Download Preview Gemini AI: Init failed", e);
         aiRenamingPossible = false;
       }
     }
@@ -928,9 +927,9 @@
               });
             });
           })
-          .catch((e) => console.error("DL Preview Mistral AI: List error:", e));
+          .catch((e) => console.error("DL Preview Gemini AI: List error:", e));
       } catch (e) {
-        console.error("DL Preview Mistral AI: Init error", e);
+        console.error("DL Preview Gemini AI: Init error", e);
       }
     }
 
@@ -2672,7 +2671,7 @@ Rules:
 - Maximum length: ${getPref("extensions.downloads.max_filename_length", 70)} characters
 Respond with ONLY the filename.`;
 
-        suggestedName = await callMistralAPI({
+        suggestedName = await callGeminiAPI({
           prompt: imagePrompt,
           localPath: downloadPath,
           fileExtension: fileExtension,
@@ -2703,7 +2702,7 @@ Rules:
 - Maximum length: ${getPref("extensions.downloads.max_filename_length", 70)} characters
 Respond with ONLY the filename.`;
 
-        suggestedName = await callMistralAPI({
+        suggestedName = await callGeminiAPI({
           prompt: metadataPrompt,
           localPath: null,
           fileExtension: fileExtension,
@@ -2964,8 +2963,8 @@ Respond with ONLY the filename.`;
     return `${parseFloat((b / Math.pow(1024, i)).toFixed(d))} ${sizes[i]}`;
   }
 
-  // Mistral API function - with better error handling
-  async function callMistralAPI({ prompt, localPath, fileExtension, abortSignal }) {
+  // Gemini API function - with better error handling
+  async function callGeminiAPI({ prompt, localPath, fileExtension, abortSignal }) {
     try {
       // Get API key
       let apiKey = "";
@@ -2973,7 +2972,7 @@ Respond with ONLY the filename.`;
         const prefService = Cc["@mozilla.org/preferences-service;1"]
           .getService(Ci.nsIPrefService);
         const branch = prefService.getBranch("extensions.downloads.");
-        apiKey = branch.getStringPref("mistral_api_key", "");
+        apiKey = branch.getStringPref("gemini_api_key", "");
       } catch (e) {
         debugLog("Failed to get API key from preferences", e);
         return null;
@@ -2984,8 +2983,8 @@ Respond with ONLY the filename.`;
         return null;
       }
 
-      // Build message content
-      let content = [{ type: "text", text: prompt }];
+      // Build content parts
+      let parts = [{ text: prompt }];
 
       // Add image data if provided
       if (localPath) {
@@ -2993,9 +2992,11 @@ Respond with ONLY the filename.`;
           const imageBase64 = fileToBase64(localPath);
           if (imageBase64) {
             const mimeType = getMimeTypeFromExtension(fileExtension);
-            content.push({
-              type: "image_url",
-              image_url: { url: `data:${mimeType};base64,${imageBase64}` },
+            parts.push({
+              inline_data: {
+                mime_type: mimeType,
+                data: imageBase64
+              }
             });
           }
         } catch (e) {
@@ -3003,25 +3004,28 @@ Respond with ONLY the filename.`;
         }
       }
 
+      const model = getPref("extensions.downloads.gemini_model", "gemini-1.5-flash");
       const payload = {
-        model: getPref("extensions.downloads.mistral_model", "pixtral-large-latest"),
-        messages: [{ role: "user", content: content }],
-        max_tokens: 100,
-        temperature: 0.2,
+        contents: [{
+          parts: parts
+        }],
+        generationConfig: {
+          maxOutputTokens: 100,
+          temperature: 0.2
+        }
       };
 
-      debugLog("Sending API request to Mistral");
+      debugLog("Sending API request to Gemini");
 
       // Check for abort signal before making request
       if (abortSignal?.aborted) {
         throw new DOMException('API request was aborted', 'AbortError');
       }
 
-      const response = await fetch(getPref("extensions.downloads.mistral_api_url", "https://api.mistral.ai/v1/chat/completions"), {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(payload),
         signal: abortSignal // Pass abort signal to fetch
@@ -3036,9 +3040,9 @@ Respond with ONLY the filename.`;
       const data = await response.json();
       debugLog("Raw API response:", data);
 
-      return data.choices?.[0]?.message?.content?.trim() || null;
+      return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
     } catch (error) {
-      console.error("Mistral API error:", error);
+      console.error("Gemini API error:", error);
       return null;
     }
   }
@@ -3194,15 +3198,15 @@ Respond with ONLY the filename.`;
     }
   }
 
-  // Verify Mistral API connection
-  async function verifyMistralConnection() {
+  // Verify Gemini API connection
+  async function verifyGeminiConnection() {
     try {
       let apiKey = "";
       try {
         const prefService = Cc["@mozilla.org/preferences-service;1"]
           .getService(Ci.nsIPrefService);
         const branch = prefService.getBranch("extensions.downloads.");
-        apiKey = branch.getStringPref("mistral_api_key", "");
+        apiKey = branch.getStringPref("gemini_api_key", "");
       } catch (e) {
         console.error("Failed to get API key from preferences", e);
         aiRenamingPossible = false;
@@ -3210,36 +3214,37 @@ Respond with ONLY the filename.`;
       }
 
       if (!apiKey) {
-        debugLog("No Mistral API key found in preferences. AI renaming disabled.");
+        debugLog("No Gemini API key found in preferences. AI renaming disabled.");
         aiRenamingPossible = false;
         return;
       }
 
-      const testResponse = await fetch(getPref("extensions.downloads.mistral_api_url", "https://api.mistral.ai/v1/chat/completions"), {
+      const model = getPref("extensions.downloads.gemini_model", "gemini-1.5-flash");
+      const testResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: getPref("extensions.downloads.mistral_model", "pixtral-large-latest"),
-          messages: [
-            { role: "system", content: "You are a helpful assistant." },
-            { role: "user", content: "Hello, this is a test connection. Respond with 'ok'." },
-          ],
-          max_tokens: 5,
+          contents: [{
+            parts: [{ text: "Hello, this is a test connection. Respond with 'ok'." }]
+          }],
+          generationConfig: {
+            maxOutputTokens: 5,
+            temperature: 0.2
+          }
         }),
       });
 
       if (testResponse.ok) {
-        debugLog("Mistral API connection successful!");
+        debugLog("Gemini API connection successful!");
         aiRenamingPossible = true;
       } else {
-        console.error("Mistral API connection failed:", await testResponse.text());
+        console.error("Gemini API connection failed:", await testResponse.text());
         aiRenamingPossible = false;
       }
     } catch (e) {
-      console.error("Error verifying Mistral API connection:", e);
+      console.error("Error verifying Gemini API connection:", e);
       aiRenamingPossible = false;
     }
   }

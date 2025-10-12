@@ -1,9 +1,23 @@
 [
   {
-    "property": "extensions.downloads.mistral_api_key",
-    "label": "Mistral API key for AI-powered download renaming",
+    "property": "extensions.downloads.gemini_api_key",
+    "label": "Gemini API key for AI-powered download renaming",
     "type": "string",
-    "placeholder": "Enter your Mistral API key here"
+    "placeholder": "Enter your Gemini API key here"
+  },
+  {
+    "property": "extensions.downloads.gemini_model",
+    "label": "Gemini model to use for AI renaming",
+    "type": "menulist",
+    "options": [
+      {"label": "Gemini 2.5 Flash (Latest)", "value": "gemini-2.5-flash"},
+      {"label": "Gemini 2.5 Flash Preview (09-2025)", "value": "gemini-2.5-flash-preview-09-2025"},
+      {"label": "Gemini 2.5 Flash Lite (Fast)", "value": "gemini-2.5-flash-lite"},
+      {"label": "Gemini 2.5 Flash Lite Preview (09-2025)", "value": "gemini-2.5-flash-lite-preview-09-2025"},
+      {"label": "Gemini 2.0 Flash", "value": "gemini-2.0-flash"},
+      {"label": "Gemini 2.0 Flash Lite (Fast)", "value": "gemini-2.0-flash-lite"}
+    ],
+    "default": "gemini-2.5-flash-lite"
   },
   {
     "type": "separator",

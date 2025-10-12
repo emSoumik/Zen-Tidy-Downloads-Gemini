@@ -1,7 +1,7 @@
 {
   "id": "zen-tidy-downloads",
   "name": "Tidy Downloads",
-  "description": "Clean up your downloads with AI",
+  "description": "Clean up your downloads with Gemini AI",
   "homepage": "https://github.com/Vertex-Mods/Zen-Tidy-Downloads",
   "readme": "https://raw.githubusercontent.com/Vertex-Mods/Zen-Tidy-Downloads/refs/heads/main/README.md",
   "image": "https://github.com/Vertex-Mods/Zen-Tidy-Downloads/blob/main/image.png?raw=true",
