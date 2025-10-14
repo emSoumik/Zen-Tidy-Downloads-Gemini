@@ -9,19 +9,11 @@
     "property": "extensions.downloads.gemini_model",
     "label": "Gemini AI Model",
     "type": "menulist",
-    "defaultValue": "gemini-2.0-flash-exp",
+    "defaultValue": "gemini-2.0-flash",
     "options": [
       {
-        "label": "Gemini 2.0 Flash (Recommended)",
-        "value": "gemini-2.0-flash-exp"
-      },
-      {
-        "label": "Gemini 1.5 Flash",
-        "value": "gemini-1.5-flash"
-      },
-      {
-        "label": "Gemini 1.5 Pro",
-        "value": "gemini-1.5-pro"
+        "label": "Gemini 2.0 Flash",
+        "value": "gemini-2.0-flash"
       }
     ]
   },
@@ -29,6 +21,12 @@
     "property": "extensions.downloads.enable_ai_renaming",
     "type": "checkbox",
     "label": "Enable AI-powered file renaming",
+    "defaultValue": true
+  },
+  {
+    "property": "extensions.downloads.fallback_renaming",
+    "type": "checkbox",
+    "label": "Use basic renaming when AI fails",
     "defaultValue": true
   }
 ]

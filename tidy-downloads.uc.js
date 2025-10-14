@@ -90,7 +90,7 @@
     // extensions.downloads.max_filename_length - Maximum length for AI-generated filenames (default: 70)
     // extensions.downloads.skip_css_check - Skip CSS availability check (default: false) - USE ONLY FOR DEBUGGING
     // extensions.downloads.max_file_size_for_ai - Maximum file size for AI processing in bytes (default: 52428800 = 50MB)
-    // extensions.downloads.gemini_model - Gemini model to use (default: "gemini-2.0-flash-exp")
+    // extensions.downloads.gemini_model - Gemini model to use (default: "gemini-2.0-flash")
     // extensions.downloads.stable_focus_mode - Prevent focus switching during multiple downloads (default: true)
     // extensions.downloads.progress_update_throttle_ms - Throttle delay for in-progress download updates (default: 500)
     // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
@@ -2712,15 +2712,31 @@ Respond with ONLY the filename.`;
 
       if (!suggestedName || suggestedName === "rate-limited") {
         debugLog("No valid name suggestion received from AI");
+        
+        // Check if fallback renaming is enabled
+        const useFallback = getPref("extensions.downloads.fallback_renaming", true);
+        
+        if (!useFallback) {
+          // No fallback - fail the rename
+          if (statusElToUpdate) {
+              statusElToUpdate.textContent = suggestedName === "rate-limited" ? 
+            "⚠️ API rate limit reached" : "Could not generate a better name";
+          }
+          renamedFiles.delete(downloadPath);
+          if (podElementToStyle) podElementToStyle.classList.remove("renaming-active");
+          if (podElementToStyle) podElementToStyle.classList.remove('renaming-initiated'); // Allow retry by focus change
+          activeAIProcesses.delete(key); // Clean up
+          return false;
+        }
+        
+        // Fallback: Generate a basic cleaned name
+        debugLog("Using fallback renaming since AI failed");
+        suggestedName = generateFallbackFilename(currentFilename, fileExtension);
+        
         if (statusElToUpdate) {
             statusElToUpdate.textContent = suggestedName === "rate-limited" ? 
-          "⚠️ API rate limit reached" : "Could not generate a better name";
+          "⚠️ API rate limit reached - using basic rename" : "AI failed - using basic rename";
         }
-        renamedFiles.delete(downloadPath);
-        if (podElementToStyle) podElementToStyle.classList.remove("renaming-active");
-        if (podElementToStyle) podElementToStyle.classList.remove('renaming-initiated'); // Allow retry by focus change
-        activeAIProcesses.delete(key); // Clean up
-        return false;
       }
       
       // Check for abort signal before file operations
@@ -3006,7 +3022,7 @@ Respond with ONLY the filename.`;
         }
       }
 
-      const model = getPref("extensions.downloads.gemini_model", "gemini-2.0-flash-exp");
+      const model = getPref("extensions.downloads.gemini_model", "gemini-2.0-flash");
       const payload = {
         contents: [{
           parts: parts
@@ -3153,6 +3169,54 @@ Respond with ONLY the filename.`;
     }
   }
 
+  // Fallback filename generation when AI fails
+  function generateFallbackFilename(originalFilename, fileExtension) {
+    try {
+      debugLog(`Generating fallback filename for: ${originalFilename}`);
+      
+      // Remove file extension for processing
+      let nameWithoutExt = originalFilename;
+      if (fileExtension && originalFilename.toLowerCase().endsWith(fileExtension.toLowerCase())) {
+        nameWithoutExt = originalFilename.substring(0, originalFilename.length - fileExtension.length);
+      }
+      
+      // Basic cleaning: remove special characters, replace spaces with hyphens
+      let cleanName = nameWithoutExt
+        .replace(/[^\w\s\-]/g, '') // Remove special characters except spaces and hyphens
+        .replace(/\s+/g, '-') // Replace spaces with hyphens
+        .replace(/-+/g, '-') // Replace multiple hyphens with single
+        .replace(/^-|-$/g, '') // Remove leading/trailing hyphens
+        .toLowerCase();
+      
+      // If cleaning made it too short or empty, use a timestamp-based name
+      if (cleanName.length < 3) {
+        const timestamp = Date.now();
+        cleanName = `download-${timestamp}`;
+      }
+      
+      // Limit length
+      const maxLength = getPref("extensions.downloads.max_filename_length", 70) - (fileExtension ? fileExtension.length : 0);
+      if (cleanName.length > maxLength) {
+        cleanName = cleanName.substring(0, maxLength);
+        cleanName = cleanName.replace(/-$/, ''); // Remove trailing hyphen if truncated
+      }
+      
+      // Add extension back
+      if (fileExtension && !cleanName.toLowerCase().endsWith(fileExtension.toLowerCase())) {
+        cleanName = cleanName + fileExtension;
+      }
+      
+      debugLog(`Fallback filename generated: ${originalFilename} -> ${cleanName}`);
+      return cleanName;
+      
+    } catch (e) {
+      debugLog("Error generating fallback filename:", e);
+      // Ultimate fallback
+      const timestamp = Date.now();
+      return fileExtension ? `download-${timestamp}${fileExtension}` : `download-${timestamp}`;
+    }
+  }
+
 
 
   // --- Function to Open Downloaded File ---
@@ -3267,7 +3331,7 @@ Respond with ONLY the filename.`;
         return;
       }
 
-      const model = getPref("extensions.downloads.gemini_model", "gemini-2.0-flash-exp");
+      const model = getPref("extensions.downloads.gemini_model", "gemini-2.0-flash");
       const testResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
         method: "POST",
         headers: {
