@@ -90,7 +90,7 @@
     // extensions.downloads.max_filename_length - Maximum length for AI-generated filenames (default: 70)
     // extensions.downloads.skip_css_check - Skip CSS availability check (default: false) - USE ONLY FOR DEBUGGING
     // extensions.downloads.max_file_size_for_ai - Maximum file size for AI processing in bytes (default: 52428800 = 50MB)
-    // extensions.downloads.gemini_model - Gemini model to use (default: "gemini-2.5-flash-lite")
+    // extensions.downloads.gemini_model - Gemini model to use (default: "gemini-2.0-flash-exp")
     // extensions.downloads.stable_focus_mode - Prevent focus switching during multiple downloads (default: true)
     // extensions.downloads.progress_update_throttle_ms - Throttle delay for in-progress download updates (default: 500)
     // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
@@ -2983,6 +2983,8 @@ Respond with ONLY the filename.`;
         return null;
       }
 
+      debugLog(`Using Gemini model: ${model}, API key present: ${!!apiKey}`);
+
       // Build content parts
       let parts = [{ text: prompt }];
 
@@ -3004,7 +3006,7 @@ Respond with ONLY the filename.`;
         }
       }
 
-      const model = getPref("extensions.downloads.gemini_model", "gemini-2.5-flash-lite");
+      const model = getPref("extensions.downloads.gemini_model", "gemini-2.0-flash-exp");
       const payload = {
         contents: [{
           parts: parts
@@ -3022,25 +3024,71 @@ Respond with ONLY the filename.`;
         throw new DOMException('API request was aborted', 'AbortError');
       }
 
+      // Create timeout controller
+      const timeoutController = new AbortController();
+      const timeoutId = setTimeout(() => timeoutController.abort(), 30000); // 30 second timeout
+
+      // Combine abort signals
+      const combinedSignal = abortSignal ? 
+        AbortSignal.any([abortSignal, timeoutController.signal]) : 
+        timeoutController.signal;
+
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
-        signal: abortSignal // Pass abort signal to fetch
+        signal: combinedSignal
       });
 
+      clearTimeout(timeoutId); // Clear timeout on success
+
       if (!response.ok) {
+        const errorText = await response.text().catch(() => 'Unable to read error response');
+        debugLog(`API error ${response.status}: ${response.statusText}`, { status: response.status, statusText: response.statusText, errorText });
         if (response.status === 429) return "rate-limited";
-        debugLog(`API error ${response.status}: ${response.statusText}`);
+        if (response.status === 400) {
+          debugLog("Bad request - check API key and model name", { model, hasApiKey: !!apiKey });
+        }
+        if (response.status === 403) {
+          debugLog("Forbidden - check API key permissions", { hasApiKey: !!apiKey });
+        }
+        if (response.status === 404) {
+          debugLog("Model not found - check model name", { model });
+        }
         return null;
       }
 
       const data = await response.json();
       debugLog("Raw API response:", data);
 
-      return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+      // Check for API errors in the response
+      if (data.error) {
+        debugLog(`API returned error: ${data.error.message || 'Unknown error'}`, data.error);
+        return null;
+      }
+
+      // Check if candidates array exists and has content
+      if (!data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+        debugLog("API response missing candidates array or empty", data);
+        return null;
+      }
+
+      const candidate = data.candidates[0];
+      if (!candidate.content || !candidate.content.parts || !Array.isArray(candidate.content.parts) || candidate.content.parts.length === 0) {
+        debugLog("API response missing content parts", candidate);
+        return null;
+      }
+
+      const text = candidate.content.parts[0]?.text?.trim();
+      if (!text) {
+        debugLog("API response text is empty or missing", candidate.content.parts[0]);
+        return null;
+      }
+
+      debugLog(`Successfully extracted text from API response: "${text}"`);
+      return text;
     } catch (error) {
       console.error("Gemini API error:", error);
       return null;
@@ -3219,7 +3267,7 @@ Respond with ONLY the filename.`;
         return;
       }
 
-      const model = getPref("extensions.downloads.gemini_model", "gemini-2.5-flash-lite");
+      const model = getPref("extensions.downloads.gemini_model", "gemini-2.0-flash-exp");
       const testResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
         method: "POST",
         headers: {
