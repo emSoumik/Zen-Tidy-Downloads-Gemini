@@ -3083,7 +3083,7 @@ Respond with ONLY the filename, nothing else.`;
         }],
         generationConfig: {
           maxOutputTokens: 150,
-          temperature: 0.3,
+          temperature: 0.6,
           topP: 0.8,
           topK: 40
         }
