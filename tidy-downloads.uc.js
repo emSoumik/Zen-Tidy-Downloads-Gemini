@@ -2661,15 +2661,29 @@
         
         processState.phase = 'image-analysis';
         if (statusElToUpdate) statusElToUpdate.textContent = "Analyzing image...";
-        const imagePrompt = `Create a specific, descriptive filename for this image.
-Rules:
-- Use 2-4 specific words describing the main subject or content
-- Be specific about what's in the image (e.g. "mountain-lake-sunset" not just "landscape")
-- Use hyphens between words
-- No generic words like "image" or "photo"
+        const imagePrompt = `Analyze this image carefully and create a descriptive, specific filename.
+
+INSTRUCTIONS:
+1. Look at the image content: What objects, people, animals, or scenes do you see?
+2. Identify the main subject or focus of the image
+3. Note any important details like colors, settings, or actions
+4. Create a filename that describes what you actually see in the image
+
+RULES:
+- Use 3-5 descriptive words separated by hyphens
+- Be VERY specific about what's visible (e.g., "golden-retriever-playing-beach" not just "dog")
+- Include distinctive visual details (colors, settings, actions)
+- NO generic words like "image", "photo", "picture", "download"
+- Use lowercase with hyphens between words
 - Keep extension "${fileExtension}"
-- Maximum length: ${getPref("extensions.downloads.max_filename_length", 70)} characters
-Respond with ONLY the filename.`;
+- Maximum ${getPref("extensions.downloads.max_filename_length", 70)} characters total
+
+EXAMPLES:
+- Red sports car on highway → "red-ferrari-mountain-highway${fileExtension}"
+- Person working at desk → "person-laptop-wooden-desk${fileExtension}"
+- Food plate → "pasta-carbonara-white-plate${fileExtension}"
+
+Respond with ONLY the filename, nothing else.`;
 
         suggestedName = await callGeminiAPI({
           prompt: imagePrompt,
@@ -2691,16 +2705,46 @@ Respond with ONLY the filename.`;
         processState.phase = 'metadata-analysis';
         if (statusElToUpdate) statusElToUpdate.textContent = "Generating better name...";
         const sourceURL = download.source?.url || "unknown";
-        const metadataPrompt = `Create a specific, descriptive filename for this ${isImage ? "image" : "file"}.
-Original filename: "${currentFilename}"
-Download URL: "${sourceURL}"
-Rules:
-- Use 2-5 specific words about the content or purpose
-- Be more specific than the original name
-- Use hyphens between words
+        
+        // Extract meaningful context from URL
+        let urlContext = "";
+        try {
+          const url = new URL(sourceURL);
+          const domain = url.hostname.replace(/^www\./, '');
+          const pathParts = url.pathname.split('/').filter(p => p && p.length > 2);
+          urlContext = `Domain: ${domain}, Path hints: ${pathParts.slice(-3).join(' > ')}`;
+        } catch (e) {
+          urlContext = `URL: ${sourceURL}`;
+        }
+        
+        const metadataPrompt = `Create a descriptive, meaningful filename for this ${isImage ? "image" : "file"}.
+
+CONTEXT:
+- Original filename: "${currentFilename}"
+- ${urlContext}
+- File type: ${fileExtension || "unknown"}
+
+INSTRUCTIONS:
+1. Analyze the original filename and URL to understand the content/purpose
+2. Extract key meaningful words that describe what this file likely contains
+3. Remove unnecessary parts (numbers, codes, version strings)
+4. Create a clean, descriptive name
+
+RULES:
+- Use 3-5 descriptive words separated by hyphens
+- Be specific about the content or purpose (infer from filename and URL)
+- Remove generic prefixes like "download", "file", timestamps, random numbers
+- Keep important context (e.g., product names, document types, version if meaningful)
+- Use lowercase with hyphens
 - Keep extension "${fileExtension}"
-- Maximum length: ${getPref("extensions.downloads.max_filename_length", 70)} characters
-Respond with ONLY the filename.`;
+- Maximum ${getPref("extensions.downloads.max_filename_length", 70)} characters total
+
+EXAMPLES:
+- "IMG_20240115_143022.jpg" from camera → "photo-${new Date().toISOString().split('T')[0]}${fileExtension}"
+- "document-final-v2-FINAL.pdf" → "document-final${fileExtension}"
+- "download(1).zip" from github.com/user/project → "project-archive${fileExtension}"
+
+Respond with ONLY the filename, nothing else.`;
 
         suggestedName = await callGeminiAPI({
           prompt: metadataPrompt,
@@ -2843,6 +2887,16 @@ Respond with ONLY the filename.`;
         // for the strikethrough, as per its own logic.
         // The direct update of tooltip elements within this function ensures immediate feedback.
         updateUIForFocusedDownload(keyForFinalUIUpdate, true); // Force a significant update as content structure changed
+
+        // Auto-hide the tooltip after 2 seconds to show the rename was successful
+        setTimeout(() => {
+          if (focusedDownloadKey === keyForFinalUIUpdate && masterTooltipDOMElement) {
+            masterTooltipDOMElement.style.opacity = "0";
+            masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+            masterTooltipDOMElement.style.pointerEvents = "none";
+            debugLog(`[AI Rename] Auto-hiding tooltip after successful rename for ${keyForFinalUIUpdate}`);
+          }
+        }, 2000); // 2 seconds
 
         debugLog(`Successfully AI-renamed to: ${cleanName}`);
         activeAIProcesses.delete(key); // Clean up successful process
@@ -3028,8 +3082,10 @@ Respond with ONLY the filename.`;
           parts: parts
         }],
         generationConfig: {
-          maxOutputTokens: 100,
-          temperature: 0.2
+          maxOutputTokens: 150,
+          temperature: 0.3,
+          topP: 0.8,
+          topK: 40
         }
       };
 
