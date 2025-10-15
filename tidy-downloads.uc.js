@@ -3076,14 +3076,14 @@ Respond with ONLY the filename, nothing else.`;
         }
       }
 
-      const model = getPref("extensions.downloads.gemini_model", "gemini-2.0-flash");
+      const model = getPref("extensions.downloads.gemini_model", "gemini-2.5-flash");
       const payload = {
         contents: [{
           parts: parts
         }],
         generationConfig: {
           maxOutputTokens: 150,
-          temperature: 0.6,
+          temperature: 0.3,
           topP: 0.8,
           topK: 40
         }
