@@ -3152,6 +3152,8 @@ Respond with ONLY the filename.`;
         return null;
       }
 
+      // Get model FIRST before using it
+      const model = getPref("extensions.downloads.gemini_model", "gemini-2.5-flash");
       debugLog(`Using Gemini model: ${model}, API key present: ${!!apiKey}`);
 
       // Build content parts
@@ -3174,8 +3176,6 @@ Respond with ONLY the filename.`;
           debugLog("Failed to encode image, proceeding without it", e);
         }
       }
-
-      const model = getPref("extensions.downloads.gemini_model", "gemini-2.5-flash");
       const payload = {
         contents: [{
           parts: parts
