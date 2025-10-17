@@ -2511,6 +2511,85 @@
     }
   }
 
+  // Extract file content for better AI context
+  function readFileContentForContext(filePath, fileExtension) {
+    try {
+      const textExtensions = new Set(['.txt', '.md', '.csv', '.json', '.xml', '.log', '.html', '.htm']);
+      
+      // Only read content for text files or documents
+      if (!textExtensions.has(fileExtension?.toLowerCase())) {
+        return null;
+      }
+
+      const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+      file.initWithPath(filePath);
+      
+      // Limit to first 1KB for context only
+      if (file.fileSize > 1024) {
+        debugLog(`[FileContent] File too large to read for context: ${formatBytes(file.fileSize)}`);
+        return null;
+      }
+
+      const fstream = Cc["@mozilla.org/network/file-input-stream;1"]
+        .createInstance(Ci.nsIFileInputStream);
+      fstream.init(file, -1, 0, 0);
+      
+      const bstream = Cc["@mozilla.org/binaryinputstream;1"]
+        .createInstance(Ci.nsIBinaryInputStream);
+      bstream.setInputStream(fstream);
+      
+      const bytes = bstream.readBytes(Math.min(file.fileSize, 1024));
+      fstream.close();
+      bstream.close();
+
+      // Convert bytes to string
+      const content = bytes.split('').map(c => c.charCodeAt(0)).map(c => String.fromCharCode(c)).join('');
+      debugLog(`[FileContent] Read ${content.length} bytes from file for context`);
+      return content;
+    } catch (e) {
+      debugLog("[FileContent] Error reading file content:", e);
+      return null;
+    }
+  }
+
+  // Get file type and category context
+  function getFiletypeContext(filename, contentType) {
+    const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+    
+    let fileCategory = 'unknown';
+    let fileTypeHint = '';
+    
+    if (contentType?.startsWith('image/')) {
+      fileCategory = 'image';
+    } else if (contentType?.startsWith('video/')) {
+      fileCategory = 'video';
+      fileTypeHint = 'Video file';
+    } else if (contentType?.startsWith('audio/')) {
+      fileCategory = 'audio';
+      fileTypeHint = 'Audio file';
+    } else if (ext === '.pdf') {
+      fileCategory = 'document';
+      fileTypeHint = 'PDF document';
+    } else if (['.doc', '.docx', '.pages'].includes(ext)) {
+      fileCategory = 'document';
+      fileTypeHint = 'Word document';
+    } else if (['.xls', '.xlsx', '.csv'].includes(ext)) {
+      fileCategory = 'spreadsheet';
+      fileTypeHint = 'Spreadsheet';
+    } else if (['.zip', '.rar', '.7z', '.tar', '.gz'].includes(ext)) {
+      fileCategory = 'archive';
+      fileTypeHint = 'Archive/Compressed file';
+    } else if (['.exe', '.app', '.deb', '.dmg'].includes(ext)) {
+      fileCategory = 'software';
+      fileTypeHint = 'Software/Application';
+    } else if (['.txt', '.md', '.log'].includes(ext)) {
+      fileCategory = 'text';
+      fileTypeHint = 'Text file';
+    }
+
+    return { fileCategory, fileTypeHint, ext };
+  }
+
   // Process download for AI renaming - with file size check
   async function processDownloadForAIRenaming(download, originalNameForUICard, keyOverride) {
     const key = keyOverride || getDownloadKey(download);
@@ -2703,8 +2782,20 @@ Respond with ONLY the filename, nothing else.`;
         }
         
         processState.phase = 'metadata-analysis';
-        if (statusElToUpdate) statusElToUpdate.textContent = "Generating better name...";
+        if (statusElToUpdate) statusElToUpdate.textContent = "Analyzing content...";
         const sourceURL = download.source?.url || "unknown";
+        
+        // Get file type context
+        const { fileCategory, fileTypeHint, ext } = getFiletypeContext(currentFilename, download.contentType);
+        
+        // Try to read file content for additional context
+        let fileContentPreview = "";
+        const contentData = readFileContentForContext(downloadPath, ext);
+        if (contentData) {
+          // Use first 150 characters of content as hint
+          fileContentPreview = contentData.substring(0, 150).replace(/\n/g, ' ').trim();
+          debugLog(`[AI Process] File content preview (${fileContentPreview.length} chars): ${fileContentPreview.substring(0, 50)}...`);
+        }
         
         // Extract meaningful context from URL
         let urlContext = "";
@@ -2717,34 +2808,42 @@ Respond with ONLY the filename, nothing else.`;
           urlContext = `URL: ${sourceURL}`;
         }
         
-        const metadataPrompt = `Create a descriptive, meaningful filename for this ${isImage ? "image" : "file"}.
+        let metadataPrompt = `Create a descriptive, meaningful filename for this file.
 
 CONTEXT:
 - Original filename: "${currentFilename}"
-- ${urlContext}
-- File type: ${fileExtension || "unknown"}
+- File category: ${fileCategory}
+- ${fileTypeHint ? 'File type: ' + fileTypeHint : 'File type: ' + (fileExtension || 'unknown')}
+- ${urlContext}`;
 
-INSTRUCTIONS:
-1. Analyze the original filename and URL to understand the content/purpose
-2. Extract key meaningful words that describe what this file likely contains
-3. Remove unnecessary parts (numbers, codes, version strings)
-4. Create a clean, descriptive name
+        if (fileContentPreview) {
+          metadataPrompt += `\n- Content preview: "${fileContentPreview}"`;
+        }
+
+        metadataPrompt += `
+
+ANALYSIS INSTRUCTIONS:
+1. Analyze ALL context provided (filename, content, URL, file type)
+2. Understand the PURPOSE and CONTENT of the file
+3. Extract key meaningful words describing what this file contains
+4. Remove unnecessary parts (numbers, codes, version strings, timestamps)
+5. Create a clean, specific, descriptive name
 
 RULES:
 - Use 3-5 descriptive words separated by hyphens
-- Be specific about the content or purpose (infer from filename and URL)
-- Remove generic prefixes like "download", "file", timestamps, random numbers
-- Keep important context (e.g., product names, document types, version if meaningful)
+- Be SPECIFIC (e.g., "project-proposal-Q1-2024" not just "document")
+- Keep important context (product names, topics, meaningful versions)
+- Remove generic prefixes ("download", "file", random numbers)
 - Use lowercase with hyphens
 - Keep extension "${fileExtension}"
 - Maximum ${getPref("extensions.downloads.max_filename_length", 70)} characters total
 
 EXAMPLES:
-- "IMG_20240115_143022.jpg" from camera → "photo-${new Date().toISOString().split('T')[0]}${fileExtension}"
-- "document-final-v2-FINAL.pdf" → "document-final${fileExtension}"
-- "download(1).zip" from github.com/user/project → "project-archive${fileExtension}"
+- "invoice_march_2024.pdf" → "invoice-march-2024${fileExtension}"
+- "project-report-FINAL-v3.docx" → "project-report-final${fileExtension}"
+- "presentation.pptx" from salesmeeting.com → "sales-meeting-presentation${fileExtension}"
 
-Respond with ONLY the filename, nothing else.`;
+Respond with ONLY the filename.`;
 
         suggestedName = await callGeminiAPI({
           prompt: metadataPrompt,
