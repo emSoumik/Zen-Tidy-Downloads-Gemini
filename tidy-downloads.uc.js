@@ -4,7 +4,7 @@
 // @ignorecache
 // ==/UserScript==
 
-// userChrome.js / download_preview_gemini_rename.uc.js - FINAL FIXED VERSION
+// userChrome.js / download_preview_gemini_rename.uc.js - v2.1.2
 // AI-powered download preview and renaming with Gemini vision API support
 (function () {
   "use strict";
