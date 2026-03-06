@@ -1314,6 +1314,10 @@
       }
       
       cardUpdateThrottle.set(key, now);
+
+      // TEMP DEBUG: early return to test if freeze is in pod creation / UI update path
+      return;
+
       debugLog(`[Throttle] Calling createOrUpdatePodElement for key: ${key}, isNewOnInit: ${isNewCardOnInit}, error: ${!!download.error}, succeeded: ${!!download.succeeded}, canceled: ${!!download.canceled}`);
       const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
       if (podElement) {
