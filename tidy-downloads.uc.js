@@ -1314,13 +1314,8 @@
       }
       
       cardUpdateThrottle.set(key, now);
-
-      // First, create or update the pod element
       debugLog(`[Throttle] Calling createOrUpdatePodElement for key: ${key}, isNewOnInit: ${isNewCardOnInit}, error: ${!!download.error}, succeeded: ${!!download.succeeded}, canceled: ${!!download.canceled}`);
       const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
-
-     
-
       if (podElement) {
         debugLog(`[Throttle] Pod element created/updated for ${key}.`);
         // Only trigger UI update if this is the focused download or if it's a significant state change
@@ -1620,25 +1615,22 @@
         });
 
         cardData = {
-          podElement, // Renamed from cardElement
+        podElement, // Renamed from cardElement
           download,
           complete: false,
           key: key,
           originalFilename: safeFilename, // This is the filename as of pod creation/update
           trueOriginalPathBeforeAIRename: null, // Will store the full path before AI rename
           trueOriginalSimpleNameBeforeAIRename: null, // Will store just the simple filename before AI rename
-          lastInteractionTime: Date.now(),
-          isVisible: false, // Will be set by layout manager
-          isWaitingForZenAnimation: false, // Default, will be set true if new and Zen sync is active
-          domAppended: false, // New flag: has this pod been added to podsRowContainerElement?
-          intendedTargetTransform: null, // For stable animation triggering
-          intendedTargetOpacity: null,   // For stable animation triggering
-          isBeingRemoved: false          // To prevent layout conflicts during removal
+        lastInteractionTime: Date.now(),
+        isVisible: false, // Will be set by layout manager
+        isWaitingForZenAnimation: false, // Default, will be set true if new and Zen sync is active
+        domAppended: false, // New flag: has this pod been added to podsRowContainerElement?
+        intendedTargetTransform: null, // For stable animation triggering
+        intendedTargetOpacity: null,   // For stable animation triggering
+        isBeingRemoved: false          // To prevent layout conflicts during removal
         };
         activeDownloadCards.set(key, cardData);
-
-        // TEMP DEBUG: early return before visibility/layout and Zen animation observer logic
-        return podElement;
 
       // Add to ordered list (newest at the end)
       if (!orderedPodKeys.includes(key)) {
@@ -1720,19 +1712,7 @@
       if (safeFilename !== cardData.originalFilename && !download.aiName) {
          cardData.originalFilename = safeFilename; // Update if original name changes (e.g. server sent a different name later)
       }
-    }
-
-    // Ensure this key is tracked for layout even if cardData existed before this script load
-    if (cardData && !orderedPodKeys.includes(key)) {
-      orderedPodKeys.push(key);
-      debugLog(`[PodFUNC] Ensured ${key} is in orderedPodKeys for layout. Length is now ${orderedPodKeys.length}`);
-    }
-
-    if (!cardData) {
-      // No valid card data; nothing more to do
-      return podElement || null;
-    }
-
+      
       // Update completion status for existing pods
       if (download.succeeded && !cardData.complete) {
         cardData.complete = true;
@@ -2651,9 +2631,32 @@
   }
 
   function scheduleCardRemoval(downloadKey) {
-    // TEMP: hard-disable autohide while debugging freeze after timeout
-    debugLog(`scheduleCardRemoval: HARD DISABLED – not scheduling removal for key: ${downloadKey}`);
-    return;
+    try {
+      const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
+      if (disableAutohide) return;
+
+      const cardData = activeDownloadCards.get(downloadKey);
+      if (!cardData) {
+        debugLog(`scheduleCardRemoval: No card data found for key: ${downloadKey}`);
+        return;
+      }
+
+      // Clear any existing timeout
+      if (cardData.autohideTimeoutId) {
+        clearTimeout(cardData.autohideTimeoutId);
+        debugLog(`scheduleCardRemoval: Cleared existing timeout for key: ${downloadKey}`);
+      }
+
+      // Schedule new timeout and store the ID
+      cardData.autohideTimeoutId = setTimeout(() => {
+        debugLog(`scheduleCardRemoval: Timeout fired for key: ${downloadKey}`);
+        performAutohideSequence(downloadKey);
+      }, getPref("extensions.downloads.autohide_delay_ms", 20000));
+      
+      debugLog(`scheduleCardRemoval: Scheduled removal for key: ${downloadKey} in ${getPref("extensions.downloads.autohide_delay_ms", 20000)}ms`, null, 'autohide');
+    } catch (e) {
+      console.error("Error scheduling card removal:", e);
+    }
   }
 
   // Perform the two-stage autohide sequence: tooltip first, then pod
@@ -5212,16 +5215,9 @@ Instructions:
 
 
   // === AI RENAME QUEUE SYSTEM ===
-
-  // Global hard switch to disable AI renaming while debugging freezes
-  const AI_RENAME_HARD_DISABLED = true;
   
   // Add a completed download to the AI rename queue
   function addToAIRenameQueue(downloadKey, download, originalFilename) {
-    if (AI_RENAME_HARD_DISABLED) {
-      debugLog(`[AI Queue] HARD DISABLED – skipping AI rename for ${downloadKey}`);
-      return false;
-    }
     debugLog(`[AI Queue] addToAIRenameQueue called for ${downloadKey}`, {
       downloadKey,
       hasDownload: !!download,
