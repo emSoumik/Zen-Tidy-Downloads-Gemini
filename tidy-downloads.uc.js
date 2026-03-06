@@ -1720,7 +1720,19 @@
       if (safeFilename !== cardData.originalFilename && !download.aiName) {
          cardData.originalFilename = safeFilename; // Update if original name changes (e.g. server sent a different name later)
       }
-      
+    }
+
+    // Ensure this key is tracked for layout even if cardData existed before this script load
+    if (cardData && !orderedPodKeys.includes(key)) {
+      orderedPodKeys.push(key);
+      debugLog(`[PodFUNC] Ensured ${key} is in orderedPodKeys for layout. Length is now ${orderedPodKeys.length}`);
+    }
+
+    if (!cardData) {
+      // No valid card data; nothing more to do
+      return podElement || null;
+    }
+
       // Update completion status for existing pods
       if (download.succeeded && !cardData.complete) {
         cardData.complete = true;
