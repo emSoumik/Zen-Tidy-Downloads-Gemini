@@ -5224,9 +5224,16 @@ Instructions:
 
 
   // === AI RENAME QUEUE SYSTEM ===
+
+  // Global hard switch to disable AI renaming while debugging freezes
+  const AI_RENAME_HARD_DISABLED = true;
   
   // Add a completed download to the AI rename queue
   function addToAIRenameQueue(downloadKey, download, originalFilename) {
+    if (AI_RENAME_HARD_DISABLED) {
+      debugLog(`[AI Queue] HARD DISABLED – skipping AI rename for ${downloadKey}`);
+      return false;
+    }
     debugLog(`[AI Queue] addToAIRenameQueue called for ${downloadKey}`, {
       downloadKey,
       hasDownload: !!download,
