@@ -1319,8 +1319,7 @@
       debugLog(`[Throttle] Calling createOrUpdatePodElement for key: ${key}, isNewOnInit: ${isNewCardOnInit}, error: ${!!download.error}, succeeded: ${!!download.succeeded}, canceled: ${!!download.canceled}`);
       const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
 
-      // TEMP DEBUG: early return after pod creation, before UI update focus/tooltip logic
-      return;
+     
 
       if (podElement) {
         debugLog(`[Throttle] Pod element created/updated for ${key}.`);
@@ -2640,32 +2639,9 @@
   }
 
   function scheduleCardRemoval(downloadKey) {
-    try {
-      const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
-      if (disableAutohide) return;
-
-      const cardData = activeDownloadCards.get(downloadKey);
-      if (!cardData) {
-        debugLog(`scheduleCardRemoval: No card data found for key: ${downloadKey}`);
-        return;
-      }
-
-      // Clear any existing timeout
-      if (cardData.autohideTimeoutId) {
-        clearTimeout(cardData.autohideTimeoutId);
-        debugLog(`scheduleCardRemoval: Cleared existing timeout for key: ${downloadKey}`);
-      }
-
-      // Schedule new timeout and store the ID
-      cardData.autohideTimeoutId = setTimeout(() => {
-        debugLog(`scheduleCardRemoval: Timeout fired for key: ${downloadKey}`);
-        performAutohideSequence(downloadKey);
-      }, getPref("extensions.downloads.autohide_delay_ms", 20000));
-      
-      debugLog(`scheduleCardRemoval: Scheduled removal for key: ${downloadKey} in ${getPref("extensions.downloads.autohide_delay_ms", 20000)}ms`, null, 'autohide');
-    } catch (e) {
-      console.error("Error scheduling card removal:", e);
-    }
+    // TEMP: hard-disable autohide while debugging freeze after timeout
+    debugLog(`scheduleCardRemoval: HARD DISABLED – not scheduling removal for key: ${downloadKey}`);
+    return;
   }
 
   // Perform the two-stage autohide sequence: tooltip first, then pod
