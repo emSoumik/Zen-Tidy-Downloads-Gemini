@@ -143,6 +143,7 @@
     // extensions.downloads.progress_update_throttle_ms - Throttle delay for in-progress download updates (default: 500)
     // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
     // zen.tidy-downloads.use-library-button - Use zen-library-button instead of downloads-button for hover detection (default: false)
+    // extensions.downloads.post_arc_show_delay_ms - Delay (ms) before showing download UI after Zen arc animation completes; increase if crashes persist on complex pages (default: 200)
 
     // Legacy constants for compatibility
     const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
@@ -5749,16 +5750,17 @@ function triggerCardEntrance(downloadKeyToTrigger) {
         debugLog(`[ZenSync] Appended pod ${downloadKeyToTrigger} to DOM after Zen animation.`);
     }
     
-    // Show container now that Zen arc animation has completed (was deferred to prevent freeze)
-    updateDownloadCardsVisibility();
-    if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
-      hideMediaControlsToolbar();
-    }
-    
-    // Call updateUI which will call managePodVisibilityAndAnimations
-    // If this download is the new focus, it makes sense to update everything.
-    // If not, we still need to re-evaluate layout for all pods.
-    updateUIForFocusedDownload(focusedDownloadKey || downloadKeyToTrigger, false); 
+    // FREEZE FIX: Defer container show after arc completes. The arc's cleanup (DOM removal,
+    // compositor updates) can still stress the main thread; showing our backdrop-filter UI
+    // immediately can cause crash on complex pages. This delay lets the browser settle.
+    const postArcDelayMs = getPref("extensions.downloads.post_arc_show_delay_ms", 200);
+    setTimeout(() => {
+      updateDownloadCardsVisibility();
+      if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
+        hideMediaControlsToolbar();
+      }
+      updateUIForFocusedDownload(focusedDownloadKey || downloadKeyToTrigger, false);
+    }, postArcDelayMs);
   } else {
     debugLog(`[ZenSync] triggerCardEntrance: Called for ${downloadKeyToTrigger} but it was not waiting for Zen animation. Ignoring.`);
   }
