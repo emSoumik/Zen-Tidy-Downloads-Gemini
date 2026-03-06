@@ -1214,6 +1214,8 @@
         return checkExtension(filename, TEXT_EXTS);
     };
 
+    const MAX_TEXT_FILE_PREVIEW_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB safety limit
+
     // Helper to read text file preview (first 500 chars)
     // DUPLICATED from tidy-downloads for now as zen-stuff is separate scope
     const readTextFilePreview = async (path) => {
@@ -1258,7 +1260,7 @@
     };
 
     // Set preview content
-    // Priority: Image -> Text -> System Icon -> Generic Icon
+    // Priority: Image -> Text (cached snippet) -> Text (from file, size-limited) -> System Icon -> Generic Icon
     
     const renderPreview = async () => {
         // Global kill-switch for file previews (shared with tidy-downloads via the same pref).
@@ -1288,8 +1290,43 @@
             return;
         }
         
-        // 2. Text File (if path available)
+        // 2. Text File (prefer cached snippet from previewData if available)
+        if (podData.previewData && podData.previewData.type === 'text' && podData.previewData.snippet) {
+             const textContent = podData.previewData.snippet;
+             if (textContent) {
+                  preview.innerHTML = "";
+                  const textDiv = document.createElement("div");
+                  textDiv.style.cssText = `
+                      width: 100%;
+                      height: 100%;
+                      padding: 4px;
+                      box-sizing: border-box;
+                      font-family: monospace;
+                      font-size: 5px; 
+                      line-height: 1.1;
+                      overflow: hidden;
+                      white-space: pre-wrap;
+                      color: rgba(255,255,255,0.8);
+                      background: rgba(0,0,0,0.2);
+                      text-align: left;
+                      word-break: break-all;
+                  `;
+                  textDiv.textContent = textContent;
+                  preview.appendChild(textDiv);
+                  return;
+             }
+        }
+        
+        // 2b. Text File (if path available and file size is within safe bounds)
         if (podData.targetPath && isTextFile(podData.filename, podData.contentType)) {
+             const sizeBytes = podData.fileSize || 0;
+             if (sizeBytes && sizeBytes > MAX_TEXT_FILE_PREVIEW_SIZE_BYTES) {
+                 // For very large text files, skip disk I/O and show icon instead.
+                 const icon = getFileIcon(podData.contentType);
+                 renderIcon(icon);
+                 return;
+             }
+             
              const textContent = await readTextFilePreview(podData.targetPath);
              if (textContent) {
                   preview.innerHTML = "";

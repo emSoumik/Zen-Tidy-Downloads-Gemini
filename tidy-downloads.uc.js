@@ -533,7 +533,7 @@
         dominantColor: podElement?.dataset?.dominantColor || null
       };
       
-      // Try to capture preview image data
+      // Try to capture preview image or cached text preview data
       if (podElement) {
         const previewContainer = podElement.querySelector('.card-preview-container');
         if (previewContainer) {
@@ -542,6 +542,12 @@
             dismissedData.previewData = {
               type: 'image',
               src: img.src
+            };
+          } else if (cardData.textPreviewSnippet) {
+            // Reuse cached text snippet instead of re-reading file later.
+            dismissedData.previewData = {
+              type: 'text',
+              snippet: cardData.textPreviewSnippet
             };
           } else {
             // SECURITY FIX: Don't store raw HTML, just mark as icon type
@@ -1656,20 +1662,21 @@
         });
 
         cardData = {
-        podElement, // Renamed from cardElement
+          podElement, // Renamed from cardElement
           download,
           complete: false,
           key: key,
           originalFilename: safeFilename, // This is the filename as of pod creation/update
           trueOriginalPathBeforeAIRename: null, // Will store the full path before AI rename
           trueOriginalSimpleNameBeforeAIRename: null, // Will store just the simple filename before AI rename
-        lastInteractionTime: Date.now(),
-        isVisible: false, // Will be set by layout manager
-        isWaitingForZenAnimation: false, // Default, will be set true if new and Zen sync is active
-        domAppended: false, // New flag: has this pod been added to podsRowContainerElement?
-        intendedTargetTransform: null, // For stable animation triggering
-        intendedTargetOpacity: null,   // For stable animation triggering
-        isBeingRemoved: false          // To prevent layout conflicts during removal
+          lastInteractionTime: Date.now(),
+          isVisible: false, // Will be set by layout manager
+          isWaitingForZenAnimation: false, // Default, will be set true if new and Zen sync is active
+          domAppended: false, // New flag: has this pod been added to podsRowContainerElement?
+          intendedTargetTransform: null, // For stable animation triggering
+          intendedTargetOpacity: null,   // For stable animation triggering
+          isBeingRemoved: false,         // To prevent layout conflicts during removal
+          textPreviewSnippet: null       // Optional cached text preview snippet for dismissed pods
         };
         activeDownloadCards.set(key, cardData);
 
@@ -3934,6 +3941,20 @@
           debugLog("[setCompletedFilePreview] Rendering Text Preview");
           const textContent = await readTextFilePreview(filePath);
           if (textContent) {
+              // Cache snippet on cardData so dismissed-pod UIs can reuse it without re-reading the file.
+              try {
+                const podElement = previewElement.closest('.download-pod');
+                const downloadKey = podElement?.dataset?.downloadKey || getDownloadKey(download);
+                if (downloadKey) {
+                  const cardData = activeDownloadCards.get(downloadKey);
+                  if (cardData) {
+                    cardData.textPreviewSnippet = textContent;
+                  }
+                }
+              } catch (e) {
+                debugLog("[setCompletedFilePreview] Error caching text preview snippet:", e);
+              }
+
               previewElement.innerHTML = "";
               const textDiv = document.createElement("div");
               textDiv.style.cssText = `
