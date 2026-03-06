@@ -167,9 +167,14 @@
     let cardUpdateThrottle = new Map(); // Prevent rapid updates
     // Global UI update throttle to avoid layout storms on very large downloads
     let lastUIUpdateTime = 0;
-    const MIN_UI_UPDATE_INTERVAL_MS = getPref
-      ? getPref("extensions.downloads.ui_update_min_interval_ms", 150)
-      : 150;
+    let MIN_UI_UPDATE_INTERVAL_MS = 150;
+    try {
+      if (typeof getPref === "function") {
+        MIN_UI_UPDATE_INTERVAL_MS = getPref("extensions.downloads.ui_update_min_interval_ms", 150);
+      }
+    } catch (e) {
+      // Fallback to default if prefs are unavailable
+    }
     let currentZenSidebarWidth = '';
     let podsRowContainerElement = null; // Renamed back from podsStackContainerElement
     let masterTooltipDOMElement = null;
@@ -1323,15 +1328,15 @@
       const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
       if (podElement) {
         debugLog(`[Throttle] Pod element created/updated for ${key}.`);
-        // Global UI throttle: avoid running heavy UI/layout logic on every progress event,
-        // while still updating immediately for final states and initial card creation.
-        const nowForUI = Date.now();
-        const shouldForceUpdate = isNewCardOnInit || isFinalState;
-        const enoughTimeElapsed = (nowForUI - lastUIUpdateTime) >= MIN_UI_UPDATE_INTERVAL_MS;
+        // For in-progress updates, defer expensive UI/layout decisions to a global throttle
+        // inside updateUIForFocusedDownload. Here we only decide *whether* to request a UI update.
+        const shouldRequestUIUpdate =
+          isNewCardOnInit ||                          // new card on init
+          isFinalState ||                             // succeeded / error / canceled
+          key === focusedDownloadKey;                 // focused download progress
 
-        if (shouldForceUpdate || enoughTimeElapsed) {
-          lastUIUpdateTime = nowForUI;
-          updateUIForFocusedDownload(focusedDownloadKey || key, true);
+        if (shouldRequestUIUpdate) {
+          updateUIForFocusedDownload(focusedDownloadKey || key, isNewCardOnInit || isFinalState);
         }
       } else {
         debugLog(`[Throttle] No pod element returned for ${key}. Download state:`, { 
@@ -1841,6 +1846,23 @@
       return;
     }
     
+    const now = Date.now();
+    const isFinalStateUpdateCandidate = (() => {
+      const cd = keyToFocus ? activeDownloadCards.get(keyToFocus) : null;
+      const dl = cd && cd.download;
+      return !!dl && (dl.succeeded || dl.error || dl.canceled);
+    })();
+
+    const shouldForceLayout = isNewOrSignificantUpdate || isFinalStateUpdateCandidate;
+    const enoughTimeElapsedForLayout = (now - lastUIUpdateTime) >= MIN_UI_UPDATE_INTERVAL_MS;
+
+    if (!shouldForceLayout && !enoughTimeElapsedForLayout) {
+      debugLog(`[UIUPDATE_SKIP] Skipping UI update/layout for ${keyToFocus} to avoid layout storm.`);
+      return;
+    }
+
+    lastUIUpdateTime = now;
+
     debugLog(`[UIUPDATE_TOP] updateUIForFocusedDownload called. keyToFocus: ${keyToFocus}, isNewOrSignificantUpdate: ${isNewOrSignificantUpdate}, current focusedDownloadKey: ${focusedDownloadKey}`);
     
     const oldFocusedKey = focusedDownloadKey;
