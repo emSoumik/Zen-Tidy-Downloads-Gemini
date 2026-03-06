@@ -4,7 +4,7 @@
 // @ignorecache
 // ==/UserScript==
 
-// userChrome.js / download_preview_mistral_pixtral_rename.uc.js - FINAL FIXED VERSION
+// tidy-downloads.uc.js
 // AI-powered download preview and renaming with Mistral vision API support
 (function () {
   "use strict";
@@ -72,12 +72,40 @@
     console.log('Zen Tidy Downloads: All popup exclusion checks passed, proceeding with initialization');
     
     // === MAIN SCRIPT INITIALIZATION CONTINUES HERE ===
-    // The rest of the script now runs within this setTimeout
-    initializeMainScript();
+    // Wait for utils (handles load-order races; utils must be in theme.json scripts)
+    (function tryInit(attempt) {
+      if (window.zenTidyDownloadsUtils) {
+        initializeMainScript();
+        return;
+      }
+      if (attempt < 40) { // ~2 seconds max (40 * 50ms)
+        setTimeout(() => tryInit(attempt + 1), 50);
+        return;
+      }
+      console.error("[Tidy Downloads] zenTidyDownloadsUtils not loaded after 2s. Ensure tidy-downloads-utils.uc.js exists in the mod folder and is listed in theme.json scripts.");
+    })(0);
   }, 100); // Small delay to ensure DOM elements are loaded
 
   // === MAIN SCRIPT FUNCTIONS ===
   function initializeMainScript() {
+    const Utils = window.zenTidyDownloadsUtils;
+    if (!Utils) return;
+    const {
+      getPref,
+      SecurityUtils,
+      RateLimiter,
+      debugLog,
+      MISTRAL_API_KEY_PREF,
+      DISABLE_AUTOHIDE_PREF,
+      IMAGE_LOAD_ERROR_ICON,
+      TEMP_LOADER_ICON,
+      RENAMED_SUCCESS_ICON,
+      IMAGE_EXTENSIONS,
+      PATH_SEPARATOR,
+      sanitizeFilename,
+      waitForElement
+    } = Utils;
+
     // CRITICAL: Patch downloads indicator methods immediately to prevent errors
     // This must happen before any downloads can trigger the indicator
     try {
@@ -144,21 +172,6 @@
     // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
     // zen.tidy-downloads.use-library-button - Use zen-library-button instead of downloads-button for hover detection (default: false)
 
-    // Legacy constants for compatibility
-    const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
-    const DISABLE_AUTOHIDE_PREF = "extensions.downloads.disable_autohide";
-    const IMAGE_LOAD_ERROR_ICON = "🚫";
-    const TEMP_LOADER_ICON = "⏳";
-    const RENAMED_SUCCESS_ICON = "✓";
-    const IMAGE_EXTENSIONS = new Set([
-      ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif",
-      ".ico", ".tif", ".tiff", ".jfif"
-    ]);
-
-
-    // Platform-agnostic path separator detection
-    const PATH_SEPARATOR = navigator.platform.includes("Win") ? "\\" : "/";
-
     // Global state variables
     let downloadCardsContainer;
     const activeDownloadCards = new Map();
@@ -183,9 +196,11 @@
     } catch (e) {
       // Fallback to defaults if prefs are unavailable
     }
-    let currentZenSidebarWidth = '';
+    const sidebarWidthRef = { value: "" };
     let podsRowContainerElement = null; // Renamed back from podsStackContainerElement
     let masterTooltipDOMElement = null;
+    let initZenAnimationObserver = () => {};
+    let initSidebarWidthSyncFn = () => {};
     let focusedDownloadKey = null;
     let orderedPodKeys = []; // Newest will be at the end
     let lastRotationDirection = null; // Track rotation direction: 'forward', 'backward', or null
@@ -198,89 +213,7 @@
     const aiRenameQueue = []; // Array of { downloadKey, download, originalFilename, queuedAt }
     let isProcessingAIQueue = false; // Flag to prevent concurrent queue processing
     let currentlyProcessingKey = null; // Track which download is currently being processed
-    
-    // SECURITY: Rate limiting for API calls
-    const RateLimiter = (function() {
-      'use strict';
-      
-      const MAX_REQUESTS_PER_MINUTE = 10; // Conservative limit
-      const MAX_REQUESTS_PER_HOUR = 100;
-      const REQUEST_HISTORY = [];
-      
-      /**
-       * Check if a new request can be made based on rate limits
-       * @returns {Object} { allowed: boolean, waitTime?: number, reason?: string }
-       */
-      function canMakeRequest() {
-        const now = Date.now();
-        const oneMinuteAgo = now - 60000;
-        const oneHourAgo = now - 3600000;
-        
-        // Clean old requests
-        while (REQUEST_HISTORY.length > 0 && REQUEST_HISTORY[0] < oneHourAgo) {
-          REQUEST_HISTORY.shift();
-        }
-        
-        // Check per-minute limit
-        const recentRequests = REQUEST_HISTORY.filter(time => time > oneMinuteAgo);
-        if (recentRequests.length >= MAX_REQUESTS_PER_MINUTE) {
-          const oldestRecent = Math.min(...recentRequests);
-          const waitTime = Math.ceil((oldestRecent + 60000 - now) / 1000);
-          return {
-            allowed: false,
-            waitTime,
-            reason: `Rate limit exceeded: ${recentRequests.length} requests in the last minute (max: ${MAX_REQUESTS_PER_MINUTE})`
-          };
-        }
-        
-        // Check per-hour limit
-        if (REQUEST_HISTORY.length >= MAX_REQUESTS_PER_HOUR) {
-          const oldestRequest = REQUEST_HISTORY[0];
-          const waitTime = Math.ceil((oldestRequest + 3600000 - now) / 1000);
-          return {
-            allowed: false,
-            waitTime,
-            reason: `Rate limit exceeded: ${REQUEST_HISTORY.length} requests in the last hour (max: ${MAX_REQUESTS_PER_HOUR})`
-          };
-        }
-        
-        return { allowed: true };
-      }
-      
-      /**
-       * Record a new API request
-       */
-      function recordRequest() {
-        REQUEST_HISTORY.push(Date.now());
-      }
-      
-      /**
-       * Get current rate limit statistics
-       * @returns {Object} Statistics about current rate limit usage
-       */
-      function getStats() {
-        const now = Date.now();
-        const oneMinuteAgo = now - 60000;
-        const oneHourAgo = now - 3600000;
-        
-        return {
-          lastMinute: REQUEST_HISTORY.filter(time => time > oneMinuteAgo).length,
-          lastHour: REQUEST_HISTORY.filter(time => time > oneHourAgo).length,
-          total: REQUEST_HISTORY.length,
-          limits: {
-            perMinute: MAX_REQUESTS_PER_MINUTE,
-            perHour: MAX_REQUESTS_PER_HOUR
-          }
-        };
-      }
-      
-      return {
-        canMakeRequest,
-        recordRequest,
-        getStats
-      };
-    })();
-    
+
     // CSS availability flag
     let cssStylesAvailable = false;
 
@@ -704,77 +637,6 @@
       }
     }
 
-    // SECURITY: Helper function to redact sensitive data from logs
-    // Uses efficient regex patterns and avoids deep recursion issues
-    function redactSensitiveData(data) {
-      if (typeof data === 'string') {
-        // Redact API keys and tokens (single pass with combined regex)
-        return data
-          .replace(/Bearer\s+[A-Za-z0-9_-]+/gi, 'Bearer [REDACTED]')
-          .replace(/Authorization:\s*Bearer\s+[A-Za-z0-9_-]+/gi, 'Authorization: Bearer [REDACTED]')
-          .replace(/(api[_-]?key|apikey|secret[_-]?key|access[_-]?token|auth[_-]?token)\s*[:=]\s*[A-Za-z0-9_-]+/gi, '$1=[REDACTED]');
-      }
-      
-      if (typeof data !== 'object' || data === null) {
-        return data;
-      }
-      
-      // Handle arrays
-      if (Array.isArray(data)) {
-        return data.map(item => redactSensitiveData(item));
-      }
-      
-      // Handle objects with depth limit to prevent stack overflow
-      const SENSITIVE_KEY_PATTERN = /(api|key|authorization|token|secret|password|credential)/i;
-      const redacted = {};
-      
-      for (const key in data) {
-        if (!data.hasOwnProperty(key)) continue;
-        
-        const value = data[key];
-        if (SENSITIVE_KEY_PATTERN.test(key)) {
-          redacted[key] = '[REDACTED]';
-        } else if (typeof value === 'string') {
-          redacted[key] = redactSensitiveData(value);
-        } else if (typeof value === 'object' && value !== null) {
-          redacted[key] = redactSensitiveData(value);
-        } else {
-          redacted[key] = value;
-        }
-      }
-      
-      return redacted;
-    }
-
-    // Add debug logging function with Firefox preferences support
-    function debugLog(message, data = null, category = 'general') {
-      try {
-        const debugEnabled = getPref("extensions.downloads.enable_debug", false);
-        const debugAiOnly = getPref("extensions.downloads.debug_ai_only", true);
-        
-        if (!debugEnabled) return;
-        if (debugAiOnly && category !== 'aiRename' && category !== 'general') return;
-        
-        const timestamp = new Date().toISOString();
-        const prefix = `[${timestamp}] Download Preview [${category.toUpperCase()}]:`;
-        
-        // SECURITY: Redact sensitive data before logging
-        const safeData = data ? redactSensitiveData(data) : null;
-        const safeMessage = typeof message === 'string' ? redactSensitiveData(message) : message;
-        
-        if (safeData) {
-          console.log(`${prefix} ${safeMessage}`, safeData);
-        } else {
-          console.log(`${prefix} ${safeMessage}`);
-        }
-      } catch (e) {
-        // Fallback if preferences fail - still redact sensitive data
-        const safeData = data ? redactSensitiveData(data) : null;
-        const safeMessage = typeof message === 'string' ? redactSensitiveData(message) : message;
-        console.log(`[Download Preview] ${safeMessage}`, safeData || '');
-      }
-    }
-
     // Improved key generation for downloads
     function getDownloadKey(download) {
       // Use target path as primary key since id is often undefined
@@ -850,7 +712,7 @@
               aiRenamingPossible = true; // Local AI is assumed to be available
               debugLog("AI renaming enabled - using Local AI");
               await initDownloadManager();
-              initSidebarWidthSync(); // <-- ADDED: Call to initialize sidebar width syncing
+              initSidebarWidthSyncFn();
               debugLog("Initialization complete");
             }
           })
@@ -1061,6 +923,21 @@
           podsRowContainerElement.id = "userchrome-pods-row-container"; 
           // Basic styles are now in CSS file, only dynamic height will be set by layout manager
           downloadCardsContainer.appendChild(podsRowContainerElement);
+
+        // Init sync module (sidebar width, zen animation) - provides initZenAnimationObserver for pod creation
+        if (window.zenTidyDownloadsSync?.init) {
+          const syncFns = window.zenTidyDownloadsSync.init({
+            getMasterTooltip: () => masterTooltipDOMElement,
+            getPodsContainer: () => podsRowContainerElement,
+            getActiveCards: () => activeDownloadCards,
+            getFocusedKey: () => focusedDownloadKey,
+            updateUI: (k, b) => updateUIForFocusedDownload(k, b),
+            sidebarWidthRef,
+            debugLog
+          });
+          initZenAnimationObserver = syncFns.initZenAnimationObserver;
+          initSidebarWidthSyncFn = syncFns.initSidebarWidthSync;
+        }
 
           // Add mouse wheel scroll listener to the pods container for changing focus
           podsRowContainerElement.addEventListener('wheel', handlePodScrollFocus, { passive: false });
@@ -2753,269 +2630,7 @@
     }
   }
 
-  // ============================================================================
-  // SECURITY UTILITIES
-  // ============================================================================
-  
-  /**
-   * Security utilities for path validation and sanitization
-   * Uses Result pattern for better error handling without exceptions
-   */
-  const SecurityUtils = (function() {
-    'use strict';
-    
-    // Constants
-    const WINDOWS_RESERVED_NAMES = Object.freeze([
-      'CON', 'PRN', 'AUX', 'NUL',
-      'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
-      'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
-    ]);
-    
-    const WINDOWS_INVALID_CHARS = /[<>:"|?*\x00-\x1F]/;
-    const CONTROL_CHARS = /[\x00-\x1F\x7F]/;
-    const MAX_PATH_LENGTH = 32767;
-    const MAX_FILENAME_LENGTH = 200;
-    
-    // Cache platform detection
-    const isWindowsPlatform = navigator.platform.includes('Win');
-    
-    /**
-     * Result object for validation operations
-     * @typedef {Object} ValidationResult
-     * @property {boolean} valid - Whether the validation passed
-     * @property {string|null} error - Error message if validation failed
-     * @property {string} code - Error code for programmatic handling
-     */
-    
-    /**
-     * Parse and normalize a path once for multiple validations
-     * @param {string} path - Path to parse
-     * @returns {Object} Parsed path components
-     */
-    function parsePath(path) {
-      const normalized = path.replace(/\\/g, '/');
-      const parts = normalized.split('/').filter(Boolean);
-      const filename = parts[parts.length - 1] || path;
-      const isWindows = isWindowsPlatform || path.includes('\\');
-      
-      return { normalized, parts, filename, isWindows };
-    }
-    
-    /**
-     * Validate file path for security issues
-     * @param {string} path - Path to validate
-     * @param {Object} options - Validation options
-     * @param {boolean} options.strict - If false, returns warnings instead of errors
-     * @returns {ValidationResult} Validation result
-     */
-    function validateFilePath(path, options = {}) {
-      const { strict = true } = options;
-      
-      // Type check
-      if (!path || typeof path !== 'string') {
-        return { valid: false, error: 'Path must be a non-empty string', code: 'INVALID_TYPE' };
-      }
-      
-      // Length check (fastest, fail early)
-      if (path.length > MAX_PATH_LENGTH) {
-        return { valid: false, error: 'Path exceeds maximum length', code: 'PATH_TOO_LONG' };
-      }
-      
-      // Null byte check
-      if (path.includes('\0') || path.includes('\x00')) {
-        return { valid: false, error: 'Path contains null bytes', code: 'NULL_BYTES' };
-      }
-      
-      // Parse path once
-      const { normalized, parts, filename, isWindows } = parsePath(path);
-      
-      // Directory traversal check
-      if (parts.some(part => part === '..' || part.startsWith('../'))) {
-        return { valid: false, error: 'Path contains directory traversal patterns', code: 'TRAVERSAL' };
-      }
-      if (normalized.startsWith('../') || normalized.endsWith('/..')) {
-        return { valid: false, error: 'Path contains directory traversal patterns', code: 'TRAVERSAL' };
-      }
-      
-      // Double slashes check (except UNC paths)
-      if (path.includes('//') && !path.match(/^\\\\/)) {
-        return { valid: false, error: 'Path contains invalid path separators', code: 'INVALID_SEPARATORS' };
-      }
-      
-      // Control characters check
-      if (CONTROL_CHARS.test(path.replace(/[\n\t]/g, ''))) {
-        return { valid: false, error: 'Path contains control characters', code: 'CONTROL_CHARS' };
-      }
-      
-      // Windows-specific validations
-      if (isWindows) {
-        // Reserved names check
-        for (const part of parts) {
-          const nameBase = part.toUpperCase().split('.')[0];
-          if (WINDOWS_RESERVED_NAMES.includes(nameBase)) {
-            return { valid: false, error: `Path contains Windows reserved name: ${nameBase}`, code: 'RESERVED_NAME' };
-          }
-        }
-        
-        // Invalid characters in filename only (not full path - drive letters have colons)
-        if (WINDOWS_INVALID_CHARS.test(filename)) {
-          return { valid: false, error: 'Filename contains invalid characters for Windows', code: 'INVALID_CHARS' };
-        }
-      }
-      
-      return { valid: true, error: null, code: 'VALID' };
-    }
-    
-    /**
-     * Normalize Unicode string to NFC form for consistent filename handling
-     * @param {string} str - String to normalize
-     * @returns {string} Normalized string
-     */
-    function normalizeUnicode(str) {
-      try {
-        // Use String.prototype.normalize if available (ES6+)
-        if (typeof str.normalize === 'function') {
-          return str.normalize('NFC'); // Normalization Form Canonical Composition
-        }
-        // Fallback for older environments
-        return str;
-      } catch (e) {
-        // If normalization fails, return original
-        return str;
-      }
-    }
-    
-    /**
-     * Sanitize a filename by removing dangerous characters and normalizing Unicode
-     * @param {string} filename - Filename to sanitize
-     * @returns {string} Sanitized filename
-     * @throws {Error} If filename becomes empty after sanitization
-     */
-    function sanitizeFilename(filename) {
-      if (!filename || typeof filename !== 'string') {
-        throw new Error('Filename must be a non-empty string');
-      }
-      
-      // SECURITY: Normalize Unicode to prevent homograph attacks and ensure consistency
-      let sanitized = normalizeUnicode(filename);
-      
-      // Remove control characters (including null bytes)
-      sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
-      
-      // Remove Windows invalid characters if on Windows
-      if (isWindowsPlatform) {
-        sanitized = sanitized.replace(/[<>:"|?*]/g, '');
-      }
-      
-      // Remove leading/trailing spaces and dots (Windows doesn't allow these)
-      sanitized = sanitized.trim().replace(/^\.+|\.+$/g, '');
-      
-      // Remove consecutive dots (except for file extensions)
-      sanitized = sanitized.replace(/\.{2,}/g, '.');
-      
-      // Handle Windows reserved names
-      if (isWindowsPlatform && sanitized) {
-        const nameBase = sanitized.split('.')[0].toUpperCase();
-        if (WINDOWS_RESERVED_NAMES.includes(nameBase)) {
-          sanitized = `FILE_${sanitized}`;
-        }
-      }
-      
-      // SECURITY: Remove potentially dangerous Unicode characters
-      // Remove zero-width characters that could be used for obfuscation
-      sanitized = sanitized.replace(/[\u200B-\u200D\uFEFF]/g, ''); // Zero-width space, joiner, non-joiner, BOM
-      
-      // Remove RTL/LTR marks that could cause display issues
-      sanitized = sanitized.replace(/[\u200E-\u200F\u202A-\u202E]/g, '');
-      
-      // Validate result
-      if (!sanitized || sanitized.trim().length === 0) {
-        throw new Error('Filename is empty after sanitization');
-      }
-      
-      // Enforce length limit (preserve extension)
-      if (sanitized.length > MAX_FILENAME_LENGTH) {
-        const lastDot = sanitized.lastIndexOf('.');
-        if (lastDot > 0) {
-          const ext = sanitized.substring(lastDot);
-          const name = sanitized.substring(0, lastDot);
-          sanitized = name.substring(0, MAX_FILENAME_LENGTH - ext.length) + ext;
-        } else {
-          sanitized = sanitized.substring(0, MAX_FILENAME_LENGTH);
-        }
-      }
-      
-      return sanitized;
-    }
-    
-    return {
-      validateFilePath,
-      sanitizeFilename,
-      WINDOWS_RESERVED_NAMES,
-      MAX_PATH_LENGTH,
-      MAX_FILENAME_LENGTH
-    };
-  })();
-  
-  // Backward compatibility wrapper (throws instead of returning result)
-  function validateFilePath(path) {
-    const result = SecurityUtils.validateFilePath(path);
-    if (!result.valid) {
-      throw new Error(result.error);
-    }
-    return path;
-  }
-
-  // Use SecurityUtils for sanitization
-  const sanitizeFilename = SecurityUtils.sanitizeFilename;
-
-  // Helper function to get preferences
-  function getPref(prefName, defaultValue) {
-    try {
-      const prefService = Cc["@mozilla.org/preferences-service;1"]
-        .getService(Ci.nsIPrefService);
-      const branch = prefService.getBranch("");
-
-      if (typeof defaultValue === "boolean") {
-        return branch.getBoolPref(prefName, defaultValue);
-      } else if (typeof defaultValue === "string") {
-        return branch.getStringPref(prefName, defaultValue);
-      } else if (typeof defaultValue === "number") {
-        return branch.getIntPref(prefName, defaultValue);
-      }
-      return defaultValue;
-    } catch (e) {
-      console.error("Error getting preference:", e);
-      return defaultValue;
-    }
-  }
-
-  // Helper function to wait for an element to appear in the DOM
-  function waitForElement(elementId, timeout = 5000) {
-    return new Promise((resolve) => {
-      const startTime = Date.now();
-      
-      const checkForElement = () => {
-        const element = document.getElementById(elementId);
-        if (element) {
-          console.log(`[Tidy Downloads] Element ${elementId} found after ${Date.now() - startTime}ms`);
-          resolve(element);
-          return;
-        }
-        
-        if (Date.now() - startTime >= timeout) {
-          console.log(`[Tidy Downloads] Timeout waiting for element ${elementId} after ${timeout}ms`);
-          resolve(null);
-          return;
-        }
-        
-        // Check again in 100ms
-        setTimeout(checkForElement, 100);
-      };
-      
-      checkForElement();
-    });
-  }
+  // SecurityUtils, getPref, sanitizeFilename, waitForElement: see tidy-downloads-utils.uc.js
 
   // Optimized function to find the downloads/library button
   async function findDownloadsButton() {
@@ -5666,191 +5281,6 @@ Instructions:
     console.log("=== DOWNLOAD PREVIEW SCRIPT LOADED BUT DISABLED (CSS MISSING) ===");
   }
 
-// --- Sidebar Width Synchronization Logic ---
-function updateCurrentZenSidebarWidth() {
-  const mainWindow = document.getElementById('main-window');
-  const toolbox = document.getElementById('navigator-toolbox');
-
-  if (!toolbox) {
-    debugLog('[SidebarWidthSync] #navigator-toolbox not found. Cannot read --zen-sidebar-width.');
-    // currentZenSidebarWidth = ''; // Let it retain its value if toolbox temporarily disappears? Or clear?
-                                 // For now, if toolbox isn't there, we can't update, so we do nothing to the existing value.
-    return;
-  }
-
-  // Log compact mode for context, but don't block the read based on it.
-  if (mainWindow) {
-    const isCompact = mainWindow.getAttribute('zen-compact-mode') === 'true';
-    debugLog(`[SidebarWidthSync] #main-window zen-compact-mode is currently: ${isCompact}. Attempting to read from #navigator-toolbox.`);
-  } else {
-    debugLog('[SidebarWidthSync] #main-window not found. Attempting to read from #navigator-toolbox.');
-  }
-  
-  const value = getComputedStyle(toolbox).getPropertyValue('--zen-sidebar-width').trim();
-  
-  if (value && value !== "0px" && value !== "") {
-    if (currentZenSidebarWidth !== value) {
-      currentZenSidebarWidth = value;
-      debugLog('[SidebarWidthSync] Updated currentZenSidebarWidth from #navigator-toolbox to:', value);
-      applyGlobalWidthToAllTooltips(); // Apply to existing tooltips
-    } else {
-      debugLog('[SidebarWidthSync] --zen-sidebar-width from #navigator-toolbox is unchanged (' + value + '). No update to tooltips needed.');
-    }
-  } else {
-    // If the value is empty, "0px", or not set, it implies the sidebar isn't in a state where this var is active.
-    // Clear our global var so the tooltip uses its own default width.
-    if (currentZenSidebarWidth !== '') { // Only update if it actually changes to empty
-      currentZenSidebarWidth = ''; 
-      debugLog(`[SidebarWidthSync] --zen-sidebar-width on #navigator-toolbox is '${value}'. Cleared currentZenSidebarWidth. Tooltip will use default width.`);
-      applyGlobalWidthToAllTooltips(); // Apply default width logic to existing tooltips
-    } else {
-      debugLog(`[SidebarWidthSync] --zen-sidebar-width on #navigator-toolbox is '${value}' and currentZenSidebarWidth is already empty. No update needed.`);
-    }
-  }
-}
-
-function initSidebarWidthSync() {
-  const mainWindow = document.getElementById('main-window');
-  const navigatorToolbox = document.getElementById('navigator-toolbox');
-  let resizeTimeoutId = null;
-
-  if (mainWindow) {
-    // Set up a MutationObserver to watch attribute changes on #main-window for zen-compact-mode
-    const mutationObserver = new MutationObserver((mutationsList) => {
-      for (const mutation of mutationsList) {
-        if (
-          mutation.type === 'attributes' &&
-          mutation.attributeName === 'zen-compact-mode'
-        ) {
-          debugLog('[SidebarWidthSync] zen-compact-mode attribute changed. Updating sidebar width.');
-          updateCurrentZenSidebarWidth();
-        }
-      }
-    });
-    mutationObserver.observe(mainWindow, {
-      attributes: true,
-      attributeFilter: ['zen-compact-mode']
-    });
-  } else {
-    debugLog('[SidebarWidthSync] initSidebarWidthSync: #main-window not found. Cannot set up MutationObserver for compact mode.');
-  }
-
-  if (navigatorToolbox) {
-    // Set up a ResizeObserver to watch for size changes on #navigator-toolbox
-    const resizeObserver = new ResizeObserver(entries => {
-      // Debounce the resize event
-      clearTimeout(resizeTimeoutId);
-      resizeTimeoutId = setTimeout(() => {
-        for (let entry of entries) {
-          // We don't strictly need to check entry.contentRect here as getComputedStyle will get the current var value
-          debugLog('[SidebarWidthSync] #navigator-toolbox resized. Updating sidebar width.');
-          updateCurrentZenSidebarWidth();
-        }
-      }, 25); // 250ms debounce period
-    });
-    resizeObserver.observe(navigatorToolbox);
-    debugLog('[SidebarWidthSync] ResizeObserver started on #navigator-toolbox.');
-  } else {
-    debugLog('[SidebarWidthSync] initSidebarWidthSync: #navigator-toolbox not found. Cannot set up ResizeObserver.');
-  }
-
-  // Run it once at init in case the attribute/size is already set at load
-  debugLog('[SidebarWidthSync] Initial call to update sidebar width.');
-  updateCurrentZenSidebarWidth();
-}
-
-function applyGlobalWidthToAllTooltips() {
-  debugLog('[TooltipWidth] Attempting to apply global width to master tooltip.');
-  if (!masterTooltipDOMElement) {
-    debugLog('[TooltipWidth] Master tooltip DOM element not found.');
-    return;
-  }
-
-  // Use 100% width - container handles the padding
-  masterTooltipDOMElement.style.width = '100%';
-  debugLog('[TooltipWidth] Applied 100% width to master tooltip');
-}
-
-// --- Zen Animation Synchronization Logic ---
-function triggerCardEntrance(downloadKeyToTrigger) {
-  const cardData = activeDownloadCards.get(downloadKeyToTrigger);
-  if (!cardData) {
-    debugLog(`[ZenSync] triggerCardEntrance: No cardData for key ${downloadKeyToTrigger}`);
-    return;
-  }
-
-  // This function is now primarily a signal that Zen animation (if any) is complete.
-  // It no longer appends or directly animates the pod here.
-  // It marks the pod as ready for layout and calls updateUIForFocusedDownload.
-  
-  if (cardData.isWaitingForZenAnimation) {
-    debugLog(`[ZenSync] triggerCardEntrance: Zen animation completed or fallback for ${downloadKeyToTrigger}. Pod is ready for layout.`);
-    cardData.isWaitingForZenAnimation = false;
-    
-    // Ensure the pod is appended to DOM if it hasn't been already
-    if (!cardData.domAppended && podsRowContainerElement && cardData.podElement) {
-        podsRowContainerElement.appendChild(cardData.podElement);
-        cardData.domAppended = true;
-        debugLog(`[ZenSync] Appended pod ${downloadKeyToTrigger} to DOM after Zen animation.`);
-    }
-    
-    // Call updateUI which will call managePodVisibilityAndAnimations
-    // If this download is the new focus, it makes sense to update everything.
-    // If not, we still need to re-evaluate layout for all pods.
-    updateUIForFocusedDownload(focusedDownloadKey || downloadKeyToTrigger, false); 
-  } else {
-    debugLog(`[ZenSync] triggerCardEntrance: Called for ${downloadKeyToTrigger} but it was not waiting for Zen animation. Ignoring.`);
-  }
-}
-
-function initZenAnimationObserver(downloadKey, podElementToMonitor) { // podElement is passed for context, not direct manipulation here
-  debugLog("[ZenSync] Initializing observer for key:", downloadKey);
-  let observer = null;
-  let fallbackTimeoutId = null;
-
-  const zenAnimationHost = document.querySelector('zen-download-animation');
-
-  if (zenAnimationHost && zenAnimationHost.shadowRoot) {
-    debugLog("[ZenSync] Found zen-download-animation host and shadowRoot.");
-
-    observer = new MutationObserver((mutationsList, obs) => {
-      for (const mutation of mutationsList) {
-        if (mutation.type === 'childList' && mutation.removedNodes.length > 0) {
-          for (const removedNode of mutation.removedNodes) {
-            if (removedNode.nodeType === Node.ELEMENT_NODE && removedNode.classList.contains('zen-download-arc-animation')) {
-              debugLog("[ZenSync] Detected .zen-download-arc-animation removal. Triggering pod entrance.", { key: downloadKey });
-              clearTimeout(fallbackTimeoutId); // Clear the safety fallback
-              triggerCardEntrance(downloadKey, podElementToMonitor);
-              obs.disconnect(); // Stop observing
-              observer = null; // Clean up observer reference
-              return; // Exit once detected
-            }
-          }
-        }
-      }
-    });
-
-    observer.observe(zenAnimationHost.shadowRoot, { childList: true });
-    debugLog("[ZenSync] Observer started on shadowRoot.");
-
-    // Safety fallback timeout
-    fallbackTimeoutId = setTimeout(() => {
-      debugLog("[ZenSync] Fallback timeout reached. Triggering card entrance signal.", { key: downloadKey });
-      if (observer) {
-        observer.disconnect();
-        observer = null;
-      }
-      triggerCardEntrance(downloadKey); 
-      // CardData fallbackTriggered is not strictly needed now as triggerCardEntrance is just a signal
-    }, 3000); // 3-second fallback
-
-  } else {
-    debugLog("[ZenSync] zen-download-animation host or shadowRoot not found. Triggering card entrance signal immediately.", { key: downloadKey });
-    triggerCardEntrance(downloadKey);
-    // CardData fallbackTriggered not strictly needed
-  }
-}
-
 // --- Function to Undo AI Rename ---
 async function undoRename(keyOfAIRenamedFile) {
   debugLog("[UndoRename] Attempting to undo rename for key:", keyOfAIRenamedFile);
@@ -6016,4 +5446,4 @@ async function undoRename(keyOfAIRenamedFile) {
 
   } // Close initializeMainScript function
 
-})(); //Test Comment again again x3
+})();

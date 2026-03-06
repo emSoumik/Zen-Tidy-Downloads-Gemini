@@ -4,13 +4,20 @@
 // @ignorecache
 // ==/UserScript==
 
-// zen-dismissed-downloads-pile.uc.js
+// zen-stuff.uc.js
 // Dismissed downloads pile with messy-to-grid transition
 (function () {
   "use strict";
 
   // Wait for browser window to be ready
   if (location.href !== "chrome://browser/content/browser.xhtml") return;
+
+  const Utils = window.zenTidyDownloadsUtils;
+  if (!Utils) {
+    console.error("[Zen Stuff] zenTidyDownloadsUtils not loaded - ensure tidy-downloads-utils.uc.js loads first (check @loadOrder in headers)");
+    return;
+  }
+  const { validateFilePathOrThrow, validatePodData } = Utils;
 
   // Configuration
   const CONFIG = {
@@ -122,7 +129,7 @@
   // Global state instance
   const state = new PileState();
 
-  // Error handling utilities
+  // Error handling utilities (validateFilePath, validatePodData: see tidy-downloads-utils.uc.js)
   class ErrorHandler {
     static handleError(error, context, fallback = null) {
       console.error(`[Dismissed Pile] Error in ${context}:`, error);
@@ -142,88 +149,6 @@
         }
       }
     }
-
-    /**
-     * Validate file path for security issues
-     * Optimized single-pass validation with early returns
-     * @param {string} path - Path to validate
-     * @returns {string} Validated path
-     * @throws {Error} If path is invalid
-     */
-    static validateFilePath(path) {
-      if (!path || typeof path !== 'string') {
-        throw new Error('Invalid file path: path must be a non-empty string');
-      }
-
-      // Fast early returns for common cases
-      if (path.length > 32767) {
-        throw new Error('Invalid file path: path exceeds maximum length');
-      }
-      
-      if (path.includes('\0') || path.includes('\x00')) {
-        throw new Error('Invalid file path: contains null bytes');
-      }
-
-      // Parse path once and reuse
-      const normalized = path.replace(/\\/g, '/');
-      const parts = normalized.split('/').filter(Boolean);
-      const filename = parts[parts.length - 1] || path;
-      const isWindows = navigator.platform.includes('Win') || path.includes('\\');
-
-      // Directory traversal check (single pass)
-      if (parts.some(part => part === '..' || part.startsWith('../')) ||
-          normalized.startsWith('../') || normalized.endsWith('/..')) {
-        throw new Error('Invalid file path: contains directory traversal patterns');
-      }
-
-      // Double slashes check (except UNC)
-      if (path.includes('//') && !path.match(/^\\\\/)) {
-        throw new Error('Invalid file path: contains invalid path separators');
-      }
-
-      // Control characters check
-      if (/[\x00-\x1F\x7F]/.test(path.replace(/[\n\t]/g, ''))) {
-        throw new Error('Invalid file path: contains control characters');
-      }
-
-      // Windows-specific validations
-      if (isWindows) {
-        const WINDOWS_RESERVED = ['CON', 'PRN', 'AUX', 'NUL',
-          'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
-          'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'];
-        
-        // Check reserved names (single pass)
-        for (const part of parts) {
-          const nameBase = part.toUpperCase().split('.')[0];
-          if (WINDOWS_RESERVED.includes(nameBase)) {
-            throw new Error(`Invalid file path: contains Windows reserved name: ${nameBase}`);
-          }
-        }
-        
-        // Invalid characters in filename only (not full path)
-        if (/[<>:"|?*\x00-\x1F]/.test(filename)) {
-          throw new Error('Invalid file path: filename contains invalid characters for Windows');
-        }
-      }
-
-      return path;
-    }
-
-    static validatePodData(podData) {
-      if (!podData || typeof podData !== 'object') {
-        throw new Error('Invalid pod data: must be an object');
-      }
-
-      if (!podData.key || typeof podData.key !== 'string') {
-        throw new Error('Invalid pod data: missing or invalid key');
-      }
-
-      if (!podData.filename || typeof podData.filename !== 'string') {
-        throw new Error('Invalid pod data: missing or invalid filename');
-      }
-
-      return podData;
-    }
   }
 
   // Global toggle for dismissed-pod file previews (disabled by default, opt-in via pref)
@@ -242,7 +167,7 @@
   class FileSystem {
     static async createFileInstance(path) {
       try {
-        const validatedPath = ErrorHandler.validateFilePath(path);
+        const validatedPath = validateFilePathOrThrow(path);
         const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
         file.initWithPath(validatedPath);
         return file;
@@ -608,7 +533,7 @@
 
               // SECURITY: Validate path before using it
               try {
-                ErrorHandler.validateFilePath(podData.targetPath);
+                validateFilePathOrThrow(podData.targetPath);
               } catch (pathError) {
                 console.error(`[SessionStore] Invalid path in stored data for ${podKey}:`, pathError.message);
                 debugLog(`[SessionStore] Path validation failed for ${podKey}, skipping`);
@@ -3239,7 +3164,7 @@
     debugLog(`Attempting to open file: ${podData.key}`);
 
     try {
-      ErrorHandler.validatePodData(podData);
+      validatePodData(podData);
 
       if (!podData.targetPath) {
         throw new Error('No file path available');
@@ -3271,7 +3196,7 @@
     debugLog(`Attempting to show file in file explorer: ${podData.key}`);
 
     try {
-      ErrorHandler.validatePodData(podData);
+      validatePodData(podData);
 
       if (!podData.targetPath) {
         throw new Error('No file path available');
@@ -3441,7 +3366,7 @@
   // --- Global pod file rename logic ---
   async function renamePodFile(podData, newFilename) {
     try {
-      ErrorHandler.validatePodData(podData);
+      validatePodData(podData);
       if (!newFilename || typeof newFilename !== 'string') {
         throw new Error('Invalid new filename');
       }
@@ -3537,7 +3462,7 @@
   async function copyPodFileToClipboard(podData) {
     debugLog(`[Clipboard] Attempting to copy file to clipboard: ${podData.filename}`);
     try {
-      ErrorHandler.validatePodData(podData);
+      validatePodData(podData);
       if (!podData.targetPath) {
         throw new Error('No file path available');
       }
@@ -3567,7 +3492,7 @@
   async function deletePodFile(podData) {
     debugLog(`[DeleteFile] Attempting to delete file from system: ${podData.filename}`);
     try {
-      ErrorHandler.validatePodData(podData);
+      validatePodData(podData);
       if (!podData.targetPath) {
         throw new Error('No file path available');
       }
