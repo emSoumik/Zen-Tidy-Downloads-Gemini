@@ -4,7 +4,6 @@
 
 /* Main download cards container - uses absolute positioning for toolbar integration */
 /* Positioned same as zen-stuff pile: bottom: 35px above toolbar buttons */
-/* contain: layout paint reduces layout thrashing when Zen arc animation runs on complex pages */
 #userchrome-download-cards-container {
   position: absolute;
   left: 5px;
@@ -18,18 +17,18 @@
   pointer-events: none;
   box-sizing: border-box;
   -moz-window-dragging: no-drag;
-  contain: layout paint;
 }
 
 /* Master tooltip - relative positioning for toolbar integration */
-/* backdrop-filter removed: causes crash/freeze on complex pages when shown after Zen arc animation */
 .details-tooltip {
   position: relative;
   order: 0;
   width: 100%;
   min-width: 150px;
   box-sizing: border-box;
-  background: color-mix(in srgb, var(--zen-primary-color) 45%, black 55%);
+  background: color-mix(in srgb, var(--zen-primary-color) 40%, black 60%);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(10px);
   border-radius: 10px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.35);
   padding: 8px 18px 6px 7px;
@@ -137,7 +136,7 @@
   height: 0;
   border-left: 8px solid transparent;
   border-right: 8px solid transparent;
-  border-top: 8px solid color-mix(in srgb, var(--zen-primary-color) 45%, black 55%);
+  border-top: 8px solid color-mix(in srgb, var(--zen-primary-color) 40%, black 60%);
   bottom: -8px;
   left: 20px;
 }
@@ -173,7 +172,7 @@
   transform: scale(0.3) translateY(30px);
   transition: opacity 0.4s ease-out,
     transform 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55), z-index 0.3s ease-out;
-  /* backdrop-filter removed: causes crash on complex pages when shown after Zen arc */
+  backdrop-filter: blur(20px) !important;
 }
 
 .download-pod.focused-pod:hover {

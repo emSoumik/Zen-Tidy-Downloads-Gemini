@@ -143,7 +143,6 @@
     // extensions.downloads.progress_update_throttle_ms - Throttle delay for in-progress download updates (default: 500)
     // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
     // zen.tidy-downloads.use-library-button - Use zen-library-button instead of downloads-button for hover detection (default: false)
-    // extensions.downloads.post_arc_show_delay_ms - Delay (ms) before showing download UI after Zen arc animation completes; increase if crashes persist on complex pages (default: 200)
 
     // Legacy constants for compatibility
     const MISTRAL_API_KEY_PREF = "extensions.downloads.mistral_api_key";
@@ -1638,21 +1637,10 @@
         orderedPodKeys.push(key);
         
         // Show the container when we add the first pod (respects compact mode)
-        // FREEZE FIX: Defer showing container until Zen arc animation completes to prevent browser
-        // freeze on complex websites. The arc animation + our backdrop-filter tooltip run
-        // simultaneously and overload the compositor. triggerCardEntrance will show the
-        // container when the arc finishes (or immediately if Zen animation is disabled).
-        const willDeferForZenArc = isNewPod &&
-          !podsRowContainerElement?.querySelector(`#${podElement.id}`) &&
-          getPref("zen.downloads.download-animation", true);
         if (orderedPodKeys.length === 1) {
-          if (!willDeferForZenArc) {
-            updateDownloadCardsVisibility();
-            if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
-              hideMediaControlsToolbar(); // Hide media controls when showing download pods
-            }
-          } else {
-            debugLog("[PodFUNC] Deferring container show until Zen arc animation completes (prevents freeze on complex pages).");
+          updateDownloadCardsVisibility();
+          if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
+            hideMediaControlsToolbar(); // Hide media controls when showing download pods
           }
         }
         
@@ -5526,15 +5514,6 @@ Instructions:
         podsRowContainerElement.style.pointerEvents = 'none';
       }
     } else if (orderedPodKeys.length > 0) {
-      // FREEZE FIX: Don't show container while any pod waits for Zen arc animation.
-      // CompactModeObserver/MutationObserver can fire during the arc (zen-sidebar-expanded etc.),
-      // which would show the container too early and cause freeze. triggerCardEntrance will show
-      // when the arc completes.
-      const anyPodWaitingForZen = orderedPodKeys.some(k => activeDownloadCards.get(k)?.isWaitingForZenAnimation);
-      if (anyPodWaitingForZen) {
-        debugLog("[CompactModeObserver] Skipping show - pod(s) waiting for Zen arc animation (prevents freeze)");
-        return;
-      }
       // Show if we have pods and not in collapsed compact mode
       debugLog("[CompactModeObserver] Showing download cards (not in collapsed compact mode)");
       downloadCardsContainer.style.display = 'flex';
@@ -5750,17 +5729,10 @@ function triggerCardEntrance(downloadKeyToTrigger) {
         debugLog(`[ZenSync] Appended pod ${downloadKeyToTrigger} to DOM after Zen animation.`);
     }
     
-    // FREEZE FIX: Defer container show after arc completes. The arc's cleanup (DOM removal,
-    // compositor updates) can still stress the main thread; showing our backdrop-filter UI
-    // immediately can cause crash on complex pages. This delay lets the browser settle.
-    const postArcDelayMs = getPref("extensions.downloads.post_arc_show_delay_ms", 200);
-    setTimeout(() => {
-      updateDownloadCardsVisibility();
-      if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
-        hideMediaControlsToolbar();
-      }
-      updateUIForFocusedDownload(focusedDownloadKey || downloadKeyToTrigger, false);
-    }, postArcDelayMs);
+    // Call updateUI which will call managePodVisibilityAndAnimations
+    // If this download is the new focus, it makes sense to update everything.
+    // If not, we still need to re-evaluate layout for all pods.
+    updateUIForFocusedDownload(focusedDownloadKey || downloadKeyToTrigger, false); 
   } else {
     debugLog(`[ZenSync] triggerCardEntrance: Called for ${downloadKeyToTrigger} but it was not waiting for Zen animation. Ignoring.`);
   }
