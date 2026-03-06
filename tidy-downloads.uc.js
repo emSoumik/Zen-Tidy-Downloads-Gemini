@@ -168,12 +168,19 @@
     // Global UI update throttle to avoid layout storms on very large downloads
     let lastUIUpdateTime = 0;
     let MIN_UI_UPDATE_INTERVAL_MS = 150;
+    // More aggressive throttling for very large downloads (based on total size)
+    const LARGE_DOWNLOAD_BYTES_THRESHOLD = 100 * 1024 * 1024; // 100 MB default
+    let LARGE_DOWNLOAD_PROGRESS_THROTTLE_MS = 2000; // 2s default for very large files
+    // File preview toggle (useful for performance testing on very large files)
+    let filePreviewEnabled = true;
     try {
       if (typeof getPref === "function") {
         MIN_UI_UPDATE_INTERVAL_MS = getPref("extensions.downloads.ui_update_min_interval_ms", 150);
+        LARGE_DOWNLOAD_PROGRESS_THROTTLE_MS = getPref("extensions.downloads.large_progress_update_throttle_ms", 2000);
+        filePreviewEnabled = !getPref("extensions.downloads.disable_file_preview", false);
       }
     } catch (e) {
-      // Fallback to default if prefs are unavailable
+      // Fallback to defaults if prefs are unavailable
     }
     let currentZenSidebarWidth = '';
     let podsRowContainerElement = null; // Renamed back from podsStackContainerElement
@@ -1310,10 +1317,28 @@
       const now = Date.now();
       const lastUpdate = cardUpdateThrottle.get(key) || 0;
       
-      // More aggressive throttling for in-progress downloads to reduce UI churn
-      const progressThrottleMs = getPref("extensions.downloads.progress_update_throttle_ms", 500);
+      // Base throttling for in-progress downloads to reduce UI churn
+      let progressThrottleMs = 500;
+      try {
+        if (typeof getPref === "function") {
+          progressThrottleMs = getPref("extensions.downloads.progress_update_throttle_ms", 500);
+        }
+      } catch (e) {
+        // Fallback to default if prefs are unavailable
+      }
+
+      // If this is a very large download, apply a stricter throttle for in-progress updates.
+      // The logic only affects in-progress states; final states are still delivered immediately.
+      const totalBytes = (typeof download.totalBytes === "number" && download.totalBytes > 0)
+        ? download.totalBytes
+        : null;
+      if (totalBytes && totalBytes >= LARGE_DOWNLOAD_BYTES_THRESHOLD && !download.succeeded && !download.error && !download.canceled) {
+        if (LARGE_DOWNLOAD_PROGRESS_THROTTLE_MS > progressThrottleMs) {
+          progressThrottleMs = LARGE_DOWNLOAD_PROGRESS_THROTTLE_MS;
+        }
+      }
       
-      // CRITICAL FIX: Never throttle final states (succeeded, error, canceled). 
+      // CRITICAL FIX: Never throttle final states (succeeded, error, canceled).
       // Large files can finish shortly after a progress update, and we must not miss the success event.
       const isFinalState = download.succeeded || download.error || download.canceled;
       const throttleDelay = isFinalState ? 0 : progressThrottleMs;
@@ -3803,6 +3828,12 @@
   async function setCompletedFilePreview(previewElement, download) {
     if (!previewElement) {
       debugLog("[setCompletedFilePreview] No preview element provided");
+      return;
+    }
+
+    // Optional global kill-switch for previews (useful for debugging large-download freezes).
+    if (!filePreviewEnabled) {
+      setGenericIcon(previewElement, download?.contentType || null);
       return;
     }
 
