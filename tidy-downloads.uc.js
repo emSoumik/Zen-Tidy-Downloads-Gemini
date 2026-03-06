@@ -172,6 +172,9 @@
     let orderedPodKeys = []; // Newest will be at the end
     let lastRotationDirection = null; // Track rotation direction: 'forward', 'backward', or null
     const dismissedDownloads = new Set(); // Track downloads that have been manually dismissed or auto-hidden
+    let managePodLayoutPending = false; // Guard against redundant managePodVisibilityAndAnimations scheduling
+    let cachedTooltipWidth = 0; // Cache tooltip width to avoid forced reflows during animations
+    let cachedTooltipWidthTimestamp = 0; // Timestamp for cache invalidation
     
     // AI Process Management
     const activeAIProcesses = new Map(); // downloadKey -> { abortController, processState, startTime }
@@ -1318,8 +1321,14 @@
       const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
       if (podElement) {
         debugLog(`[Throttle] Pod element created/updated for ${key}.`);
-        // Only trigger UI update if this is the focused download or if it's a significant state change
-        if (key === focusedDownloadKey || download.succeeded || download.error || download.canceled || isNewCardOnInit) {
+        
+        // Skip full UI updates while the pod is waiting for the Zen arc animation to finish.
+        // This prevents forced reflows (via offsetWidth) that compete with the animation engine,
+        // which is the primary cause of browser freezes on complex websites.
+        const cardDataForThrottle = activeDownloadCards.get(key);
+        if (cardDataForThrottle && cardDataForThrottle.isWaitingForZenAnimation) {
+          debugLog(`[Throttle] Pod ${key} is waiting for Zen animation, deferring UI update`);
+        } else if (key === focusedDownloadKey || download.succeeded || download.error || download.canceled || isNewCardOnInit) {
           updateUIForFocusedDownload(focusedDownloadKey || key, true);
         }
       } else {
@@ -1697,11 +1706,13 @@
         }
       } // else, it's an update to an existing pod, no need for Zen animation sync.
 
-      // Append to the horizontal row container
-      // The actual animation trigger will be handled by updateUIForFocusedDownload or Zen sync
-      if (podsRowContainerElement && !podElement.parentNode) {
+      // Append to the horizontal row container ONLY if not waiting for Zen animation.
+      // Deferring DOM append prevents layout thrashing during the arc animation,
+      // which is the primary cause of freezes on complex websites.
+      // triggerCardEntrance() will handle the append when the animation finishes.
+      if (podsRowContainerElement && !podElement.parentNode && !cardData.isWaitingForZenAnimation) {
         podsRowContainerElement.appendChild(podElement);
-        cardData.domAppended = true; // Mark as appended to DOM
+        cardData.domAppended = true;
       }
 
     } else {
@@ -2100,13 +2111,21 @@
       } // End of a valid 'download' object check
     } // End of valid 'cardDataToFocus' and 'podElement' check
 
-    // 4. Call managePodVisibilityAndAnimations (always call to ensure layout is correct)
-    // Use a small delay to ensure DOM updates are processed
-    requestAnimationFrame(() => {
+    // 4. Call managePodVisibilityAndAnimations (skip if any pod is waiting for Zen animation to avoid layout thrashing)
+    const anyPodWaitingForZen = Array.from(activeDownloadCards.values()).some(cd => cd.isWaitingForZenAnimation);
+    if (anyPodWaitingForZen) {
+        debugLog("[UIUPDATE] Skipping managePodVisibilityAndAnimations - pod(s) still waiting for Zen animation to finish");
+    } else if (!managePodLayoutPending) {
+        managePodLayoutPending = true;
         requestAnimationFrame(() => {
-            managePodVisibilityAndAnimations();
+            requestAnimationFrame(() => {
+                managePodLayoutPending = false;
+                managePodVisibilityAndAnimations();
+            });
         });
-    });
+    } else {
+        debugLog("[UIUPDATE] managePodVisibilityAndAnimations already scheduled, skipping duplicate");
+    }
 
     // 6. Update which pod appears "focused" visually (this iterates all cards, safe to be here)
     activeDownloadCards.forEach(cd => {
@@ -2135,7 +2154,14 @@
     debugLog("[LayoutManager] managePodVisibilityAndAnimations Natural Stacking Style called.");
     debugLog(`[LayoutManager] Current state: orderedPodKeys=${orderedPodKeys.length}, focusedDownloadKey=${focusedDownloadKey}, activeDownloadCards=${activeDownloadCards.size}`);
 
-    const tooltipWidth = masterTooltipDOMElement.offsetWidth;
+    // Use cached tooltip width to avoid forced synchronous reflows during animations.
+    // Only re-read from DOM if cache is stale (>200ms) or was never set.
+    const now = Date.now();
+    if (now - cachedTooltipWidthTimestamp > 200 || cachedTooltipWidth === 0) {
+        cachedTooltipWidth = masterTooltipDOMElement.offsetWidth;
+        cachedTooltipWidthTimestamp = now;
+    }
+    const tooltipWidth = cachedTooltipWidth;
     const podNominalWidth = 56; 
     const podOverlapAmount = 40; 
     const baseZIndex = 10;
@@ -5722,6 +5748,11 @@ function triggerCardEntrance(downloadKeyToTrigger) {
     debugLog(`[ZenSync] triggerCardEntrance: Zen animation completed or fallback for ${downloadKeyToTrigger}. Pod is ready for layout.`);
     cardData.isWaitingForZenAnimation = false;
     
+    // Invalidate cached tooltip width so layout manager reads fresh dimensions
+    cachedTooltipWidthTimestamp = 0;
+    // Reset layout scheduling guard so the next updateUI call can schedule it
+    managePodLayoutPending = false;
+    
     // Ensure the pod is appended to DOM if it hasn't been already
     if (!cardData.domAppended && podsRowContainerElement && cardData.podElement) {
         podsRowContainerElement.appendChild(cardData.podElement);
@@ -5729,36 +5760,54 @@ function triggerCardEntrance(downloadKeyToTrigger) {
         debugLog(`[ZenSync] Appended pod ${downloadKeyToTrigger} to DOM after Zen animation.`);
     }
     
-    // Call updateUI which will call managePodVisibilityAndAnimations
-    // If this download is the new focus, it makes sense to update everything.
-    // If not, we still need to re-evaluate layout for all pods.
+    // Call updateUI which will call managePodVisibilityAndAnimations.
+    // Now safe because the Zen animation is finished - no more layout thrashing risk.
     updateUIForFocusedDownload(focusedDownloadKey || downloadKeyToTrigger, false); 
   } else {
     debugLog(`[ZenSync] triggerCardEntrance: Called for ${downloadKeyToTrigger} but it was not waiting for Zen animation. Ignoring.`);
   }
 }
 
-function initZenAnimationObserver(downloadKey, podElementToMonitor) { // podElement is passed for context, not direct manipulation here
+function initZenAnimationObserver(downloadKey, podElementToMonitor) {
   debugLog("[ZenSync] Initializing observer for key:", downloadKey);
   let observer = null;
   let fallbackTimeoutId = null;
+  let alreadyTriggered = false;
 
   const zenAnimationHost = document.querySelector('zen-download-animation');
 
   if (zenAnimationHost && zenAnimationHost.shadowRoot) {
     debugLog("[ZenSync] Found zen-download-animation host and shadowRoot.");
 
+    // Check if there are currently any arc animation elements in the shadow root.
+    // If none exist, the animation may have already completed before we started observing.
+    const existingArcElements = zenAnimationHost.shadowRoot.querySelectorAll('.zen-download-arc-animation');
+    if (existingArcElements.length === 0) {
+      debugLog("[ZenSync] No arc animation elements found in shadow root - animation likely already completed.", { key: downloadKey });
+      triggerCardEntrance(downloadKey);
+      return;
+    }
+
+    const safeCleanup = () => {
+      if (alreadyTriggered) return;
+      alreadyTriggered = true;
+      clearTimeout(fallbackTimeoutId);
+      if (observer) {
+        observer.disconnect();
+        observer = null;
+      }
+      triggerCardEntrance(downloadKey);
+    };
+
     observer = new MutationObserver((mutationsList, obs) => {
+      if (alreadyTriggered) return;
       for (const mutation of mutationsList) {
         if (mutation.type === 'childList' && mutation.removedNodes.length > 0) {
           for (const removedNode of mutation.removedNodes) {
             if (removedNode.nodeType === Node.ELEMENT_NODE && removedNode.classList.contains('zen-download-arc-animation')) {
               debugLog("[ZenSync] Detected .zen-download-arc-animation removal. Triggering pod entrance.", { key: downloadKey });
-              clearTimeout(fallbackTimeoutId); // Clear the safety fallback
-              triggerCardEntrance(downloadKey, podElementToMonitor);
-              obs.disconnect(); // Stop observing
-              observer = null; // Clean up observer reference
-              return; // Exit once detected
+              safeCleanup();
+              return;
             }
           }
         }
@@ -5768,21 +5817,16 @@ function initZenAnimationObserver(downloadKey, podElementToMonitor) { // podElem
     observer.observe(zenAnimationHost.shadowRoot, { childList: true });
     debugLog("[ZenSync] Observer started on shadowRoot.");
 
-    // Safety fallback timeout
+    // Reduced fallback timeout: the Zen animation duration pref default is ~800ms,
+    // so 1.5s is a safe upper bound. 3s was too long - the pod appeared to be "stuck".
     fallbackTimeoutId = setTimeout(() => {
       debugLog("[ZenSync] Fallback timeout reached. Triggering card entrance signal.", { key: downloadKey });
-      if (observer) {
-        observer.disconnect();
-        observer = null;
-      }
-      triggerCardEntrance(downloadKey); 
-      // CardData fallbackTriggered is not strictly needed now as triggerCardEntrance is just a signal
-    }, 3000); // 3-second fallback
+      safeCleanup();
+    }, 1500);
 
   } else {
     debugLog("[ZenSync] zen-download-animation host or shadowRoot not found. Triggering card entrance signal immediately.", { key: downloadKey });
     triggerCardEntrance(downloadKey);
-    // CardData fallbackTriggered not strictly needed
   }
 }
 
