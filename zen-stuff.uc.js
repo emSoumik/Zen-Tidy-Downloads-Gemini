@@ -226,6 +226,17 @@
     }
   }
 
+  // Global toggle for dismissed-pod file previews (helps debug large-file freezes)
+  let zenStuffFilePreviewEnabled = true;
+  try {
+    if (typeof Services !== "undefined" && Services.prefs) {
+      zenStuffFilePreviewEnabled = !Services.prefs.getBoolPref("extensions.downloads.disable_file_preview", false);
+    }
+  } catch (e) {
+    // Fallback to enabled if prefs are unavailable
+    zenStuffFilePreviewEnabled = true;
+  }
+
   // File system utilities with proper error handling
   class FileSystem {
     static async createFileInstance(path) {
@@ -1250,6 +1261,12 @@
     // Priority: Image -> Text -> System Icon -> Generic Icon
     
     const renderPreview = async () => {
+        // Global kill-switch for file previews (shared with tidy-downloads via the same pref).
+        if (!zenStuffFilePreviewEnabled) {
+            const icon = getFileIcon(podData.contentType);
+            renderIcon(icon);
+            return;
+        }
         // 1. Image
         if (podData.previewData && podData.previewData.type === 'image' && podData.previewData.src) {
              const img = document.createElement("img");
