@@ -4,6 +4,7 @@
 
 /* Main download cards container - uses absolute positioning for toolbar integration */
 /* Positioned same as zen-stuff pile: bottom: 35px above toolbar buttons */
+/* contain: layout paint reduces layout thrashing when Zen arc animation runs on complex pages */
 #userchrome-download-cards-container {
   position: absolute;
   left: 5px;
@@ -17,6 +18,7 @@
   pointer-events: none;
   box-sizing: border-box;
   -moz-window-dragging: no-drag;
+  contain: layout paint;
 }
 
 /* Master tooltip - relative positioning for toolbar integration */

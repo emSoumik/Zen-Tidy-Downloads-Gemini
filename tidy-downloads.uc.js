@@ -1637,10 +1637,21 @@
         orderedPodKeys.push(key);
         
         // Show the container when we add the first pod (respects compact mode)
+        // FREEZE FIX: Defer showing container until Zen arc animation completes to prevent browser
+        // freeze on complex websites. The arc animation + our backdrop-filter tooltip run
+        // simultaneously and overload the compositor. triggerCardEntrance will show the
+        // container when the arc finishes (or immediately if Zen animation is disabled).
+        const willDeferForZenArc = isNewPod &&
+          !podsRowContainerElement?.querySelector(`#${podElement.id}`) &&
+          getPref("zen.downloads.download-animation", true);
         if (orderedPodKeys.length === 1) {
-          updateDownloadCardsVisibility();
-          if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
-            hideMediaControlsToolbar(); // Hide media controls when showing download pods
+          if (!willDeferForZenArc) {
+            updateDownloadCardsVisibility();
+            if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
+              hideMediaControlsToolbar(); // Hide media controls when showing download pods
+            }
+          } else {
+            debugLog("[PodFUNC] Deferring container show until Zen arc animation completes (prevents freeze on complex pages).");
           }
         }
         
@@ -5727,6 +5738,12 @@ function triggerCardEntrance(downloadKeyToTrigger) {
         podsRowContainerElement.appendChild(cardData.podElement);
         cardData.domAppended = true;
         debugLog(`[ZenSync] Appended pod ${downloadKeyToTrigger} to DOM after Zen animation.`);
+    }
+    
+    // Show container now that Zen arc animation has completed (was deferred to prevent freeze)
+    updateDownloadCardsVisibility();
+    if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
+      hideMediaControlsToolbar();
     }
     
     // Call updateUI which will call managePodVisibilityAndAnimations
