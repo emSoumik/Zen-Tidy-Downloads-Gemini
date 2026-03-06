@@ -165,6 +165,11 @@
     let renamedFiles = new Set();
     let aiRenamingPossible = false;
     let cardUpdateThrottle = new Map(); // Prevent rapid updates
+    // Global UI update throttle to avoid layout storms on very large downloads
+    let lastUIUpdateTime = 0;
+    const MIN_UI_UPDATE_INTERVAL_MS = getPref
+      ? getPref("extensions.downloads.ui_update_min_interval_ms", 150)
+      : 150;
     let currentZenSidebarWidth = '';
     let podsRowContainerElement = null; // Renamed back from podsStackContainerElement
     let masterTooltipDOMElement = null;
@@ -1318,8 +1323,14 @@
       const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
       if (podElement) {
         debugLog(`[Throttle] Pod element created/updated for ${key}.`);
-        // Only trigger UI update if this is the focused download or if it's a significant state change
-        if (key === focusedDownloadKey || download.succeeded || download.error || download.canceled || isNewCardOnInit) {
+        // Global UI throttle: avoid running heavy UI/layout logic on every progress event,
+        // while still updating immediately for final states and initial card creation.
+        const nowForUI = Date.now();
+        const shouldForceUpdate = isNewCardOnInit || isFinalState;
+        const enoughTimeElapsed = (nowForUI - lastUIUpdateTime) >= MIN_UI_UPDATE_INTERVAL_MS;
+
+        if (shouldForceUpdate || enoughTimeElapsed) {
+          lastUIUpdateTime = nowForUI;
           updateUIForFocusedDownload(focusedDownloadKey || key, true);
         }
       } else {
