@@ -1315,11 +1315,13 @@
       
       cardUpdateThrottle.set(key, now);
 
-      // TEMP DEBUG: early return to test if freeze is in pod creation / UI update path
-      return;
-
+      // First, create or update the pod element
       debugLog(`[Throttle] Calling createOrUpdatePodElement for key: ${key}, isNewOnInit: ${isNewCardOnInit}, error: ${!!download.error}, succeeded: ${!!download.succeeded}, canceled: ${!!download.canceled}`);
       const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
+
+      // TEMP DEBUG: early return after pod creation, before UI update focus/tooltip logic
+      return;
+
       if (podElement) {
         debugLog(`[Throttle] Pod element created/updated for ${key}.`);
         // Only trigger UI update if this is the focused download or if it's a significant state change
