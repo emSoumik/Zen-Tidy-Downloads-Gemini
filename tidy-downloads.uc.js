@@ -5525,6 +5525,15 @@ Instructions:
         podsRowContainerElement.style.pointerEvents = 'none';
       }
     } else if (orderedPodKeys.length > 0) {
+      // FREEZE FIX: Don't show container while any pod waits for Zen arc animation.
+      // CompactModeObserver/MutationObserver can fire during the arc (zen-sidebar-expanded etc.),
+      // which would show the container too early and cause freeze. triggerCardEntrance will show
+      // when the arc completes.
+      const anyPodWaitingForZen = orderedPodKeys.some(k => activeDownloadCards.get(k)?.isWaitingForZenAnimation);
+      if (anyPodWaitingForZen) {
+        debugLog("[CompactModeObserver] Skipping show - pod(s) waiting for Zen arc animation (prevents freeze)");
+        return;
+      }
       // Show if we have pods and not in collapsed compact mode
       debugLog("[CompactModeObserver] Showing download cards (not in collapsed compact mode)");
       downloadCardsContainer.style.display = 'flex';
