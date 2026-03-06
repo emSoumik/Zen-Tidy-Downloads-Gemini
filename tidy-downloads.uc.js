@@ -1314,8 +1314,6 @@
       }
       
       cardUpdateThrottle.set(key, now);
-
-      return;
       debugLog(`[Throttle] Calling createOrUpdatePodElement for key: ${key}, isNewOnInit: ${isNewCardOnInit}, error: ${!!download.error}, succeeded: ${!!download.succeeded}, canceled: ${!!download.canceled}`);
       const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
       if (podElement) {
