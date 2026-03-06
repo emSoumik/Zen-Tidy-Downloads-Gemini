@@ -1621,22 +1621,25 @@
         });
 
         cardData = {
-        podElement, // Renamed from cardElement
+          podElement, // Renamed from cardElement
           download,
           complete: false,
           key: key,
           originalFilename: safeFilename, // This is the filename as of pod creation/update
           trueOriginalPathBeforeAIRename: null, // Will store the full path before AI rename
           trueOriginalSimpleNameBeforeAIRename: null, // Will store just the simple filename before AI rename
-        lastInteractionTime: Date.now(),
-        isVisible: false, // Will be set by layout manager
-        isWaitingForZenAnimation: false, // Default, will be set true if new and Zen sync is active
-        domAppended: false, // New flag: has this pod been added to podsRowContainerElement?
-        intendedTargetTransform: null, // For stable animation triggering
-        intendedTargetOpacity: null,   // For stable animation triggering
-        isBeingRemoved: false          // To prevent layout conflicts during removal
+          lastInteractionTime: Date.now(),
+          isVisible: false, // Will be set by layout manager
+          isWaitingForZenAnimation: false, // Default, will be set true if new and Zen sync is active
+          domAppended: false, // New flag: has this pod been added to podsRowContainerElement?
+          intendedTargetTransform: null, // For stable animation triggering
+          intendedTargetOpacity: null,   // For stable animation triggering
+          isBeingRemoved: false          // To prevent layout conflicts during removal
         };
         activeDownloadCards.set(key, cardData);
+
+        // TEMP DEBUG: early return before visibility/layout and Zen animation observer logic
+        return podElement;
 
       // Add to ordered list (newest at the end)
       if (!orderedPodKeys.includes(key)) {
