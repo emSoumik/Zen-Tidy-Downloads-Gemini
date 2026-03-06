@@ -171,13 +171,14 @@
     // More aggressive throttling for very large downloads (based on total size)
     const LARGE_DOWNLOAD_BYTES_THRESHOLD = 100 * 1024 * 1024; // 100 MB default
     let LARGE_DOWNLOAD_PROGRESS_THROTTLE_MS = 2000; // 2s default for very large files
-    // File preview toggle (useful for performance testing on very large files)
-    let filePreviewEnabled = true;
+    // File preview toggle (disabled by default, can be enabled via pref)
+    let filePreviewEnabled = false;
     try {
       if (typeof getPref === "function") {
         MIN_UI_UPDATE_INTERVAL_MS = getPref("extensions.downloads.ui_update_min_interval_ms", 150);
         LARGE_DOWNLOAD_PROGRESS_THROTTLE_MS = getPref("extensions.downloads.large_progress_update_throttle_ms", 2000);
-        filePreviewEnabled = !getPref("extensions.downloads.disable_file_preview", false);
+        // Explicit opt-in: previews only if user enables them.
+        filePreviewEnabled = getPref("extensions.downloads.enable_file_preview", false);
       }
     } catch (e) {
       // Fallback to defaults if prefs are unavailable

@@ -226,15 +226,16 @@
     }
   }
 
-  // Global toggle for dismissed-pod file previews (helps debug large-file freezes)
-  let zenStuffFilePreviewEnabled = true;
+  // Global toggle for dismissed-pod file previews (disabled by default, opt-in via pref)
+  let zenStuffFilePreviewEnabled = false;
   try {
     if (typeof Services !== "undefined" && Services.prefs) {
-      zenStuffFilePreviewEnabled = !Services.prefs.getBoolPref("extensions.downloads.disable_file_preview", false);
+      // Explicit opt-in: previews only if user enables them.
+      zenStuffFilePreviewEnabled = Services.prefs.getBoolPref("extensions.downloads.enable_file_preview", false);
     }
   } catch (e) {
-    // Fallback to enabled if prefs are unavailable
-    zenStuffFilePreviewEnabled = true;
+    // Fallback to disabled if prefs are unavailable
+    zenStuffFilePreviewEnabled = false;
   }
 
   // File system utilities with proper error handling
