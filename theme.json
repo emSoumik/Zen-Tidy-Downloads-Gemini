@@ -45,5 +45,6 @@
   ],
   "createdAt": "2025-05-24",
   "updatedAt": "2026-02-04",
+  "ai": "yes",
   "fork": ["zen"]
 }
