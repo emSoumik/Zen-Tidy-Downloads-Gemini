@@ -3630,6 +3630,8 @@
       container.style.display = "flex";
       container.style.alignItems = "center";
       container.style.justifyContent = "center";
+      container.style.background = "rgba(80, 80, 80, 0.5)";
+      container.style.borderRadius = "6px";
       container.appendChild(img);
   }
 

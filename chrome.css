@@ -263,8 +263,6 @@
   object-fit: cover;
   border-radius: 12px;
   transition: all 0.3s ease;
-  /* Remove default opacity: 0 so system icons are visible immediately */
-  /* If images need fade-in, handle it via JS or a specific class */
 }
 
 .card-preview-container span {
