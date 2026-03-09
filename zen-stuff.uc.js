@@ -151,11 +151,11 @@
     }
   }
 
-  // Global toggle for dismissed-pod file previews (disabled by default, opt-in via pref)
+  // Text-file preview toggle for dismissed pods (disabled by default). Images always get previews.
   let zenStuffFilePreviewEnabled = false;
   try {
     if (typeof Services !== "undefined" && Services.prefs) {
-      // Explicit opt-in: previews only if user enables them.
+      // Opt-in for text-file previews; images always show regardless.
       zenStuffFilePreviewEnabled = Services.prefs.getBoolPref("extensions.downloads.enable_file_preview", false);
     }
   } catch (e) {
@@ -1187,13 +1187,7 @@
     // Priority: Image -> Text -> System Icon -> Generic Icon
     
     const renderPreview = async () => {
-        // Global kill-switch for file previews (shared with tidy-downloads via the same pref).
-        if (!zenStuffFilePreviewEnabled) {
-            const icon = getFileIcon(podData.contentType);
-            renderIcon(icon);
-            return;
-        }
-        // 1. Image
+        // 1. Image (always show when available - not gated by pref)
         if (podData.previewData && podData.previewData.type === 'image' && podData.previewData.src) {
              const img = document.createElement("img");
             img.src = podData.previewData.src;
@@ -1214,31 +1208,46 @@
             return;
         }
         
-        // 2. Text File (if path available)
+        // 2. Text File (if path available - disabled by default via pref)
         if (podData.targetPath && isTextFile(podData.filename, podData.contentType)) {
-             const textContent = await readTextFilePreview(podData.targetPath);
-             if (textContent) {
-                  preview.innerHTML = "";
-                  const textDiv = document.createElement("div");
-                  textDiv.style.cssText = `
-                      width: 100%;
-                      height: 100%;
-                      padding: 4px;
-                      box-sizing: border-box;
-                      font-family: monospace;
-                      font-size: 5px; 
-                      line-height: 1.1;
-                      overflow: hidden;
-                      white-space: pre-wrap;
-                      color: rgba(255,255,255,0.8);
-                      background: rgba(0,0,0,0.2);
-                      text-align: left;
-                      word-break: break-all;
-                  `;
-                  textDiv.textContent = textContent;
-                  preview.appendChild(textDiv);
-                  return;
+             if (zenStuffFilePreviewEnabled) {
+                  const textContent = await readTextFilePreview(podData.targetPath);
+                  if (textContent) {
+                      preview.innerHTML = "";
+                      const textDiv = document.createElement("div");
+                      textDiv.style.cssText = `
+                          width: 100%;
+                          height: 100%;
+                          padding: 4px;
+                          box-sizing: border-box;
+                          font-family: monospace;
+                          font-size: 5px; 
+                          line-height: 1.1;
+                          overflow: hidden;
+                          white-space: pre-wrap;
+                          color: rgba(255,255,255,0.8);
+                          background: rgba(0,0,0,0.2);
+                          text-align: left;
+                          word-break: break-all;
+                      `;
+                      textDiv.textContent = textContent;
+                      preview.appendChild(textDiv);
+                      return;
+                  }
              }
+             // No preview - use system icon for text files
+             const fileUrl = "file:///" + podData.targetPath.replace(/\\/g, "/");
+             const iconUrl = `moz-icon://${fileUrl}?size=32`;
+             const img = document.createElement("img");
+             img.src = iconUrl;
+             img.style.cssText = `width: 100%; height: 100%; object-fit: cover;`;
+             img.onerror = () => {
+                 const icon = getFileIcon(podData.contentType);
+                 renderIcon(icon);
+             };
+             preview.innerHTML = "";
+             preview.appendChild(img);
+             return;
         }
 
         // 3. System Icon (for .exe, video, pdf, etc.)

@@ -184,13 +184,13 @@
     // More aggressive throttling for very large downloads (based on total size)
     const LARGE_DOWNLOAD_BYTES_THRESHOLD = 100 * 1024 * 1024; // 100 MB default
     let LARGE_DOWNLOAD_PROGRESS_THROTTLE_MS = 2000; // 2s default for very large files
-    // File preview toggle (disabled by default, can be enabled via pref)
+    // Text-file preview toggle (disabled by default). Images always get previews.
     let filePreviewEnabled = false;
     try {
       if (typeof getPref === "function") {
         MIN_UI_UPDATE_INTERVAL_MS = getPref("extensions.downloads.ui_update_min_interval_ms", 150);
         LARGE_DOWNLOAD_PROGRESS_THROTTLE_MS = getPref("extensions.downloads.large_progress_update_throttle_ms", 2000);
-        // Explicit opt-in: previews only if user enables them.
+        // Opt-in for text-file previews; images always show regardless.
         filePreviewEnabled = getPref("extensions.downloads.enable_file_preview", false);
       }
     } catch (e) {
@@ -3447,12 +3447,6 @@
       return;
     }
 
-    // Optional global kill-switch for previews (useful for debugging large-download freezes).
-    if (!filePreviewEnabled) {
-      setGenericIcon(previewElement, download?.contentType || null);
-      return;
-    }
-
     debugLog("[setCompletedFilePreview] Called", { 
       contentType: download?.contentType, 
       targetPath: download?.target?.path,
@@ -3537,7 +3531,7 @@
         return;
       }
 
-      // 2. Check for Text Files
+      // 2. Check for Text Files (preview disabled by default - use generic icon)
       let isTextExtension = false;
       for (const ext of TEXT_EXTS) {
           if (lowerPath.endsWith(ext)) {
@@ -3547,31 +3541,36 @@
       }
       
       if (isTextExtension || download?.contentType?.startsWith("text/")) {
-          debugLog("[setCompletedFilePreview] Rendering Text Preview");
-          const textContent = await readTextFilePreview(filePath);
-          if (textContent) {
-              previewElement.innerHTML = "";
-              const textDiv = document.createElement("div");
-              textDiv.style.cssText = `
-                  width: 100%;
-                  height: 100%;
-                  padding: 6px;
-                  box-sizing: border-box;
-                  font-family: monospace;
-                  font-size: 6px; /* Tiny font for preview effect */
-                  line-height: 1.2;
-                  overflow: hidden;
-                  white-space: pre-wrap;
-                  color: rgba(255,255,255,0.8);
-                  background: rgba(0,0,0,0.2);
-                  border-radius: 8px;
-                  text-align: left;
-                  word-break: break-all;
-              `;
-              textDiv.textContent = textContent;
-              previewElement.appendChild(textDiv);
-              return;
+          if (filePreviewEnabled) {
+              debugLog("[setCompletedFilePreview] Rendering Text Preview");
+              const textContent = await readTextFilePreview(filePath);
+              if (textContent) {
+                  previewElement.innerHTML = "";
+                  const textDiv = document.createElement("div");
+                  textDiv.style.cssText = `
+                      width: 100%;
+                      height: 100%;
+                      padding: 6px;
+                      box-sizing: border-box;
+                      font-family: monospace;
+                      font-size: 6px; /* Tiny font for preview effect */
+                      line-height: 1.2;
+                      overflow: hidden;
+                      white-space: pre-wrap;
+                      color: rgba(255,255,255,0.8);
+                      background: rgba(0,0,0,0.2);
+                      border-radius: 8px;
+                      text-align: left;
+                      word-break: break-all;
+                  `;
+                  textDiv.textContent = textContent;
+                  previewElement.appendChild(textDiv);
+                  return;
+              }
           }
+          debugLog("[setCompletedFilePreview] Text file, no preview - using System Icon");
+          renderSystemIcon(previewElement, filePath);
+          return;
       }
 
       // 3. Check for System Icon Types (Video, PDF, Exe, etc.)
