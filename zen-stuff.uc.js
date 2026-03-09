@@ -2672,33 +2672,14 @@
   // applyTabsWrapperMask and removeTabsWrapperMask function removed - logic replaced by CSS mask-image with --zen-pile-height variable
 
   // Show pile background on hover
-  // Simplified: use mask-image on #zen-tabs-wrapper and make dynamicSizer transparent overlay
+  // dynamicSizer stays transparent in all modes so the mask on #zen-tabs-wrapper reveals the titlebar underneath
   function showPileBackground() {
     if (!state.dynamicSizer) return;
 
-    // Detect compact toolbar mode (sidebar collapsed)
-    const isCompactToolbar = document.documentElement.getAttribute('zen-compact-mode') === 'true';
-
-    // In compact toolbar mode, use solid background to match toolbar
-    if (isCompactToolbar) {
-      const rootStyle = window.getComputedStyle(document.documentElement);
-      const primaryBg = rootStyle.getPropertyValue('--zen-primary-color').trim() || 'var(--zen-primary-color)';
-      state.dynamicSizer.style.background = primaryBg;
-      state.dynamicSizer.style.backgroundColor = primaryBg;
-      state.dynamicSizer.style.backdropFilter = 'none';
-      state.dynamicSizer.style.webkitBackdropFilter = 'none';
-      updatePodTextColors();
-      return;
-    }
-
-    // Normal mode: make dynamicSizer transparent so it overlays the masked tabs wrapper
-    // The mask on #zen-tabs-wrapper reveals the titlebar underneath, so dynamicSizer must be transparent
     state.dynamicSizer.style.backgroundColor = 'transparent';
     state.dynamicSizer.style.background = 'transparent';
     state.dynamicSizer.style.backdropFilter = 'none';
     state.dynamicSizer.style.webkitBackdropFilter = 'none';
-
-    // Update text colors
     updatePodTextColors();
   }
 
