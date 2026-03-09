@@ -3568,8 +3568,9 @@
                   return;
               }
           }
-          debugLog("[setCompletedFilePreview] Text file, no preview - using System Icon");
-          renderSystemIcon(previewElement, filePath);
+          debugLog("[setCompletedFilePreview] Text file, no preview - using System Icon (extension-based)");
+          const ext = lowerPath.includes(".") ? lowerPath.slice(lowerPath.lastIndexOf(".")) : ".txt";
+          renderSystemIconByExtension(previewElement, ext);
           return;
       }
 
@@ -3598,25 +3599,33 @@
     }
   }
 
-  // Helper to render system icon
+  // Helper to render system icon by file path
   function renderSystemIcon(container, filePath) {
-      // Use standard icon URL scheme
       const fileUrl = "file:///" + filePath.replace(/\\/g, "/");
-      // Use moz-icon protocol with size 32
       const iconUrl = `moz-icon://${fileUrl}?size=32`;
-      
+      renderIconImg(container, iconUrl, () => setGenericIcon(container, null));
+  }
+
+  // Helper to render system icon by extension only (more reliable in download panel context)
+  function renderSystemIconByExtension(container, ext) {
+      const extSafe = ext && ext.startsWith(".") ? ext : "." + (ext || "txt");
+      const iconUrl = `moz-icon://${extSafe}?size=32`;
+      renderIconImg(container, iconUrl, () => setGenericIcon(container, null));
+  }
+
+  function renderIconImg(container, iconUrl, onError) {
       const img = document.createElement("img");
       img.src = iconUrl;
-      img.style.width = "32px"; 
+      img.style.width = "32px";
       img.style.height = "32px";
       img.style.objectFit = "contain";
-      
-      // Fallback if system icon fails to load (e.g. permission issue or invalid path)
       img.onerror = () => {
-          debugLog("[renderSystemIcon] Failed to load system icon, falling back to generic", { path: filePath });
-          setGenericIcon(container, null);
+          debugLog("[renderIconImg] Failed to load icon, falling back to generic", { url: iconUrl });
+          onError();
       };
-      
+      img.onload = () => {
+          if (img.naturalWidth === 0 || img.naturalHeight === 0) onError();
+      };
       container.innerHTML = "";
       container.style.display = "flex";
       container.style.alignItems = "center";
