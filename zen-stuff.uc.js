@@ -1882,10 +1882,16 @@
   }
 
   // Dynamic sizer leave handler
-  function handleDynamicSizerLeave() {
+  function handleDynamicSizerLeave(event) {
     debugLog("[SizerHover] handleDynamicSizerLeave called");
 
     clearTimeout(state.hoverTimeout);
+
+    // If moving into pile content (e.g. from sizer edge to a row), don't schedule hide
+    if (event?.relatedTarget && state.pileContainer?.contains(event.relatedTarget)) {
+      debugLog("[SizerHover] Moving into pile - not scheduling hide");
+      return;
+    }
 
     // Don't do anything if context menu is visible
     if (isContextMenuVisible()) {
@@ -1903,15 +1909,17 @@
     // Normal mode: handle pile hiding
     state.hoverTimeout = setTimeout(() => {
       const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
+      const isHoveringPile = state.pileContainer?.matches(':hover') || state.dynamicSizer?.matches(':hover');
 
       debugLog("[SizerHover] Leave timeout - checking hover states", {
         isHoveringDownloadArea,
         pileContainerHover: state.pileContainer?.matches(':hover'),
+        dynamicSizerHover: state.dynamicSizer?.matches(':hover'),
         contextMenuVisible: isContextMenuVisible()
       });
 
-      // Only hide if not hovering download button AND not hovering pile container AND context menu not visible
-      if (!isHoveringDownloadArea && !state.pileContainer?.matches(':hover')) {
+      // Only hide if not hovering download button AND not hovering pile/dynamicSizer AND context menu not visible
+      if (!isHoveringDownloadArea && !isHoveringPile) {
         if (isContextMenuVisible()) {
           debugLog("[SizerHover] Context menu visible at timeout - deferring pile close");
           state.pendingPileClose = true;
@@ -1972,10 +1980,16 @@
   }
 
   // Pile leave handler (simplified)
-  function handlePileLeave() {
+  function handlePileLeave(event) {
     debugLog("[PileHover] handlePileLeave called");
 
     clearTimeout(state.hoverTimeout);
+
+    // If moving within pile area (e.g. between rows), don't schedule hide
+    if (event?.relatedTarget && state.dynamicSizer?.contains(event.relatedTarget)) {
+      debugLog("[PileHover] Moving within pile area - not scheduling hide");
+      return;
+    }
 
     // Don't do anything if context menu is visible
     if (isContextMenuVisible()) {
@@ -2750,10 +2764,14 @@
       state.pileHoverEventsAttached = false;
     }
 
-    // Always use container hover events for single column mode
+    // Attach both: dynamicSizer (overall area) and pileContainer (pile rows) so mask stays when hovering rows
     state.dynamicSizer.addEventListener('mouseenter', handleDynamicSizerHover);
     state.dynamicSizer.addEventListener('mouseleave', handleDynamicSizerLeave);
     state.containerHoverEventsAttached = true;
+
+    state.pileContainer.addEventListener('mouseenter', handlePileHover);
+    state.pileContainer.addEventListener('mouseleave', handlePileLeave);
+    state.pileHoverEventsAttached = true;
   }
 
   // Alt key handlers for always-show mode
