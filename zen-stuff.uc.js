@@ -871,7 +871,7 @@
     state.hoverBridge.id = "zen-dismissed-pile-hover-bridge";
     state.hoverBridge.style.cssText = `
       position: absolute;
-      bottom: 15px;
+      bottom: 20px;
       left: 0;
       right: 0;
       height: 28px;
