@@ -312,7 +312,7 @@
         if (podData?.targetPath) {
           pathsToAllow.add(normalizePath(podData.targetPath));
         }
-        // Also treat podKey as path if it looks like a file path (covers canceled downloads where key=path)
+        // Also treat podKey as path if it looks like a file path (covers path-based keys)
         if (podKey && !podKey.startsWith("temp_") && (podKey.includes("/") || podKey.includes("\\"))) {
           pathsToAllow.add(normalizePath(podKey));
         }
@@ -751,20 +751,8 @@
                   if (cardData && cardData.download) {
                     try {
                       const download = cardData.download;
-                      // Pods only show on completion; no in-progress cancel flow.
+                      // Pods only show succeeded/error - canceled downloads are never shown.
 
-                      // Canceled download (user or system): permanently delete from history
-                      if (download.canceled && !cardData.permanentlyDeleted) {
-                        debugLog(`[MasterClose] Second click: Permanently deleting canceled download ${keyToRemove}`);
-                        // Set flag BEFORE erasing so onDownloadRemoved knows to skip its removeCard call
-                        cardData.isManuallyCleaning = true;
-                        await eraseDownloadFromHistory(download);
-                        cardData.permanentlyDeleted = true;
-                        debugLog(`[MasterClose] Successfully erased download from history: ${keyToRemove}`);
-                        removeCard(keyToRemove, true);
-                        return;
-                      }
-                      
                       // For completed downloads: just remove from UI, keep in browser history
                       if (download.succeeded) {
                         debugLog(`[MasterClose] Removing completed download from UI only (keeping in browser history): ${keyToRemove}`);
@@ -815,56 +803,8 @@
                   debugLog(`[MasterUndo] Master undo/resume button clicked. FocusedDownloadKey: ${focusedDownloadKey}`);
                   
                   if (focusedDownloadKey) {
-                      const cardData = activeDownloadCards.get(focusedDownloadKey);
-                      const download = cardData?.download;
-                      
-                      // Check if this is a user-canceled download (resume mode)
-                      if (download?.canceled && cardData?.userCanceled && !cardData?.permanentlyDeleted) {
-                          debugLog(`[MasterUndo] Resuming canceled download: ${focusedDownloadKey}`);
-                          try {
-                              // Resume the download
-                              download.start();
-                              
-                              // Clear the user-canceled flag
-                              cardData.userCanceled = false;
-                              
-                              // Update UI to show downloading state
-                              updateUIForFocusedDownload(focusedDownloadKey, true);
-                              
-                          } catch (resumeError) {
-                              debugLog(`[MasterUndo] Error resuming download ${focusedDownloadKey}:`, resumeError);
-                              
-                              // If resume fails, try to restart the download
-                              try {
-                                  const sourceUrl = download.source?.url;
-                                  if (sourceUrl) {
-                                      debugLog(`[MasterUndo] Resume failed, attempting to restart download from: ${sourceUrl}`);
-                                      
-                                      // Remove the failed download first
-                                      const undoCardData = activeDownloadCards.get(focusedDownloadKey);
-                                      if (undoCardData) undoCardData.isManuallyCleaning = true;
-                                      await eraseDownloadFromHistory(download);
-                                      removeCard(focusedDownloadKey, true);
-                                      
-                                      // Start a new download
-                                      const newDownload = await window.Downloads.createDownload({
-                                          source: sourceUrl,
-                                          target: download.target.path
-                                      });
-                                      newDownload.start();
-                                      
-                                  } else {
-                                      debugLog(`[MasterUndo] Cannot restart - no source URL available`);
-                                  }
-                              } catch (restartError) {
-                                  debugLog(`[MasterUndo] Error restarting download:`, restartError);
-                              }
-                          }
-                      } else {
-                          // Regular undo rename functionality
-                          await undoRename(focusedDownloadKey);
-                          // UI update is handled within undoRename via updateUIForFocusedDownload
-                      }
+                      await undoRename(focusedDownloadKey);
+                      // UI update is handled within undoRename via updateUIForFocusedDownload
                   }
               };
               masterUndoBtn.addEventListener("click", masterUndoHandler);
@@ -881,16 +821,16 @@
         // Attach listeners - only show pod/tooltip after completion (no progress display)
         let downloadListener = {
           onDownloadAdded: (dl) => {
-            if (dl.succeeded || dl.error || dl.canceled) throttledCreateOrUpdateCard(dl);
+            if (dl.succeeded || dl.error) throttledCreateOrUpdateCard(dl);
           },
           onDownloadChanged: (dl) => {
-            if (dl.succeeded || dl.error || dl.canceled) throttledCreateOrUpdateCard(dl);
+            if (dl.succeeded || dl.error) throttledCreateOrUpdateCard(dl);
           },
           onDownloadRemoved: async (dl) => {
             const key = getDownloadKey(dl);
             await cancelAIProcessForDownload(key); // Cancel any AI process first
             
-            // If the close handler is manually cleaning this download (erasing canceled downloads
+            // If the close handler is manually cleaning this download (erasing errored downloads
             // from history), skip removeCard and actual-download-removed here. The close handler
             // will call removeCard(force=true) after erasing, which correctly sends it to the pile.
             const cardData = activeDownloadCards.get(key);
@@ -920,8 +860,8 @@
             list.getAll().then((all) => {
               // Filter out old completed downloads to prevent them from reappearing
               const recentDownloads = all.filter(dl => {
-                // Only show completed downloads (succeeded, error, or canceled) - no in-progress
-                if (!dl.succeeded && !dl.error && !dl.canceled) return false;
+                // Only show completed downloads (succeeded or error) - no in-progress, no canceled
+                if (!dl.succeeded && !dl.error) return false;
 
                 const key = getDownloadKey(dl);
                 
@@ -956,7 +896,7 @@
       }
     }
 
-    // Throttled update - only receives completed downloads (succeeded/error/canceled)
+    // Throttled update - only receives completed downloads (succeeded/error; canceled excluded)
     function throttledCreateOrUpdateCard(download, isNewCardOnInit = false) {
       const key = getDownloadKey(download);
       const now = Date.now();
@@ -996,145 +936,32 @@
         return null;
       }
 
-      // Skip dismissed downloads only if they're not currently in our active cards
-      // Exception: if this path was recently permanently deleted, allow it to show (re-download scenario)
+      // Skip dismissed downloads only if they're not currently in our active cards.
+      // Exceptions:
+      //   1. Path was explicitly "removed from pile" via permanentlyDeletedPaths.
+      //   2. This download has a newer startTime than the dismissed one — it's a fresh re-download.
       const normPath = (p) => (typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "");
       const pathNorm = download.target?.path ? normPath(download.target.path) : "";
       if (pathNorm && permanentlyDeletedPaths.has(pathNorm)) {
         permanentlyDeletedPaths.delete(pathNorm);
-        dismissedDownloads.delete(key); // Also clear in case it's still there
+        dismissedDownloads.delete(key);
         debugLog(`[CreatePod] Bypassing skip - path was permanently deleted, allowing re-download: ${key}`);
       } else if (dismissedDownloads.has(key) && !activeDownloadCards.has(key)) {
-        debugLog(`[CreatePod] Skipping dismissed download that's not currently active: ${key}`);
-        return null;
-      }
-
-          // Smart Replace: Handle new download replacing canceled one
-      // First check for exact key match
-      let existingCardData = activeDownloadCards.get(key);
-      let existingKey = key;
-      
-      // If no exact match, check for similar files (same base name with different numbering)
-      if (!existingCardData && download.target?.path) {
-        const newPath = download.target.path;
-        const newBaseName = newPath.replace(/\(\d+\)(\.[^.]+)?$/, '$1'); // Remove (1), (2), etc.
-        
-        debugLog(`[SmartReplace] Checking for similar downloads. New path: ${newPath}, base: ${newBaseName}`);
-        
-        for (const [cardKey, cardData] of activeDownloadCards) {
-          if (cardData.download?.target?.path) {
-            const existingPath = cardData.download.target.path;
-            const existingBaseName = existingPath.replace(/\(\d+\)(\.[^.]+)?$/, '$1');
-            
-            debugLog(`[SmartReplace] Comparing with existing: ${existingPath}, base: ${existingBaseName}, canceled: ${cardData.download.canceled}, userCanceled: ${cardData.userCanceled}`);
-            
-            // Check if base names match (same file, different numbering)
-            if (newBaseName === existingBaseName && cardKey !== key) {
-              const isExistingCanceled = cardData.download.canceled && cardData.userCanceled;
-              if (isExistingCanceled) {
-                existingCardData = cardData;
-                existingKey = cardKey;
-                debugLog(`[SmartReplace] Found similar canceled download: ${existingKey} -> ${key}`);
-                break;
-              }
-            }
-          }
+        // Check whether this is a genuinely new download of the same file path
+        const dismissedData = dismissedPodsData.get(key);
+        const dismissedTime = dismissedData?.startTime ? new Date(dismissedData.startTime).getTime() : 0;
+        const currentTime  = download.startTime         ? new Date(download.startTime).getTime()         : 0;
+        // Allow through if: no dismissed record, or current download started after the dismissed one
+        const isNewerDownload = !dismissedData || !dismissedData.startTime || !download.startTime ||
+          currentTime > dismissedTime;
+        if (isNewerDownload) {
+          dismissedDownloads.delete(key);
+          debugLog(`[CreatePod] Allowing newer re-download to bypass dismissed check (dismissed: ${dismissedTime}, current: ${currentTime}): ${key}`);
+        } else {
+          debugLog(`[CreatePod] Skipping dismissed download that's not currently active: ${key}`);
+          return null;
         }
       }
-      
-      if (existingCardData && existingCardData.download) {
-        const existingDownload = existingCardData.download;
-        const isExistingCanceled = existingDownload.canceled && existingCardData.userCanceled;
-        const isNewDownloadFresh = !download.canceled && !download.succeeded && !download.error;
-        
-              if (isExistingCanceled && isNewDownloadFresh) {
-        debugLog(`[SmartReplace] Replacing canceled download with new attempt: ${existingKey} -> ${key}`);
-        
-        // If we're replacing a different key, we need to handle the transition
-        const isDifferentKey = existingKey !== key;
-        
-        if (isDifferentKey) {
-          // Remove the old card from activeDownloadCards and orderedPodKeys
-          activeDownloadCards.delete(existingKey);
-          const oldIndex = orderedPodKeys.indexOf(existingKey);
-          if (oldIndex !== -1) {
-            orderedPodKeys.splice(oldIndex, 1);
-          }
-          
-          // Update focus if the old key was focused
-          if (focusedDownloadKey === existingKey) {
-            focusedDownloadKey = key;
-          }
-          
-          // Transfer the card data to the new key
-          activeDownloadCards.set(key, existingCardData);
-          orderedPodKeys.push(key);
-        }
-        
-        // Show brief replacement status if this is the focused download
-        if (key === focusedDownloadKey && masterTooltipDOMElement) {
-          const statusEl = masterTooltipDOMElement.querySelector(".card-status");
-          if (statusEl) {
-            statusEl.textContent = "Replacing canceled download...";
-            statusEl.style.color = "#54a0ff";
-            
-            // Clear the replacement message after a brief moment
-            setTimeout(() => {
-              if (statusEl.textContent === "Replacing canceled download...") {
-                // Let the normal UI update handle setting the correct status
-                updateUIForFocusedDownload(key, true);
-              }
-            }, 1500);
-          }
-        }
-        
-        // Cancel any active AI process for the old download
-        cancelAIProcessForDownload(existingKey).catch(e => 
-          debugLog(`[SmartReplace] Error canceling AI for replaced download: ${e}`)
-        );
-        
-        // Clear user-canceled flag and update download object
-        existingCardData.userCanceled = false;
-        existingCardData.permanentlyDeleted = false;
-        existingCardData.complete = false; // Reset completion status
-        existingCardData.download = download; // Replace with new download object
-        
-        // Reset original filename to the new download's filename
-        existingCardData.originalFilename = getSafeFilename(download);
-        existingCardData.trueOriginalPathBeforeAIRename = null;
-        existingCardData.trueOriginalSimpleNameBeforeAIRename = null;
-        
-        // Clear any autohide timeout since this is a fresh start
-        if (existingCardData.autohideTimeoutId) {
-          clearTimeout(existingCardData.autohideTimeoutId);
-          existingCardData.autohideTimeoutId = null;
-        }
-        
-        // Update pod styling to reflect new state
-        if (existingCardData.podElement) {
-          existingCardData.podElement.classList.remove("canceled", "error", "completed", "renamed-by-ai", "renaming-initiated", "renaming-active");
-          // Reset any AI-related state
-        }
-        
-        // Remove from renamedFiles set if it was there from a previous attempt
-        if (download.target?.path) {
-          renamedFiles.delete(download.target.path);
-        }
-        if (existingDownload.target?.path) {
-          renamedFiles.delete(existingDownload.target.path);
-        }
-        
-        debugLog(`[SmartReplace] Successfully replaced canceled download with new attempt: ${existingKey} -> ${key}`);
-        
-        // Trigger immediate UI update to show the replacement status
-        setTimeout(() => {
-          updateUIForFocusedDownload(key, true);
-        }, 100);
-        
-        // Return early since we've handled the replacement
-        return existingCardData.podElement;
-      }
-    }
 
     debugLog("[PodFUNC] createOrUpdatePodElement called", { 
       key, 
@@ -1318,7 +1145,7 @@
           // Completed downloads always take focus
           focusedDownloadKey = key;
           debugLog(`[PodFUNC] New pod created, setting as focused (completed download): ${key}. Total pods: ${orderedPodKeys.length}`);
-        } else if (currentFocusedDownload && (currentFocusedDownload.succeeded || currentFocusedDownload.error || currentFocusedDownload.canceled)) {
+        } else if (currentFocusedDownload && (currentFocusedDownload.succeeded || currentFocusedDownload.error)) {
           // If current focus is on a finished download, switch to the new active one
           focusedDownloadKey = key;
           debugLog(`[PodFUNC] New pod created, setting as focused (current focus was finished): ${key}. Previous: ${focusedDownloadKey}`);
@@ -1394,7 +1221,7 @@
             debugLog(`[Preview] Setting completed file preview for: ${key}`);
             setCompletedFilePreview(previewElement, download)
                 .catch(e => debugLog("Error setting completed file preview (async) for pod", {error: e, download}));
-        } else if (download.error || download.canceled) {
+        } else if (download.error) {
             // Potentially set a different icon for error/cancel state on the pod itself
             setGenericIcon(previewElement, "application/octet-stream"); // Default or error specific icon
         } else {
@@ -1446,13 +1273,6 @@
       // Schedule autohide for error downloads
       scheduleCardRemoval(key);
     }
-    if (download.canceled) {
-      podElement.classList.add("canceled");
-      // Schedule autohide for canceled downloads (unless user-canceled for resume)
-      if (!cardData.userCanceled) {
-        scheduleCardRemoval(key);
-      }
-    }
 
     return podElement;
   }
@@ -1463,7 +1283,7 @@
     const isFinalStateUpdateCandidate = (() => {
       const cd = keyToFocus ? activeDownloadCards.get(keyToFocus) : null;
       const dl = cd && cd.download;
-      return !!dl && (dl.succeeded || dl.error || dl.canceled);
+      return !!dl && (dl.succeeded || dl.error);
     })();
 
     const shouldForceLayout = isNewOrSignificantUpdate || isFinalStateUpdateCandidate;
@@ -1626,38 +1446,8 @@
                 if (sparkleLayer) {
                   sparkleLayer.classList.add("visible");
                 }
-            } else if (download.canceled && cardDataToFocus.userCanceled && !cardDataToFocus.permanentlyDeleted) {
-                // User-canceled state with resume option
-                statusEl.textContent = "Download canceled";
-                statusEl.style.color = "#ff9f43";
-                
-                originalFilenameEl.style.display = "none";
-                progressEl.style.display = "block";
-                
-                // Hide sparkles
-                if (sparkleLayer) {
-                  sparkleLayer.classList.remove("visible");
-                }
-                
-                // Hide the bottom-right file size element in canceled state
-                const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
-                if (fileSizeEl) fileSizeEl.style.display = "none";
-                
-                // Use undo button as resume button
-                undoBtnEl.style.display = "inline-flex";
-                undoBtnEl.title = "Resume download";
-                
-                // Update the SVG to a play/resume icon
-                const svgIcon = undoBtnEl.querySelector("svg");
-                if (svgIcon) {
-                    const pathIcon = svgIcon.querySelector("path");
-                    if (pathIcon) {
-                        // Play/Resume icon path (even larger, scaled for 52x52 viewBox)
-                        pathIcon.setAttribute("d", "M12 6v40l32-20z");
-                    }
-                }
             } else {
-                // Default states (completed, error, canceled) - tooltip only shows after completion
+                // Default states (completed, error) - tooltip only shows after completion
                 originalFilenameEl.style.display = "none"; 
                 progressEl.style.display = "block";    
                 undoBtnEl.style.display = "none"; // Hide undo button
@@ -1684,9 +1474,6 @@
                 if (download.error) {
                     statusEl.textContent = `Error: ${download.error.message || "Download failed"}`;
                     statusEl.style.color = "#ff6b6b";
-                } else if (download.canceled) {
-                    statusEl.textContent = "Download canceled";
-                    statusEl.style.color = "#ff9f43";
                 } else {
                     statusEl.textContent = "Download completed";
                     statusEl.style.color = "#1dd1a1";
@@ -1700,13 +1487,6 @@
                     let finalSize = download.currentBytes;
                     if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
                     progressEl.textContent = `${formatBytes(finalSize || 0)}`;
-                } else if (download.canceled && cardDataToFocus.userCanceled && !cardDataToFocus.permanentlyDeleted) {
-                    if (typeof download.currentBytes === 'number' && download.totalBytes > 0) {
-                        const percent = Math.round((download.currentBytes / download.totalBytes) * 100);
-                        progressEl.textContent = `${formatBytes(download.currentBytes)} / ${formatBytes(download.totalBytes)} (${percent}%)`;
-                    } else {
-                        progressEl.textContent = "Download was canceled";
-                    }
                 } else {
                     let size = download.currentBytes || download.totalBytes;
                     progressEl.textContent = typeof size === 'number' && size > 0 ? formatBytes(size) : "";
@@ -4961,9 +4741,6 @@ Instructions:
           } else if (download?.error) {
             statusEl.textContent = `Error: ${download.error.message || "Download failed"}`;
             statusEl.style.color = "#ff6b6b";
-          } else if (download?.canceled) {
-            statusEl.textContent = "Download canceled";
-            statusEl.style.color = "#ff9f43";
           }
         }
       }
