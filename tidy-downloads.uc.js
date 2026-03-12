@@ -2994,7 +2994,6 @@
           img.style.width = "100%";
           img.style.height = "100%";
           img.style.objectFit = "cover";
-          img.style.borderRadius = "12px";
           img.style.transition = "all 0.3s ease";
           img.style.opacity = "0";
 
