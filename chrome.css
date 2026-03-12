@@ -6,9 +6,9 @@
 /* Positioned same as zen-stuff pile: bottom: 35px above toolbar buttons */
 #userchrome-download-cards-container {
   position: absolute;
-  left: 5px;
-  right: 5px;
-  bottom: 35px;
+  left: 2px;
+  right: 2px;
+  bottom: 38px;
   z-index: 4;
   display: flex;
   flex-direction: column;
@@ -138,7 +138,8 @@
   border-right: 8px solid transparent;
   border-top: 8px solid color-mix(in srgb, var(--zen-primary-color) 40%, black 60%);
   bottom: -8px;
-  left: 20px;
+  right: auto;
+  left: 15px;
 }
 
 /* Pods row container */
@@ -147,18 +148,20 @@
   flex-direction: row;
   align-items: flex-end;
   justify-content: flex-start;
-  position: relative;
+  position: absolute;
   height: 0px;
   order: 1;
   width: 100%;
+  left: 10px;
+  bottom: -25px;
 }
 
 /* Download pods */
 .download-pod {
   position: absolute;
-  width: 52px !important;
-  height: 52px !important;
-  border-radius: 12px;
+  width: 25px !important;
+  height: 25px !important;
+  border-radius: 6px;
   background-color: rgba(0, 0, 0, 0.9);
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
   display: flex;
@@ -175,22 +178,12 @@
   backdrop-filter: blur(20px) !important;
 }
 
-.download-pod.focused-pod:hover {
-  transform: scale(1.1) !important;
+.download-pod:not(.is-image-pod) {
+  background-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
 }
 
-.download-pod.focused-pod {
-  box-shadow: 0 0 15px rgba(84, 160, 255, 0.7), 0 3px 10px rgba(0, 0, 0, 0.3);
-}
-
-/* Pod states */
-.download-pod.completed {
-  /* Add any completed state styling here */
-}
-
-.download-pod.error {
-  /* Add any error state styling here */
-}
 
 .download-pod.canceled {
   &:before {
@@ -202,6 +195,7 @@
     height: 100%;
     border-radius: 12px;
   }
+
   &:after {
     content: "×";
     display: flex !important;
@@ -210,40 +204,6 @@
     bottom: 5px !important;
     left: 5px !important;
   }
-}
-
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-.download-pod.renaming-active {
-  &:before {
-    content: "";
-    background: rgba(0, 0, 0, 0.3);
-    display: flex;
-    position: absolute !important;
-    width: 100%;
-    height: 100%;
-    border-radius: 12px;
-  }
-  &:after {
-    animation: spin 1s linear infinite;
-    content: "↻";
-    transform-origin: center !important;
-    display: flex !important;
-    position: absolute !important;
-    font-size: 12px;
-    bottom: 5px !important;
-    left: 5px !important;
-  }
-}
-
-.download-pod.renamed-by-ai {
 }
 
 .card-preview-container {
@@ -261,7 +221,6 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 12px;
   transition: all 0.3s ease;
 }
 
@@ -298,21 +257,22 @@
   align-items: flex-end;
 }
 
+#main-window[zen-right-side] #userchrome-pods-row-container,
+:root[zen-right-side] #userchrome-pods-row-container {
+  left: -160px;
+}
+
 #main-window[zen-right-side] #userchrome-download-cards-container .details-tooltip,
 :root[zen-right-side] #userchrome-download-cards-container .details-tooltip {
   transform-origin: bottom right;
 }
 
-#main-window[zen-right-side] #userchrome-download-cards-container .tooltip-tail,
-:root[zen-right-side] #userchrome-download-cards-container .tooltip-tail {
-  left: auto;
-  right: 20px;
-}
 
 #main-window[zen-right-side] #userchrome-download-cards-container #userchrome-pods-row-container,
 :root[zen-right-side] #userchrome-download-cards-container #userchrome-pods-row-container {
   justify-content: flex-end;
 }
+
 /* AI Sparkle Effect */
 .ai-sparkle-layer {
   position: absolute;
@@ -321,7 +281,8 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: -1; /* Behind content but in front of background if possible, or just use mix-blend-mode */
+  z-index: -1;
+  /* Behind content but in front of background if possible, or just use mix-blend-mode */
   overflow: hidden;
   border-radius: 10px;
   opacity: 0;
@@ -350,10 +311,12 @@
     transform: scale(0) rotate(0deg);
     opacity: 0;
   }
+
   50% {
     transform: scale(1) rotate(180deg);
     opacity: 0.5;
   }
+
   100% {
     transform: scale(0) rotate(360deg);
     opacity: 0;
@@ -361,8 +324,42 @@
 }
 
 /* Specific positions for sparkles to look random but composed */
-.sparkle-icon:nth-child(1) { top: 10%; left: 10%; animation-delay: 0s; width: 9px; height: 9px; }
-.sparkle-icon:nth-child(2) { top: 25%; right: 25%; animation-delay: 0.5s; width: 11px; height: 11px; }
-.sparkle-icon:nth-child(3) { bottom: 15%; left: 20%; animation-delay: 1.2s; width: 8px; height: 8px; }
-.sparkle-icon:nth-child(4) { bottom: 25%; right: 10%; animation-delay: 1.8s; width: 12px; height: 12px; }
-.sparkle-icon:nth-child(5) { top: 50%; left: 50%; animation-delay: 2.5s; width: 6px; height: 6px; }
+.sparkle-icon:nth-child(1) {
+  top: 10%;
+  left: 10%;
+  animation-delay: 0s;
+  width: 9px;
+  height: 9px;
+}
+
+.sparkle-icon:nth-child(2) {
+  top: 25%;
+  right: 25%;
+  animation-delay: 0.5s;
+  width: 11px;
+  height: 11px;
+}
+
+.sparkle-icon:nth-child(3) {
+  bottom: 15%;
+  left: 20%;
+  animation-delay: 1.2s;
+  width: 8px;
+  height: 8px;
+}
+
+.sparkle-icon:nth-child(4) {
+  bottom: 25%;
+  right: 10%;
+  animation-delay: 1.8s;
+  width: 12px;
+  height: 12px;
+}
+
+.sparkle-icon:nth-child(5) {
+  top: 50%;
+  left: 50%;
+  animation-delay: 2.5s;
+  width: 6px;
+  height: 6px;
+}

@@ -29,7 +29,7 @@
       console.log('Zen Tidy Downloads: Skipping - appears to be a popup (toolbar check)');
       return;
     }
-    
+
     // Check window opener (popups usually have an opener)
     if (window.opener) {
       console.log('Zen Tidy Downloads: Skipping - window has opener (popup check)');
@@ -48,29 +48,29 @@
       '#browser',            // Browser element
       '#sidebar-box'         // Sidebar container
     ];
-    
+
     const missingElements = mainBrowserElements.filter(selector => !document.querySelector(selector));
-    
+
     if (missingElements.length > 0) {
       console.log('Zen Tidy Downloads: Skipping - missing main browser elements:', missingElements);
       return;
     }
-    
+
     // Method 4: Check window size (popups are usually smaller)
     if (window.outerWidth < 400 || window.outerHeight < 300) {
       console.log('Zen Tidy Downloads: Skipping - window too small (likely popup)');
       return;
     }
-    
+
     // Method 5: Check for dialog-specific attributes
     if (document.documentElement.hasAttribute('dlgtype')) {
       console.log('Zen Tidy Downloads: Skipping - dialog window detected');
       return;
     }
-    
+
     // If all checks pass, continue with initialization
     console.log('Zen Tidy Downloads: All popup exclusion checks passed, proceeding with initialization');
-    
+
     // === MAIN SCRIPT INITIALIZATION CONTINUES HERE ===
     // Wait for utils (handles load-order races; utils must be in theme.json scripts)
     (function tryInit(attempt) {
@@ -113,11 +113,11 @@
       const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
       if (indicator) {
         console.log("[Tidy Downloads] Applying early downloads indicator patches to prevent errors");
-        
+
         // Patch critical methods that can cause errors when _progressIcon is null
         if (indicator._progressRaf && !indicator._progressRaf._patched) {
           const originalProgressRaf = indicator._progressRaf;
-          indicator._progressRaf = function() {
+          indicator._progressRaf = function () {
             try {
               if (this._progressIcon && this._progressIcon.style) {
                 return originalProgressRaf.call(this);
@@ -130,10 +130,10 @@
           };
           indicator._progressRaf._patched = true;
         }
-        
+
         if (indicator._maybeScheduleProgressUpdate && !indicator._maybeScheduleProgressUpdate._patched) {
           const originalMaybeSchedule = indicator._maybeScheduleProgressUpdate;
-          indicator._maybeScheduleProgressUpdate = function() {
+          indicator._maybeScheduleProgressUpdate = function () {
             try {
               if (this._progressIcon && this._progressIcon.style) {
                 return originalMaybeSchedule.call(this);
@@ -146,13 +146,13 @@
           };
           indicator._maybeScheduleProgressUpdate._patched = true;
         }
-        
+
         console.log("[Tidy Downloads] Early downloads indicator patches applied successfully");
       }
     } catch (earlyPatchError) {
       console.warn("[Tidy Downloads] Early patching failed, will retry later:", earlyPatchError);
     }
-    
+
     // --- Configuration via Firefox Preferences ---
     // Available preferences (set in about:config):
     // extensions.downloads.mistral_api_key - Your Mistral API key (required for AI renaming)
@@ -193,7 +193,7 @@
     const sidebarWidthRef = { value: "" };
     let podsRowContainerElement = null; // Renamed back from podsStackContainerElement
     let masterTooltipDOMElement = null;
-    let initSidebarWidthSyncFn = () => {};
+    let initSidebarWidthSyncFn = () => { };
     let focusedDownloadKey = null;
     let orderedPodKeys = []; // Newest will be at the end
     let lastRotationDirection = null; // Track rotation direction: 'forward', 'backward', or null
@@ -204,7 +204,7 @@
 
     // AI Process Management
     const activeAIProcesses = new Map(); // downloadKey -> { abortController, processState, startTime }
-    
+
     // AI Rename Queue System - proper FIFO queueing for multiple downloads
     const aiRenameQueue = []; // Array of { downloadKey, download, originalFilename, queuedAt }
     let isProcessingAIQueue = false; // Flag to prevent concurrent queue processing
@@ -216,7 +216,7 @@
     // --- Dismissed Pods Management System ---
     const dismissedPodsData = new Map(); // Store dismissed pod data for pile feature
     const dismissEventListeners = new Set(); // Callbacks for pod dismiss events
-    
+
     // Global API for dismissed pods pile feature
     window.zenTidyDownloads = {
       // Event system
@@ -226,12 +226,12 @@
           debugLog('[API] Registered pod dismiss listener');
         }
       },
-      
+
       offPodDismissed: (callback) => {
         dismissEventListeners.delete(callback);
         debugLog('[API] Unregistered pod dismiss listener');
       },
-      
+
       // Dismissed pods access
       dismissedPods: {
         getAll: () => new Map(dismissedPodsData), // Return copy to prevent external modification
@@ -242,7 +242,7 @@
           debugLog('[API] Cleared all dismissed pods data');
         }
       },
-      
+
       // Active downloads access (for pile script to check if hover should be disabled)
       get activeDownloadCards() {
         return activeDownloadCards;
@@ -260,7 +260,7 @@
         actualDownloadRemovedEventListeners.delete(callback);
         debugLog('[API] Unregistered actual download removed listener');
       },
-      
+
       // Pod restoration
       restorePod: async (podKey) => {
         debugLog(`[API] Restore pod requested: ${podKey}`);
@@ -269,22 +269,22 @@
           debugLog(`[API] Cannot restore pod - no dismissed data found: ${podKey}`);
           return false;
         }
-        
+
         try {
           // Remove from dismissed sets
           dismissedDownloads.delete(podKey);
           dismissedPodsData.delete(podKey);
-          
+
           // If the download still exists in Firefox, recreate the pod
           const list = await window.Downloads.getList(window.Downloads.ALL);
           const downloads = await list.getAll();
           const download = downloads.find(dl => getDownloadKey(dl) === podKey);
-          
+
           if (download) {
             debugLog(`[API] Found download for restoration: ${podKey}`);
             // Recreate the pod by calling our existing function
             throttledCreateOrUpdateCard(download, true);
-            
+
             // Fire restore event
             fireCustomEvent('pod-restored-from-pile', { podKey, download });
             return true;
@@ -297,13 +297,13 @@
           return false;
         }
       },
-      
+
       // Permanent deletion
       permanentDelete: (podKey) => {
         debugLog(`[API] Permanent delete requested: ${podKey}`);
         const podData = dismissedPodsData.get(podKey); // Get before delete
         const wasPresent = dismissedPodsData.delete(podKey);
-        
+
         // Remove from dismissedDownloads so future downloads of the same file can show.
         // Clear the exact key and any path-based keys that refer to the same file
         // (handles path format differences: backslash vs forward slash, case sensitivity).
@@ -339,14 +339,14 @@
             if (firstMeta) permanentlyDeletedMeta.delete(firstMeta);
           }
         }
-        
+
         if (wasPresent) {
           fireCustomEvent('pod-permanently-deleted', { podKey });
         }
-        
+
         return wasPresent;
       },
-      
+
       /**
        * Add external file to Zen Stuff with comprehensive validation
        * @param {Object} podData - Pod data object with file information
@@ -355,19 +355,19 @@
        */
       addExternalFile: async (podData) => {
         debugLog(`[API] Add external file requested: ${podData?.filename}`);
-        
+
         try {
           // Validate the pod data structure
           if (!podData || typeof podData !== 'object') {
             throw new Error('Invalid pod data: must be an object');
           }
-          
+
           const requiredFields = ['key', 'filename', 'targetPath'];
           const missingFields = requiredFields.filter(field => !podData[field]);
           if (missingFields.length > 0) {
             throw new Error(`Invalid pod data: missing required fields: ${missingFields.join(', ')}`);
           }
-          
+
           // SECURITY: Validate field types
           if (typeof podData.key !== 'string' || podData.key.length === 0) {
             throw new Error('Invalid pod data: key must be a non-empty string');
@@ -378,13 +378,13 @@
           if (typeof podData.targetPath !== 'string' || podData.targetPath.length === 0) {
             throw new Error('Invalid pod data: targetPath must be a non-empty string');
           }
-          
+
           // SECURITY: Comprehensive path validation (strict mode for external files)
           const pathValidation = SecurityUtils.validateFilePath(podData.targetPath, { strict: true });
           if (!pathValidation.valid) {
             throw new Error(`Invalid file path: ${pathValidation.error} (code: ${pathValidation.code})`);
           }
-          
+
           // SECURITY: Restrict to common download directories (optional but recommended)
           // Allow user to configure allowed directories if needed
           const allowedDirs = [
@@ -396,34 +396,34 @@
             debugLog(`[API] Warning: File path is outside common directories: ${podData.targetPath}`);
             // Don't block, but log for security monitoring
           }
-          
+
           // Verify the file exists
           const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
           file.initWithPath(podData.targetPath);
-          
+
           if (!file.exists()) {
             throw new Error('File does not exist at the specified path');
           }
-          
+
           // SECURITY: Validate file is actually a file (not a directory)
           if (file.isDirectory()) {
             throw new Error('Path points to a directory, not a file');
           }
-          
+
           // Update file size if not provided
           if (!podData.fileSize || podData.fileSize <= 0) {
             podData.fileSize = file.fileSize;
           }
-          
+
           // SECURITY: Validate file size is reasonable (prevent DoS)
           const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10GB
           if (podData.fileSize > MAX_FILE_SIZE) {
             throw new Error(`File size exceeds maximum allowed: ${podData.fileSize} bytes`);
           }
-          
+
           // Store the pod data
           dismissedPodsData.set(podData.key, podData);
-          
+
           // Fire dismiss event to notify the pile system
           dismissEventListeners.forEach(callback => {
             try {
@@ -432,13 +432,13 @@
               debugLog(`[API] Error in dismiss event listener:`, error);
             }
           });
-          
+
           // Fire custom event
           fireCustomEvent('external-file-added-to-stuff', { podData });
-          
+
           debugLog(`[API] Successfully added external file: ${podData.filename}`);
           return true;
-          
+
         } catch (error) {
           const errorInfo = {
             error: error.message || error.toString(),
@@ -451,14 +451,14 @@
         }
       }
     };
-    
+
     // Helper function to fire custom events
     function fireCustomEvent(eventName, detail) {
       try {
-        const event = new CustomEvent(eventName, { 
-          detail, 
-          bubbles: true, 
-          cancelable: true 
+        const event = new CustomEvent(eventName, {
+          detail,
+          bubbles: true,
+          cancelable: true
         });
         document.dispatchEvent(event);
         debugLog(`[Events] Fired custom event: ${eventName}`, detail);
@@ -466,7 +466,7 @@
         debugLog(`[Events] Error firing custom event ${eventName}:`, error);
       }
     }
-    
+
     // Helper function to capture pod data for dismissal
     function capturePodDataForDismissal(downloadKey) {
       const cardData = activeDownloadCards.get(downloadKey);
@@ -474,10 +474,10 @@
         debugLog(`[Dismiss] No card data found for capturing: ${downloadKey}`);
         return null;
       }
-      
+
       const download = cardData.download;
       const podElement = cardData.podElement;
-      
+
       // Capture essential data for pile reconstruction
       const dismissedData = {
         key: downloadKey,
@@ -495,7 +495,7 @@
         previewData: null,
         dominantColor: podElement?.dataset?.dominantColor || null
       };
-      
+
       // Try to capture preview image data
       if (podElement) {
         const previewContainer = podElement.querySelector('.card-preview-container');
@@ -516,7 +516,7 @@
           }
         }
       }
-      
+
       debugLog(`[Dismiss] Captured pod data for pile:`, dismissedData);
       return dismissedData;
     }
@@ -534,16 +534,16 @@
       const url = download?.source?.url || download?.url || "unknown";
       const startTime = download?.startTime || Date.now();
       const key = `temp_${url}_${startTime}`;
-      
-      debugLog(`[KeyGen] Generated temporary key for download without path/id`, { 
-        key, 
-        hasPath: !!download?.target?.path, 
-        hasId: !!download?.id, 
-        url, 
+
+      debugLog(`[KeyGen] Generated temporary key for download without path/id`, {
+        key,
+        hasPath: !!download?.target?.path,
+        hasId: !!download?.id,
+        url,
         error: !!download?.error,
-        startTime 
+        startTime
       });
-      
+
       return key;
     }
 
@@ -604,7 +604,7 @@
       // Add a delay to ensure DOM is ready before creating UI elements
       await new Promise(resolve => setTimeout(resolve, 300));
       debugLog("Creating download manager UI elements...");
-      
+
       try {
         // Find the downloads/library button for hover detection
         const downloadsButton = await findDownloadsButton();
@@ -613,33 +613,32 @@
           console.warn("[Tidy Downloads] Downloads button not found - hover detection may not work properly");
           console.warn("Downloads button not found - hover detection may not work properly");
         } else {
-          // Set up additional animation targeting if using library button
-          const useLibraryButton = getPref("zen.tidy-downloads.use-library-button", false);
-          if (useLibraryButton && downloadsButton.id === 'zen-library-button') {
+          // Set up additional animation targeting if zen-library-button was auto-detected
+          if (downloadsButton.id === 'zen-library-button') {
             // Patch downloads indicator methods immediately to prevent errors
             patchDownloadsIndicatorMethods();
-            
+
             // Ensure animation system knows about the library button
             setupLibraryButtonAnimationTarget(downloadsButton);
           }
         }
-        
+
         // Create container if it doesn't exist
         downloadCardsContainer = document.getElementById("userchrome-download-cards-container");
         if (!downloadCardsContainer) {
           downloadCardsContainer = document.createElement("div");
           downloadCardsContainer.id = "userchrome-download-cards-container";
           // Basic styles are now in CSS file, only dynamic overrides here if needed
-          
+
           // IMPORTANT: Start completely hidden to prevent flashing
           downloadCardsContainer.style.display = "none";
           downloadCardsContainer.style.opacity = "0";
           downloadCardsContainer.style.visibility = "hidden";
-          
+
           // Insert after media controls toolbar (same approach as zen-stuff pile)
           const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
           const zenMainAppWrapper = document.getElementById('zen-main-app-wrapper');
-          
+
           let parentContainer = null;
           if (mediaControlsToolbar && mediaControlsToolbar.parentNode) {
             // Primary: insert after media controls toolbar (as sibling) - same as zen-stuff
@@ -657,7 +656,7 @@
             document.body.appendChild(downloadCardsContainer);
             debugLog("Inserted download cards container into document.body (final fallback)");
           }
-          
+
           // Ensure parent container has position: relative for absolute positioning
           if (parentContainer && parentContainer !== document.body) {
             const parentStyle = window.getComputedStyle(parentContainer);
@@ -666,21 +665,12 @@
               debugLog("Set parent container position to relative for absolute positioning");
             }
           }
-          
-          // Apply inline styles matching zen-stuff positioning (bottom: 35px, z-index: 4)
+
+          // Basic styles are now in CSS file.
           downloadCardsContainer.style.cssText = `
-            position: absolute;
-            left: 5px;
-            right: 5px;
-            bottom: 35px;
-            z-index: 4;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            pointer-events: none;
             box-sizing: border-box;
           `;
-          
+
           // Set up compact mode observer
           setupCompactModeObserver();
 
@@ -715,28 +705,28 @@
           downloadCardsContainer.appendChild(masterTooltipDOMElement);
 
           // Create the container for HORIZONTAL pods row
-          podsRowContainerElement = document.createElement("div"); 
-          podsRowContainerElement.id = "userchrome-pods-row-container"; 
+          podsRowContainerElement = document.createElement("div");
+          podsRowContainerElement.id = "userchrome-pods-row-container";
           // Basic styles are now in CSS file, only dynamic height will be set by layout manager
           downloadCardsContainer.appendChild(podsRowContainerElement);
 
-        // Init sync module (sidebar width sync for tooltip)
-        if (window.zenTidyDownloadsSync?.init) {
-          const syncFns = window.zenTidyDownloadsSync.init({
-            getMasterTooltip: () => masterTooltipDOMElement,
-            getPodsContainer: () => podsRowContainerElement,
-            getActiveCards: () => activeDownloadCards,
-            getFocusedKey: () => focusedDownloadKey,
-            updateUI: (k, b) => updateUIForFocusedDownload(k, b),
-            sidebarWidthRef,
-            debugLog
-          });
-          initSidebarWidthSyncFn = syncFns.initSidebarWidthSync;
-        }
+          // Init sync module (sidebar width sync for tooltip)
+          if (window.zenTidyDownloadsSync?.init) {
+            const syncFns = window.zenTidyDownloadsSync.init({
+              getMasterTooltip: () => masterTooltipDOMElement,
+              getPodsContainer: () => podsRowContainerElement,
+              getActiveCards: () => activeDownloadCards,
+              getFocusedKey: () => focusedDownloadKey,
+              updateUI: (k, b) => updateUIForFocusedDownload(k, b),
+              sidebarWidthRef,
+              debugLog
+            });
+            initSidebarWidthSyncFn = syncFns.initSidebarWidthSync;
+          }
 
           // Add mouse wheel scroll listener to the pods container for changing focus
           podsRowContainerElement.addEventListener('wheel', handlePodScrollFocus, { passive: false });
-          
+
           // Add close handler for the master tooltip's close button AFTER creating podsRowContainerElement
           const masterCloseBtn = masterTooltipDOMElement.querySelector(".card-close-button");
           if (masterCloseBtn) {
@@ -744,7 +734,7 @@
               e.preventDefault();
               e.stopPropagation();
               debugLog(`[MasterClose] Master close button clicked. FocusedDownloadKey: ${focusedDownloadKey}`);
-              
+
               if (focusedDownloadKey) {
                 const keyToRemove = focusedDownloadKey; // Capture the key
                 const cardData = activeDownloadCards.get(keyToRemove);
@@ -768,14 +758,14 @@
                       // For completed downloads: just remove from UI, keep in browser history
                       if (download.succeeded) {
                         debugLog(`[MasterClose] Removing completed download from UI only (keeping in browser history): ${keyToRemove}`);
-                        
+
                         // Cancel any active AI process before removal
                         await cancelAIProcessForDownload(keyToRemove);
-                        
+
                         removeCard(keyToRemove, true);
                         return;
                       }
-                      
+
                       // For errored downloads or already permanently deleted: delete from history
                       if (download.error || cardData.permanentlyDeleted) {
                         debugLog(`[MasterClose] Deleting errored download from history: ${keyToRemove}`);
@@ -785,7 +775,7 @@
                         removeCard(keyToRemove, true);
                         return;
                       }
-                      
+
                     } catch (error) {
                       debugLog(`[MasterClose] Error handling download ${keyToRemove}:`, error);
                       // On error, still remove from UI
@@ -809,23 +799,23 @@
           // Add undo/resume handler for the master tooltip's undo button
           const masterUndoBtn = masterTooltipDOMElement.querySelector(".card-undo-button");
           if (masterUndoBtn) {
-              const masterUndoHandler = async (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  debugLog(`[MasterUndo] Master undo/resume button clicked. FocusedDownloadKey: ${focusedDownloadKey}`);
-                  
-                  if (focusedDownloadKey) {
-                      await undoRename(focusedDownloadKey);
-                      // UI update is handled within undoRename via updateUIForFocusedDownload
-                  }
-              };
-              masterUndoBtn.addEventListener("click", masterUndoHandler);
-              masterUndoBtn.addEventListener("keydown", async (e) => {
-                  if ((e.key === "Enter" || e.key === " ") && focusedDownloadKey) {
-                      e.preventDefault();
-                      await masterUndoHandler(e); // Make sure to await if handler is async
-                  }
-              });
+            const masterUndoHandler = async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              debugLog(`[MasterUndo] Master undo/resume button clicked. FocusedDownloadKey: ${focusedDownloadKey}`);
+
+              if (focusedDownloadKey) {
+                await undoRename(focusedDownloadKey);
+                // UI update is handled within undoRename via updateUIForFocusedDownload
+              }
+            };
+            masterUndoBtn.addEventListener("click", masterUndoHandler);
+            masterUndoBtn.addEventListener("keydown", async (e) => {
+              if ((e.key === "Enter" || e.key === " ") && focusedDownloadKey) {
+                e.preventDefault();
+                await masterUndoHandler(e); // Make sure to await if handler is async
+              }
+            });
           }
 
         }
@@ -841,7 +831,7 @@
           onDownloadRemoved: async (dl) => {
             const key = getDownloadKey(dl);
             await cancelAIProcessForDownload(key); // Cancel any AI process first
-            
+
             // If the close handler is manually cleaning this download (erasing errored downloads
             // from history), skip removeCard and actual-download-removed here. The close handler
             // will call removeCard(force=true) after erasing, which correctly sends it to the pile.
@@ -850,9 +840,9 @@
               debugLog(`[OnDownloadRemoved] Skipping removeCard/actual-download-removed for manually cleaned download: ${key}`);
               return;
             }
-            
+
             await removeCard(key, false);
-            
+
             // Notify listeners that a download was actually removed from Firefox's list
             actualDownloadRemovedEventListeners.forEach(callback => {
               try {
@@ -876,13 +866,13 @@
                 if (!dl.succeeded && !dl.error) return false;
 
                 const key = getDownloadKey(dl);
-                
+
                 // Skip dismissed downloads only if they're completed AND not currently in our active cards
                 if (dismissedDownloads.has(key) && !activeDownloadCards.has(key)) {
                   debugLog(`[CreatePod] Skipping dismissed completed download: ${key}`);
                   return false;
                 }
-                
+
                 // Only show recent completed downloads within the time window
                 const downloadTime = new Date(dl.startTime || 0);
                 const hoursSinceDownload = (Date.now() - downloadTime.getTime()) / (1000 * 60 * 60);
@@ -892,10 +882,10 @@
                   dismissedDownloads.add(key); // Mark as dismissed to prevent future reappearance
                   return false;
                 }
-                
+
                 return true;
               });
-              
+
               debugLog(`[Init] Processing ${recentDownloads.length} recent downloads out of ${all.length} total`);
               recentDownloads.forEach((dl) => {
                 throttledCreateOrUpdateCard(dl, true);
@@ -919,7 +909,7 @@
         debugLog(`[Throttle] Skipping throttled update for download: ${key} (delay: ${throttleDelay}ms)`);
         return;
       }
-      
+
       cardUpdateThrottle.set(key, now);
       debugLog(`[Throttle] Calling createOrUpdatePodElement for key: ${key}, isNewOnInit: ${isNewCardOnInit}, error: ${!!download.error}, succeeded: ${!!download.succeeded}, canceled: ${!!download.canceled}`);
       const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
@@ -930,18 +920,18 @@
           updateUIForFocusedDownload(focusedDownloadKey || key, isNewCardOnInit || true);
         }
       } else {
-        debugLog(`[Throttle] No pod element returned for ${key}. Download state:`, { 
-          succeeded: download.succeeded, 
-          error: !!download.error, 
+        debugLog(`[Throttle] No pod element returned for ${key}. Download state:`, {
+          succeeded: download.succeeded,
+          error: !!download.error,
           canceled: download.canceled,
-          hasKey: !!key 
+          hasKey: !!key
         });
       }
     }
 
     // Function to create or update a download POD element
     function createOrUpdatePodElement(download, isNewCardOnInit = false) {
-      
+
       const key = getDownloadKey(download);
       if (!key) {
         debugLog("Skipping download object without usable key", download);
@@ -987,7 +977,7 @@
         // Check whether this is a genuinely new download of the same file path
         const dismissedData = dismissedPodsData.get(key);
         const dismissedTime = dismissedData?.startTime ? new Date(dismissedData.startTime).getTime() : 0;
-        const currentTime  = download.startTime         ? new Date(download.startTime).getTime()         : 0;
+        const currentTime = download.startTime ? new Date(download.startTime).getTime() : 0;
         // Allow through if: no dismissed record, or current download started after the dismissed one
         const isNewerDownload = !dismissedData || !dismissedData.startTime || !download.startTime ||
           currentTime > dismissedTime;
@@ -1000,76 +990,76 @@
         }
       }
 
-    debugLog("[PodFUNC] createOrUpdatePodElement called", { 
-      key, 
-      state: download.state, 
-      currentBytes: download.currentBytes,
-      succeeded: download.succeeded,
-      error: !!download.error,
-      errorMessage: download.error?.message,
-      canceled: download.canceled,
-      hasTargetPath: !!download?.target?.path,
-      hasId: !!download?.id,
-      isNewCardOnInit
-    });
+      debugLog("[PodFUNC] createOrUpdatePodElement called", {
+        key,
+        state: download.state,
+        currentBytes: download.currentBytes,
+        succeeded: download.succeeded,
+        error: !!download.error,
+        errorMessage: download.error?.message,
+        canceled: download.canceled,
+        hasTargetPath: !!download?.target?.path,
+        hasId: !!download?.id,
+        isNewCardOnInit
+      });
 
-    let cardData = activeDownloadCards.get(key);
-    const safeFilename = getSafeFilename(download);
-    // const displayName = download.aiName || safeFilename; // Display name will be handled by master tooltip
+      let cardData = activeDownloadCards.get(key);
+      const safeFilename = getSafeFilename(download);
+      // const displayName = download.aiName || safeFilename; // Display name will be handled by master tooltip
 
-    let podElement;
-    let isNewPod = false;
+      let podElement;
+      let isNewPod = false;
 
-    if (!cardData) {
-      isNewPod = true;
-      podElement = document.createElement("div");
-      podElement.className = "download-pod"; 
-      podElement.id = `download-pod-${key.replace(/[^a-zA-Z0-9_]/g, '-')}`;
-      podElement.dataset.downloadKey = key;
+      if (!cardData) {
+        isNewPod = true;
+        podElement = document.createElement("div");
+        podElement.className = "download-pod";
+        podElement.id = `download-pod-${key.replace(/[^a-zA-Z0-9_]/g, '-')}`;
+        podElement.dataset.downloadKey = key;
 
-      // Basic styles are now in CSS file, only dynamic positioning/animation styles remain inline
+        // Basic styles are now in CSS file, only dynamic positioning/animation styles remain inline
 
-      podElement.innerHTML = `
+        podElement.innerHTML = `
         <div class="card-preview-container">
           <!-- Preview content (image, text snippet, or icon) will go here -->
           </div>
         `;
 
-      // Add event listeners to the pod itself (e.g., for hover to focus, click to open)
-      // Commenting out the mouseenter listener to disable hover-to-focus
-      /*
-      podElement.addEventListener('mouseenter', () => {
-        const keyFromPodHover = podElement.dataset.downloadKey; // Get key from dataset
-        debugLog(`[PodHover] Mouseenter on pod. Key: ${keyFromPodHover}, Current Focused: ${focusedDownloadKey}`);
-        
-        const previewContainer = podElement.querySelector('.card-preview-container');
-        if (previewContainer && previewContainer.style.pointerEvents === 'none') {
-            debugLog(`[PodHover] Pointer events none on preview for ${keyFromPodHover}, not changing focus.`);
-            return; 
-        }
-        
-        if (focusedDownloadKey !== keyFromPodHover) {
-            debugLog(`[PodHover] Focus will change from ${focusedDownloadKey} to ${keyFromPodHover}. Calling updateUIForFocusedDownload.`);
-            updateUIForFocusedDownload(keyFromPodHover, false); // isNewOrSignificantUpdate is false for hover
-        } else {
-            debugLog(`[PodHover] Pod ${keyFromPodHover} is already focused. No UI update call needed from hover.`);
-        }
-      });
-      */
+        // Add event listeners to the pod itself (e.g., for hover to focus, click to open)
+        // Commenting out the mouseenter listener to disable hover-to-focus
+        /*
+        podElement.addEventListener('mouseenter', () => {
+          const keyFromPodHover = podElement.dataset.downloadKey; // Get key from dataset
+          debugLog(`[PodHover] Mouseenter on pod. Key: ${keyFromPodHover}, Current Focused: ${focusedDownloadKey}`);
+          
+          const previewContainer = podElement.querySelector('.card-preview-container');
+          if (previewContainer && previewContainer.style.pointerEvents === 'none') {
+              debugLog(`[PodHover] Pointer events none on preview for ${keyFromPodHover}, not changing focus.`);
+              return; 
+          }
+          
+          if (focusedDownloadKey !== keyFromPodHover) {
+              debugLog(`[PodHover] Focus will change from ${focusedDownloadKey} to ${keyFromPodHover}. Calling updateUIForFocusedDownload.`);
+              updateUIForFocusedDownload(keyFromPodHover, false); // isNewOrSignificantUpdate is false for hover
+          } else {
+              debugLog(`[PodHover] Pod ${keyFromPodHover} is already focused. No UI update call needed from hover.`);
+          }
+        });
+        */
 
-      const previewContainer = podElement.querySelector(".card-preview-container");
-      if (previewContainer) {
-        setGenericIcon(previewContainer, download.contentType || "application/octet-stream");
-        previewContainer.title = "Click to open file";
-        
-        previewContainer.addEventListener("click", (e) => {
-          e.stopPropagation(); 
-          const currentCardData = activeDownloadCards.get(podElement.dataset.downloadKey);
-          if (currentCardData && currentCardData.download) {
-            openDownloadedFile(currentCardData.download);
+        const previewContainer = podElement.querySelector(".card-preview-container");
+        if (previewContainer) {
+          setGenericIcon(previewContainer, download.contentType || "application/octet-stream");
+          previewContainer.title = "Click to open file";
+
+          previewContainer.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const currentCardData = activeDownloadCards.get(podElement.dataset.downloadKey);
+            if (currentCardData && currentCardData.download) {
+              openDownloadedFile(currentCardData.download);
             } else {
-            debugLog("openDownloadedFile: Card data not found for pod, attempting with initial download object", { key: podElement.dataset.downloadKey });
-            openDownloadedFile(download); 
+              debugLog("openDownloadedFile: Card data not found for pod, attempting with initial download object", { key: podElement.dataset.downloadKey });
+              openDownloadedFile(download);
             }
           });
         }
@@ -1094,7 +1084,7 @@
 
             const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
             file.initWithPath(download.target.path);
-            
+
             if (!file.exists()) {
               e.preventDefault();
               return;
@@ -1111,10 +1101,10 @@
             }
 
             // Set URI flavors for web pages
-            const fileUrl = file.path.startsWith('\\') ? 
-              'file:' + file.path.replace(/\\/g, '/') : 
+            const fileUrl = file.path.startsWith('\\') ?
+              'file:' + file.path.replace(/\\/g, '/') :
               'file:///' + file.path.replace(/\\/g, '/');
-            
+
             if (fileUrl) {
               e.dataTransfer.setData('text/uri-list', fileUrl);
               e.dataTransfer.setData('text/plain', fileUrl);
@@ -1136,1297 +1126,1285 @@
         });
 
         cardData = {
-        podElement, // Renamed from cardElement
+          podElement, // Renamed from cardElement
           download,
           complete: false,
           key: key,
           originalFilename: safeFilename, // This is the filename as of pod creation/update
           trueOriginalPathBeforeAIRename: null, // Will store the full path before AI rename
           trueOriginalSimpleNameBeforeAIRename: null, // Will store just the simple filename before AI rename
-        lastInteractionTime: Date.now(),
-        isVisible: false, // Will be set by layout manager
-        isWaitingForZenAnimation: false, // Default, will be set true if new and Zen sync is active
-        domAppended: false, // New flag: has this pod been added to podsRowContainerElement?
-        intendedTargetTransform: null, // For stable animation triggering
-        intendedTargetOpacity: null,   // For stable animation triggering
-        isBeingRemoved: false          // To prevent layout conflicts during removal
+          lastInteractionTime: Date.now(),
+          isVisible: false, // Will be set by layout manager
+          isWaitingForZenAnimation: false, // Default, will be set true if new and Zen sync is active
+          domAppended: false, // New flag: has this pod been added to podsRowContainerElement?
+          intendedTargetTransform: null, // For stable animation triggering
+          intendedTargetOpacity: null,   // For stable animation triggering
+          isBeingRemoved: false          // To prevent layout conflicts during removal
         };
         activeDownloadCards.set(key, cardData);
 
-      // Add to ordered list (newest at the end)
-      if (!orderedPodKeys.includes(key)) {
-        orderedPodKeys.push(key);
-        
-        // Show the container when we add the first pod (respects compact mode)
-        if (orderedPodKeys.length === 1) {
-          updateDownloadCardsVisibility();
-          if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
-            hideMediaControlsToolbar(); // Hide media controls when showing download pods
-          }
-        }
-        
-        // Focus behavior based on stable_focus_mode preference
-        const stableFocusMode = getPref("extensions.downloads.stable_focus_mode", true);
-        const currentFocusedData = focusedDownloadKey ? activeDownloadCards.get(focusedDownloadKey) : null;
-        const currentFocusedDownload = currentFocusedData?.download;
-        
-        if (!focusedDownloadKey) {
-          // Always focus if no current focus
-          focusedDownloadKey = key;
-          debugLog(`[PodFUNC] New pod created, setting as focused (no current focus): ${key}. Total pods: ${orderedPodKeys.length}`);
-        } else if (!stableFocusMode) {
-          // In non-stable mode, always switch to newest
-          focusedDownloadKey = key;
-          debugLog(`[PodFUNC] New pod created, setting as focused (non-stable mode): ${key}. Total pods: ${orderedPodKeys.length}`);
-        } else if (download.succeeded) {
-          // Completed downloads always take focus
-          focusedDownloadKey = key;
-          debugLog(`[PodFUNC] New pod created, setting as focused (completed download): ${key}. Total pods: ${orderedPodKeys.length}`);
-        } else if (currentFocusedDownload && (currentFocusedDownload.succeeded || currentFocusedDownload.error)) {
-          // If current focus is on a finished download, switch to the new active one
-          focusedDownloadKey = key;
-          debugLog(`[PodFUNC] New pod created, setting as focused (current focus was finished): ${key}. Previous: ${focusedDownloadKey}`);
-        } else {
-          // In stable mode, keep current focus for in-progress downloads when current is also in-progress
-          debugLog(`[PodFUNC] New pod created but keeping current focus on: ${focusedDownloadKey}. New pod: ${key} (stable focus mode - both in progress)`);
-        }
-      } else {
-        debugLog(`[PodFUNC] Pod ${key} already exists in orderedPodKeys. Current focus: ${focusedDownloadKey}`);
-      }
+        // Add to ordered list (newest at the end)
+        if (!orderedPodKeys.includes(key)) {
+          orderedPodKeys.push(key);
 
-      // Pods only appear on completion; Zen arc animation runs before download starts, so no sync needed.
-      // Append to the horizontal row container immediately.
-      if (podsRowContainerElement && !podElement.parentNode) {
-        podsRowContainerElement.appendChild(podElement);
-        cardData.domAppended = true;
-        debugLog(`[PodFUNC] New pod ${key} appended to DOM (completed download).`);
-      }
-
-    } else {
-      // Update existing pod data
-      podElement = cardData.podElement;
-      cardData.download = download; 
-      cardData.lastInteractionTime = Date.now(); // Update interaction time on any change event
-      if (safeFilename !== cardData.originalFilename && !download.aiName) {
-         cardData.originalFilename = safeFilename; // Update if original name changes (e.g. server sent a different name later)
-      }
-      
-      // Update completion status for existing pods
-      if (download.succeeded && !cardData.complete) {
-        cardData.complete = true;
-        cardData.userCanceled = false; // Clear user-canceled flag on successful completion
-        podElement.classList.add("completed"); // For potential styling
-        debugLog(`[PodFUNC] Existing pod marked as complete: ${key}`);
-        
-        // Add to AI rename queue for existing completed pods
-        const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
-        debugLog(`[PodFUNC] Checking AI rename eligibility for ${key}:`, {
-          aiRenamingEnabled,
-          aiRenamingPossible,
-          hasPath: !!download.target?.path,
-          path: download.target?.path,
-          alreadyRenamed: renamedFiles.has(download.target?.path)
-        });
-        
-        if (aiRenamingEnabled && aiRenamingPossible && download.target?.path && 
-            !renamedFiles.has(download.target.path)) {
-          // Small delay to ensure download is fully settled before queuing
-          // Use cardData.download to ensure we have the latest download object
-          setTimeout(() => {
-            const currentCardData = activeDownloadCards.get(key);
-            if (currentCardData && currentCardData.download) {
-              debugLog(`[PodFUNC] Adding ${key} to AI rename queue after delay`);
-              addToAIRenameQueue(key, currentCardData.download, currentCardData.originalFilename);
-            } else {
-              debugLog(`[PodFUNC] Cannot add ${key} to queue - cardData missing after delay`);
+          // Show the container when we add the first pod (respects compact mode)
+          if (orderedPodKeys.length === 1) {
+            updateDownloadCardsVisibility();
+            if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
+              hideMediaControlsToolbar(); // Hide media controls when showing download pods
             }
-          }, 1000);
-        } else {
-          debugLog(`[PodFUNC] Not adding ${key} to AI rename queue - conditions not met`);
-        }
-        
-        // Schedule autohide after configured delay for completed downloads
-        scheduleCardRemoval(key);
-      }
-    }
-
-    // Update pod preview content based on download state (icon, image, text snippet)
-    const previewElement = podElement.querySelector(".card-preview-container");
-    if (previewElement) {
-        if (download.succeeded) {
-            // Always try to set preview for completed downloads (in case it failed before)
-            debugLog(`[Preview] Setting completed file preview for: ${key}`);
-            setCompletedFilePreview(previewElement, download)
-                .catch(e => debugLog("Error setting completed file preview (async) for pod", {error: e, download}));
-        } else if (download.error) {
-            // Potentially set a different icon for error/cancel state on the pod itself
-            setGenericIcon(previewElement, "application/octet-stream"); // Default or error specific icon
-        } else {
-            // In-progress, could have a spinner or animated icon on the pod
-            // For now, generic icon remains until completion, set at creation.
-        }
-    }
-    
-    // Mark as complete internally
-    if (download.succeeded && !cardData.complete) {
-      cardData.complete = true;
-      cardData.userCanceled = false; // Clear user-canceled flag on successful completion
-      podElement.classList.add("completed"); // For potential styling
-      debugLog(`[PodFUNC] Download marked as complete: ${key}`);
-      
-      // Add to AI rename queue for ALL completed downloads (not just focused)
-      // This ensures proper FIFO processing regardless of focus state
-      const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
-      debugLog(`[PodFUNC] Checking AI rename eligibility for ${key} (new pod):`, {
-        aiRenamingEnabled,
-        aiRenamingPossible,
-        hasPath: !!download.target?.path,
-        path: download.target?.path,
-        alreadyRenamed: renamedFiles.has(download.target?.path)
-      });
-      
-      if (aiRenamingEnabled && aiRenamingPossible && download.target?.path && 
-          !renamedFiles.has(download.target.path)) {
-        // Small delay to ensure download is fully settled before queuing
-        // Use cardData.download to ensure we have the latest download object
-        setTimeout(() => {
-          const currentCardData = activeDownloadCards.get(key);
-          if (currentCardData && currentCardData.download) {
-            debugLog(`[PodFUNC] Adding ${key} to AI rename queue after delay (new pod)`);
-            addToAIRenameQueue(key, currentCardData.download, currentCardData.originalFilename);
-          } else {
-            debugLog(`[PodFUNC] Cannot add ${key} to queue - cardData missing after delay (new pod)`);
           }
-        }, 1000);
-      } else {
-        debugLog(`[PodFUNC] Not adding ${key} to AI rename queue - conditions not met (new pod)`);
-      }
-      
-      // Schedule autohide after configured delay for completed downloads
-      scheduleCardRemoval(key);
-    }
-    if (download.error) {
-      podElement.classList.add("error");
-      // Schedule autohide for error downloads
-      scheduleCardRemoval(key);
-    }
 
-    return podElement;
-  }
+          // Focus behavior based on stable_focus_mode preference
+          const stableFocusMode = getPref("extensions.downloads.stable_focus_mode", true);
+          const currentFocusedData = focusedDownloadKey ? activeDownloadCards.get(focusedDownloadKey) : null;
+          const currentFocusedDownload = currentFocusedData?.download;
 
-  // This will be a new, complex function. For now, a placeholder.
-  function updateUIForFocusedDownload(keyToFocus, isNewOrSignificantUpdate = false) {
-    const now = Date.now();
-    const isFinalStateUpdateCandidate = (() => {
-      const cd = keyToFocus ? activeDownloadCards.get(keyToFocus) : null;
-      const dl = cd && cd.download;
-      return !!dl && (dl.succeeded || dl.error);
-    })();
-
-    const shouldForceLayout = isNewOrSignificantUpdate || isFinalStateUpdateCandidate;
-    const enoughTimeElapsedForLayout = (now - lastUIUpdateTime) >= MIN_UI_UPDATE_INTERVAL_MS;
-
-    if (!shouldForceLayout && !enoughTimeElapsedForLayout) {
-      debugLog(`[UIUPDATE_SKIP] Skipping UI update/layout for ${keyToFocus} to avoid layout storm.`);
-      return;
-    }
-
-    lastUIUpdateTime = now;
-
-    debugLog(`[UIUPDATE_TOP] updateUIForFocusedDownload called. keyToFocus: ${keyToFocus}, isNewOrSignificantUpdate: ${isNewOrSignificantUpdate}, current focusedDownloadKey: ${focusedDownloadKey}`);
-    
-    const oldFocusedKey = focusedDownloadKey;
-    focusedDownloadKey = keyToFocus; 
-    debugLog(`[UIUPDATE_FOCUS_SET] focusedDownloadKey is NOW: ${focusedDownloadKey}`);
-
-    const cardDataToFocus = focusedDownloadKey ? activeDownloadCards.get(focusedDownloadKey) : null;
-
-    if (!masterTooltipDOMElement) {
-        debugLog("[UIUPDATE_ERROR] Master tooltip DOM element not found. Cannot update UI.");
-        return; // Critical error, cannot proceed
-    }
-
-    if (!cardDataToFocus || !cardDataToFocus.podElement) {
-      debugLog(`[UIUPDATE_NO_CARD_DATA] No card data or podElement for key ${focusedDownloadKey}. Hiding master tooltip. CardData:`, cardDataToFocus);
-      masterTooltipDOMElement.style.opacity = "0";
-      masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-      masterTooltipDOMElement.style.pointerEvents = "none";
-      // Show media controls if no pods are visible
-      if (orderedPodKeys.length === 0) {
-        showMediaControlsToolbar();
-      }
-    } else {
-      // cardDataToFocus and podElement are valid, proceed with UI updates for tooltip and AI.
-      masterTooltipDOMElement.style.display = "flex"; 
-
-      if (oldFocusedKey !== focusedDownloadKey || isNewOrSignificantUpdate) {
-          debugLog(`[UIUPDATE_TOOLTIP_RESET] Focus changed or significant update. Resetting tooltip for animation for ${focusedDownloadKey}. Old focus: ${oldFocusedKey}`);
-          masterTooltipDOMElement.style.opacity = "0"; 
-          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-          masterTooltipDOMElement.style.pointerEvents = "none";
-      }
-
-      const download = cardDataToFocus.download; 
-      const podElement = cardDataToFocus.podElement; 
-
-      if (!download) {
-        debugLog(`[UIUPDATE_ERROR] cardDataToFocus for key ${focusedDownloadKey} is valid, but its .download property is undefined. Cannot update tooltip content or AI.`);
-        // Keep tooltip hidden or show a generic error if it was supposed to be visible
-        if (masterTooltipDOMElement.style.opacity !== '0') {
-             masterTooltipDOMElement.style.opacity = "0";
-             masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-             masterTooltipDOMElement.style.pointerEvents = "none";
+          if (!focusedDownloadKey) {
+            // Always focus if no current focus
+            focusedDownloadKey = key;
+            debugLog(`[PodFUNC] New pod created, setting as focused (no current focus): ${key}. Total pods: ${orderedPodKeys.length}`);
+          } else if (!stableFocusMode) {
+            // In non-stable mode, always switch to newest
+            focusedDownloadKey = key;
+            debugLog(`[PodFUNC] New pod created, setting as focused (non-stable mode): ${key}. Total pods: ${orderedPodKeys.length}`);
+          } else if (download.succeeded) {
+            // Completed downloads always take focus
+            focusedDownloadKey = key;
+            debugLog(`[PodFUNC] New pod created, setting as focused (completed download): ${key}. Total pods: ${orderedPodKeys.length}`);
+          } else if (currentFocusedDownload && (currentFocusedDownload.succeeded || currentFocusedDownload.error)) {
+            // If current focus is on a finished download, switch to the new active one
+            focusedDownloadKey = key;
+            debugLog(`[PodFUNC] New pod created, setting as focused (current focus was finished): ${key}. Previous: ${focusedDownloadKey}`);
+          } else {
+            // In stable mode, keep current focus for in-progress downloads when current is also in-progress
+            debugLog(`[PodFUNC] New pod created but keeping current focus on: ${focusedDownloadKey}. New pod: ${key} (stable focus mode - both in progress)`);
+          }
+        } else {
+          debugLog(`[PodFUNC] Pod ${key} already exists in orderedPodKeys. Current focus: ${focusedDownloadKey}`);
         }
-      } else {
-        // Both cardDataToFocus, podElement, AND download object are valid. Proceed with detailed updates.
 
-        // 0. Ensure completion status is up to date
-        if (download.succeeded && !cardDataToFocus.complete) {
-          cardDataToFocus.complete = true;
-          cardDataToFocus.userCanceled = false;
-          podElement.classList.add("completed");
-          debugLog(`[UIUPDATE] Download marked as complete during UI update: ${focusedDownloadKey}`);
-          
-          // Add to AI rename queue when completion is detected in UI update
+        // Pods only appear on completion; Zen arc animation runs before download starts, so no sync needed.
+        // Append to the horizontal row container immediately.
+        if (podsRowContainerElement && !podElement.parentNode) {
+          podsRowContainerElement.appendChild(podElement);
+          cardData.domAppended = true;
+          debugLog(`[PodFUNC] New pod ${key} appended to DOM (completed download).`);
+        }
+
+      } else {
+        // Update existing pod data
+        podElement = cardData.podElement;
+        cardData.download = download;
+        cardData.lastInteractionTime = Date.now(); // Update interaction time on any change event
+        if (safeFilename !== cardData.originalFilename && !download.aiName) {
+          cardData.originalFilename = safeFilename; // Update if original name changes (e.g. server sent a different name later)
+        }
+
+        // Update completion status for existing pods
+        if (download.succeeded && !cardData.complete) {
+          cardData.complete = true;
+          cardData.userCanceled = false; // Clear user-canceled flag on successful completion
+          podElement.classList.add("completed"); // For potential styling
+          debugLog(`[PodFUNC] Existing pod marked as complete: ${key}`);
+
+          // Add to AI rename queue for existing completed pods
           const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
-          debugLog(`[UIUPDATE] Checking AI rename eligibility for ${focusedDownloadKey}:`, {
+          debugLog(`[PodFUNC] Checking AI rename eligibility for ${key}:`, {
             aiRenamingEnabled,
             aiRenamingPossible,
             hasPath: !!download.target?.path,
             path: download.target?.path,
             alreadyRenamed: renamedFiles.has(download.target?.path)
           });
-          
-          if (aiRenamingEnabled && aiRenamingPossible && download.target?.path && 
-              !renamedFiles.has(download.target.path)) {
+
+          if (aiRenamingEnabled && aiRenamingPossible && download.target?.path &&
+            !renamedFiles.has(download.target.path)) {
             // Small delay to ensure download is fully settled before queuing
+            // Use cardData.download to ensure we have the latest download object
             setTimeout(() => {
-              const currentCardData = activeDownloadCards.get(focusedDownloadKey);
+              const currentCardData = activeDownloadCards.get(key);
               if (currentCardData && currentCardData.download) {
-                debugLog(`[UIUPDATE] Adding ${focusedDownloadKey} to AI rename queue after delay`);
-                addToAIRenameQueue(focusedDownloadKey, currentCardData.download, currentCardData.originalFilename);
+                debugLog(`[PodFUNC] Adding ${key} to AI rename queue after delay`);
+                addToAIRenameQueue(key, currentCardData.download, currentCardData.originalFilename);
               } else {
-                debugLog(`[UIUPDATE] Cannot add ${focusedDownloadKey} to queue - cardData missing after delay`);
+                debugLog(`[PodFUNC] Cannot add ${key} to queue - cardData missing after delay`);
               }
             }, 1000);
           } else {
-            debugLog(`[UIUPDATE] Not adding ${focusedDownloadKey} to AI rename queue - conditions not met`);
+            debugLog(`[PodFUNC] Not adding ${key} to AI rename queue - conditions not met`);
           }
-          
-          scheduleCardRemoval(focusedDownloadKey);
-          
-          // Set image preview for completed downloads
-          const previewElement = podElement.querySelector(".card-preview-container");
-          if (previewElement) {
-            debugLog(`[UIUPDATE] Setting completed file preview for: ${focusedDownloadKey}`);
-            setCompletedFilePreview(previewElement, download)
-              .catch(e => debugLog("Error setting completed file preview during UI update", {error: e, download}));
-          }
+
+          // Schedule autohide after configured delay for completed downloads
+          scheduleCardRemoval(key);
         }
+      }
 
-        // 1. Update masterTooltipDOMElement content
-        const titleEl = masterTooltipDOMElement.querySelector(".card-title");
-        const statusEl = masterTooltipDOMElement.querySelector(".card-status");
-        const progressEl = masterTooltipDOMElement.querySelector(".card-progress");
-        const originalFilenameEl = masterTooltipDOMElement.querySelector(".card-original-filename");
-        const undoBtnEl = masterTooltipDOMElement.querySelector(".card-undo-button"); // Get the undo button
-        const sparkleLayer = masterTooltipDOMElement.querySelector(".ai-sparkle-layer"); // Get the sparkle layer
-
-        // Derive display name from actual file path if possible to catch OS renames (e.g. file(1).jpg)
-        let displayName = download.aiName || cardDataToFocus.originalFilename || "File";
-        // Always attempt to get the actual filename from disk, even if AI renamed it.
-        // If AI renamed it to "foo.jpg" but OS made it "foo(1).jpg", we want "foo(1).jpg".
-        if (download.target?.path) {
-            try {
-                const pathSeparator = download.target.path.includes('\\') ? '\\' : '/';
-                const actualFilename = download.target.path.split(pathSeparator).pop();
-                // We prefer the actual filename if it exists and differs from what we thought
-                if (actualFilename && actualFilename !== displayName) {
-                     // If it was AI renamed, we might want to check if the actual filename contains the AI name
-                     // But generally, the file on disk is the ultimate truth.
-                    displayName = actualFilename;
-                }
-            } catch (e) {
-                // Fallback
-            }
+      // Update pod preview content based on download state (icon, image, text snippet)
+      const previewElement = podElement.querySelector(".card-preview-container");
+      if (previewElement) {
+        if (download.succeeded) {
+          // Always try to set preview for completed downloads (in case it failed before)
+          debugLog(`[Preview] Setting completed file preview for: ${key}`);
+          setCompletedFilePreview(previewElement, download)
+            .catch(e => debugLog("Error setting completed file preview (async) for pod", { error: e, download }));
+        } else if (download.error) {
+          // Potentially set a different icon for error/cancel state on the pod itself
+          setGenericIcon(previewElement, "application/octet-stream"); // Default or error specific icon
+        } else {
+          // In-progress, could have a spinner or animated icon on the pod
+          // For now, generic icon remains until completion, set at creation.
         }
-        
-        if (titleEl) {
-          titleEl.textContent = displayName;
-          titleEl.title = displayName;
-        }
+      }
 
-        if (statusEl && originalFilenameEl && progressEl && undoBtnEl) { // Include undoBtnEl in the check
-            if (download.aiName && download.succeeded) {
-                // AI Renamed State
-                let finalSize = download.currentBytes;
-                if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
-                const fileSizeText = formatBytes(finalSize || 0);
-                
-                // Always show file size in bottom right corner for renamed files
-                const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
-                statusEl.textContent = "Download renamed to:";
-                if (fileSizeEl) {
-                    fileSizeEl.textContent = fileSizeText;
-                    fileSizeEl.style.display = "block";
-                }
-                statusEl.style.color = "#a0a0a0"; 
+      // Mark as complete internally
+      if (download.succeeded && !cardData.complete) {
+        cardData.complete = true;
+        cardData.userCanceled = false; // Clear user-canceled flag on successful completion
+        podElement.classList.add("completed"); // For potential styling
+        debugLog(`[PodFUNC] Download marked as complete: ${key}`);
 
-                originalFilenameEl.textContent = cardDataToFocus.originalFilename; 
-                originalFilenameEl.title = cardDataToFocus.originalFilename;
-                originalFilenameEl.style.display = "block";
-
-                progressEl.style.display = "none"; 
-                undoBtnEl.style.display = "inline-flex"; // Show undo button
-                
-                // Show sparkles
-                if (sparkleLayer) {
-                  sparkleLayer.classList.add("visible");
-                }
-            } else {
-                // Default states (completed, error) - tooltip only shows after completion
-                originalFilenameEl.style.display = "none"; 
-                progressEl.style.display = "block";    
-                undoBtnEl.style.display = "none"; // Hide undo button
-                
-                // Hide sparkles
-                if (sparkleLayer) {
-                  sparkleLayer.classList.remove("visible");
-                }
-                
-                // Hide the bottom-right file size element in non-renamed states
-                const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
-                if (fileSizeEl) fileSizeEl.style.display = "none";
-                
-                // Reset undo button to original undo icon and title
-                undoBtnEl.title = "Undo Rename";
-                const svgIcon = undoBtnEl.querySelector("svg");
-                if (svgIcon) {
-                    const pathIcon = svgIcon.querySelector("path");
-                    if (pathIcon) {
-                        pathIcon.setAttribute("d", "M30.3,12.6c10.4,0,18.9,8.4,18.9,18.9s-8.5,18.9-18.9,18.9h-8.2c-0.8,0-1.3-0.6-1.3-1.4v-3.2c0-0.8,0.6-1.5,1.4-1.5h8.1c7.1,0,12.8-5.7,12.8-12.8s-5.7-12.8-12.8-12.8H16.4c0,0-0.8,0-1.1,0.1c-0.8,0.4-0.6,1,0.1,1.7l4.9,4.9c0.6,0.6,0.5,1.5-0.1,2.1L18,29.7c-0.6,0.6-1.3,0.6-1.9,0.1l-13-13c-0.5-0.5-0.5-1.3,0-1.8L16,2.1c0.6-0.6,1.6-0.6,2.1,0l2.1,2.1c0.6,0.6,0.6,1.6,0,2.1l-4.9,4.9c-0.6,0.6-0.6,1.3,0.4,1.3c0.3,0,0.7,0,0.7,0L30.3,12.6z");
-                    }
-                }
-
-                if (download.error) {
-                    statusEl.textContent = `Error: ${download.error.message || "Download failed"}`;
-                    statusEl.style.color = "#ff6b6b";
-                } else {
-                    statusEl.textContent = "Download completed";
-                    statusEl.style.color = "#1dd1a1";
-                }
-            }
-        }
-
-        if (progressEl) { // This block handles the content of progressEl when it's visible (completed states only)
-            if (progressEl.style.display !== 'none') {
-                if (download.succeeded) {
-                    let finalSize = download.currentBytes;
-                    if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
-                    progressEl.textContent = `${formatBytes(finalSize || 0)}`;
-                } else {
-                    let size = download.currentBytes || download.totalBytes;
-                    progressEl.textContent = typeof size === 'number' && size > 0 ? formatBytes(size) : "";
-                }
-            }
-        }
-        
-        // Use 100% width - container already has padding
-        masterTooltipDOMElement.style.width = '100%';
-
-        // 5. Handle AI Renaming UI status - queue addition is handled in createOrUpdatePodElement
-        //    Here we just update the UI to reflect queue status
-        const isInQueue = aiRenameQueue.some(item => item.downloadKey === keyToFocus);
-        const isCurrentlyProcessing = currentlyProcessingKey === keyToFocus;
-        
-        debugLog(`[AI Rename Status] ${keyToFocus}: inQueue=${isInQueue}, processing=${isCurrentlyProcessing}, succeeded=${download.succeeded}, hasAiName=${!!download.aiName}`);
-        
-        // Update UI to show queue status
-        if (isInQueue || isCurrentlyProcessing) {
-          updateQueueStatusInUI(keyToFocus);
-        }
-      } // End of a valid 'download' object check
-    } // End of valid 'cardDataToFocus' and 'podElement' check
-
-    // 4. Call managePodVisibilityAndAnimations (always call to ensure layout is correct)
-    // Use a small delay to ensure DOM updates are processed
-    requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-            managePodVisibilityAndAnimations();
+        // Add to AI rename queue for ALL completed downloads (not just focused)
+        // This ensures proper FIFO processing regardless of focus state
+        const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
+        debugLog(`[PodFUNC] Checking AI rename eligibility for ${key} (new pod):`, {
+          aiRenamingEnabled,
+          aiRenamingPossible,
+          hasPath: !!download.target?.path,
+          path: download.target?.path,
+          alreadyRenamed: renamedFiles.has(download.target?.path)
         });
-    });
 
-    // 6. Update which pod appears "focused" visually (this iterates all cards, safe to be here)
-    activeDownloadCards.forEach(cd => {
-        if (cd.podElement) {
-            if (cd.key === focusedDownloadKey) {
-                cd.podElement.classList.add('focused-pod');
-                
-                // Use dominant color if available, otherwise default blue
-                const dominantColor = cd.podElement.dataset.dominantColor;
-                if (dominantColor) {
-                    updatePodGlowColor(cd.podElement, dominantColor);
-                } else {
-                    cd.podElement.style.boxShadow = '0 0 15px rgba(84, 160, 255, 0.7), 0 3px 10px rgba(0,0,0,0.3)';
-                }
+        if (aiRenamingEnabled && aiRenamingPossible && download.target?.path &&
+          !renamedFiles.has(download.target.path)) {
+          // Small delay to ensure download is fully settled before queuing
+          // Use cardData.download to ensure we have the latest download object
+          setTimeout(() => {
+            const currentCardData = activeDownloadCards.get(key);
+            if (currentCardData && currentCardData.download) {
+              debugLog(`[PodFUNC] Adding ${key} to AI rename queue after delay (new pod)`);
+              addToAIRenameQueue(key, currentCardData.download, currentCardData.originalFilename);
             } else {
-                cd.podElement.classList.remove('focused-pod');
-                cd.podElement.style.boxShadow = '0 3px 10px rgba(0,0,0,0.3)';
+              debugLog(`[PodFUNC] Cannot add ${key} to queue - cardData missing after delay (new pod)`);
             }
+          }, 1000);
+        } else {
+          debugLog(`[PodFUNC] Not adding ${key} to AI rename queue - conditions not met (new pod)`);
         }
-    });
-          }
 
-  // Placeholder for the layout manager function
-  function managePodVisibilityAndAnimations() {
-    if (!masterTooltipDOMElement || !podsRowContainerElement) return;
-    debugLog("[LayoutManager] managePodVisibilityAndAnimations Natural Stacking Style called.");
-    debugLog(`[LayoutManager] Current state: orderedPodKeys=${orderedPodKeys.length}, focusedDownloadKey=${focusedDownloadKey}, activeDownloadCards=${activeDownloadCards.size}`);
+        // Schedule autohide after configured delay for completed downloads
+        scheduleCardRemoval(key);
+      }
+      if (download.error) {
+        podElement.classList.add("error");
+        // Schedule autohide for error downloads
+        scheduleCardRemoval(key);
+      }
 
-    const tooltipWidth = masterTooltipDOMElement.offsetWidth;
-    const podNominalWidth = 56; 
-    const podOverlapAmount = 40; 
-    const baseZIndex = 10;
-    const maxVisiblePodsInPile = Math.floor((tooltipWidth - podNominalWidth) / (podNominalWidth - podOverlapAmount)) + 1; 
+      return podElement;
+    }
 
-    if (orderedPodKeys.length === 0) {
-        // Hide the entire container when no pods exist
-        if (downloadCardsContainer) {
-            downloadCardsContainer.style.display = "none";
-            downloadCardsContainer.style.opacity = "0";
-            downloadCardsContainer.style.visibility = "hidden";
+    // This will be a new, complex function. For now, a placeholder.
+    function updateUIForFocusedDownload(keyToFocus, isNewOrSignificantUpdate = false) {
+      const now = Date.now();
+      const isFinalStateUpdateCandidate = (() => {
+        const cd = keyToFocus ? activeDownloadCards.get(keyToFocus) : null;
+        const dl = cd && cd.download;
+        return !!dl && (dl.succeeded || dl.error);
+      })();
+
+      const shouldForceLayout = isNewOrSignificantUpdate || isFinalStateUpdateCandidate;
+      const enoughTimeElapsedForLayout = (now - lastUIUpdateTime) >= MIN_UI_UPDATE_INTERVAL_MS;
+
+      if (!shouldForceLayout && !enoughTimeElapsedForLayout) {
+        debugLog(`[UIUPDATE_SKIP] Skipping UI update/layout for ${keyToFocus} to avoid layout storm.`);
+        return;
+      }
+
+      lastUIUpdateTime = now;
+
+      debugLog(`[UIUPDATE_TOP] updateUIForFocusedDownload called. keyToFocus: ${keyToFocus}, isNewOrSignificantUpdate: ${isNewOrSignificantUpdate}, current focusedDownloadKey: ${focusedDownloadKey}`);
+
+      const oldFocusedKey = focusedDownloadKey;
+      focusedDownloadKey = keyToFocus;
+      debugLog(`[UIUPDATE_FOCUS_SET] focusedDownloadKey is NOW: ${focusedDownloadKey}`);
+
+      const cardDataToFocus = focusedDownloadKey ? activeDownloadCards.get(focusedDownloadKey) : null;
+
+      if (!masterTooltipDOMElement) {
+        debugLog("[UIUPDATE_ERROR] Master tooltip DOM element not found. Cannot update UI.");
+        return; // Critical error, cannot proceed
+      }
+
+      if (!cardDataToFocus || !cardDataToFocus.podElement) {
+        debugLog(`[UIUPDATE_NO_CARD_DATA] No card data or podElement for key ${focusedDownloadKey}. Hiding master tooltip. CardData:`, cardDataToFocus);
+        masterTooltipDOMElement.style.opacity = "0";
+        masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+        masterTooltipDOMElement.style.pointerEvents = "none";
+        // Show media controls if no pods are visible
+        if (orderedPodKeys.length === 0) {
+          showMediaControlsToolbar();
         }
-        
-        if (masterTooltipDOMElement.style.opacity !== "0") {
-            debugLog("[LayoutManager] No pods, ensuring master tooltip is hidden.");
+      } else {
+        // cardDataToFocus and podElement are valid, proceed with UI updates for tooltip and AI.
+        masterTooltipDOMElement.style.display = "flex";
+
+        if (oldFocusedKey !== focusedDownloadKey || isNewOrSignificantUpdate) {
+          debugLog(`[UIUPDATE_TOOLTIP_RESET] Focus changed or significant update. Resetting tooltip for animation for ${focusedDownloadKey}. Old focus: ${oldFocusedKey}`);
+          masterTooltipDOMElement.style.opacity = "0";
+          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+          masterTooltipDOMElement.style.pointerEvents = "none";
+        }
+
+        const download = cardDataToFocus.download;
+        const podElement = cardDataToFocus.podElement;
+
+        if (!download) {
+          debugLog(`[UIUPDATE_ERROR] cardDataToFocus for key ${focusedDownloadKey} is valid, but its .download property is undefined. Cannot update tooltip content or AI.`);
+          // Keep tooltip hidden or show a generic error if it was supposed to be visible
+          if (masterTooltipDOMElement.style.opacity !== '0') {
             masterTooltipDOMElement.style.opacity = "0";
             masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
             masterTooltipDOMElement.style.pointerEvents = "none";
-            setTimeout(() => { 
-                if (masterTooltipDOMElement.style.opacity === "0") masterTooltipDOMElement.style.display = "none";
-            }, 300);
+          }
+        } else {
+          // Both cardDataToFocus, podElement, AND download object are valid. Proceed with detailed updates.
+
+          // 0. Ensure completion status is up to date
+          if (download.succeeded && !cardDataToFocus.complete) {
+            cardDataToFocus.complete = true;
+            cardDataToFocus.userCanceled = false;
+            podElement.classList.add("completed");
+            debugLog(`[UIUPDATE] Download marked as complete during UI update: ${focusedDownloadKey}`);
+
+            // Add to AI rename queue when completion is detected in UI update
+            const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
+            debugLog(`[UIUPDATE] Checking AI rename eligibility for ${focusedDownloadKey}:`, {
+              aiRenamingEnabled,
+              aiRenamingPossible,
+              hasPath: !!download.target?.path,
+              path: download.target?.path,
+              alreadyRenamed: renamedFiles.has(download.target?.path)
+            });
+
+            if (aiRenamingEnabled && aiRenamingPossible && download.target?.path &&
+              !renamedFiles.has(download.target.path)) {
+              // Small delay to ensure download is fully settled before queuing
+              setTimeout(() => {
+                const currentCardData = activeDownloadCards.get(focusedDownloadKey);
+                if (currentCardData && currentCardData.download) {
+                  debugLog(`[UIUPDATE] Adding ${focusedDownloadKey} to AI rename queue after delay`);
+                  addToAIRenameQueue(focusedDownloadKey, currentCardData.download, currentCardData.originalFilename);
+                } else {
+                  debugLog(`[UIUPDATE] Cannot add ${focusedDownloadKey} to queue - cardData missing after delay`);
+                }
+              }, 1000);
+            } else {
+              debugLog(`[UIUPDATE] Not adding ${focusedDownloadKey} to AI rename queue - conditions not met`);
+            }
+
+            scheduleCardRemoval(focusedDownloadKey);
+
+            // Set image preview for completed downloads
+            const previewElement = podElement.querySelector(".card-preview-container");
+            if (previewElement) {
+              debugLog(`[UIUPDATE] Setting completed file preview for: ${focusedDownloadKey}`);
+              setCompletedFilePreview(previewElement, download)
+                .catch(e => debugLog("Error setting completed file preview during UI update", { error: e, download }));
+            }
+          }
+
+          // 1. Update masterTooltipDOMElement content
+          const titleEl = masterTooltipDOMElement.querySelector(".card-title");
+          const statusEl = masterTooltipDOMElement.querySelector(".card-status");
+          const progressEl = masterTooltipDOMElement.querySelector(".card-progress");
+          const originalFilenameEl = masterTooltipDOMElement.querySelector(".card-original-filename");
+          const undoBtnEl = masterTooltipDOMElement.querySelector(".card-undo-button"); // Get the undo button
+          const sparkleLayer = masterTooltipDOMElement.querySelector(".ai-sparkle-layer"); // Get the sparkle layer
+
+          // Derive display name from actual file path if possible to catch OS renames (e.g. file(1).jpg)
+          let displayName = download.aiName || cardDataToFocus.originalFilename || "File";
+          // Always attempt to get the actual filename from disk, even if AI renamed it.
+          // If AI renamed it to "foo.jpg" but OS made it "foo(1).jpg", we want "foo(1).jpg".
+          if (download.target?.path) {
+            try {
+              const pathSeparator = download.target.path.includes('\\') ? '\\' : '/';
+              const actualFilename = download.target.path.split(pathSeparator).pop();
+              // We prefer the actual filename if it exists and differs from what we thought
+              if (actualFilename && actualFilename !== displayName) {
+                // If it was AI renamed, we might want to check if the actual filename contains the AI name
+                // But generally, the file on disk is the ultimate truth.
+                displayName = actualFilename;
+              }
+            } catch (e) {
+              // Fallback
+            }
+          }
+
+          if (titleEl) {
+            titleEl.textContent = displayName;
+            titleEl.title = displayName;
+          }
+
+          if (statusEl && originalFilenameEl && progressEl && undoBtnEl) { // Include undoBtnEl in the check
+            if (download.aiName && download.succeeded) {
+              // AI Renamed State
+              let finalSize = download.currentBytes;
+              if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
+              const fileSizeText = formatBytes(finalSize || 0);
+
+              // Always show file size in bottom right corner for renamed files
+              const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
+              statusEl.textContent = "Download renamed to:";
+              if (fileSizeEl) {
+                fileSizeEl.textContent = fileSizeText;
+                fileSizeEl.style.display = "block";
+              }
+              statusEl.style.color = "#a0a0a0";
+
+              originalFilenameEl.textContent = cardDataToFocus.originalFilename;
+              originalFilenameEl.title = cardDataToFocus.originalFilename;
+              originalFilenameEl.style.display = "block";
+
+              progressEl.style.display = "none";
+              undoBtnEl.style.display = "inline-flex"; // Show undo button
+
+              // Show sparkles
+              if (sparkleLayer) {
+                sparkleLayer.classList.add("visible");
+              }
+            } else {
+              // Default states (completed, error) - tooltip only shows after completion
+              originalFilenameEl.style.display = "none";
+              progressEl.style.display = "block";
+              undoBtnEl.style.display = "none"; // Hide undo button
+
+              // Hide sparkles
+              if (sparkleLayer) {
+                sparkleLayer.classList.remove("visible");
+              }
+
+              // Hide the bottom-right file size element in non-renamed states
+              const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
+              if (fileSizeEl) fileSizeEl.style.display = "none";
+
+              // Reset undo button to original undo icon and title
+              undoBtnEl.title = "Undo Rename";
+              const svgIcon = undoBtnEl.querySelector("svg");
+              if (svgIcon) {
+                const pathIcon = svgIcon.querySelector("path");
+                if (pathIcon) {
+                  pathIcon.setAttribute("d", "M30.3,12.6c10.4,0,18.9,8.4,18.9,18.9s-8.5,18.9-18.9,18.9h-8.2c-0.8,0-1.3-0.6-1.3-1.4v-3.2c0-0.8,0.6-1.5,1.4-1.5h8.1c7.1,0,12.8-5.7,12.8-12.8s-5.7-12.8-12.8-12.8H16.4c0,0-0.8,0-1.1,0.1c-0.8,0.4-0.6,1,0.1,1.7l4.9,4.9c0.6,0.6,0.5,1.5-0.1,2.1L18,29.7c-0.6,0.6-1.3,0.6-1.9,0.1l-13-13c-0.5-0.5-0.5-1.3,0-1.8L16,2.1c0.6-0.6,1.6-0.6,2.1,0l2.1,2.1c0.6,0.6,0.6,1.6,0,2.1l-4.9,4.9c-0.6,0.6-0.6,1.3,0.4,1.3c0.3,0,0.7,0,0.7,0L30.3,12.6z");
+                }
+              }
+
+              if (download.error) {
+                statusEl.textContent = `Error: ${download.error.message || "Download failed"}`;
+                statusEl.style.color = "#ff6b6b";
+              } else {
+                statusEl.textContent = "Download completed";
+                statusEl.style.color = "#1dd1a1";
+              }
+            }
+          }
+
+          if (progressEl) { // This block handles the content of progressEl when it's visible (completed states only)
+            if (progressEl.style.display !== 'none') {
+              if (download.succeeded) {
+                let finalSize = download.currentBytes;
+                if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
+                progressEl.textContent = `${formatBytes(finalSize || 0)}`;
+              } else {
+                let size = download.currentBytes || download.totalBytes;
+                progressEl.textContent = typeof size === 'number' && size > 0 ? formatBytes(size) : "";
+              }
+            }
+          }
+
+          // Use 100% width - container already has padding
+          masterTooltipDOMElement.style.width = '100%';
+
+          // 5. Handle AI Renaming UI status - queue addition is handled in createOrUpdatePodElement
+          //    Here we just update the UI to reflect queue status
+          const isInQueue = aiRenameQueue.some(item => item.downloadKey === keyToFocus);
+          const isCurrentlyProcessing = currentlyProcessingKey === keyToFocus;
+
+          debugLog(`[AI Rename Status] ${keyToFocus}: inQueue=${isInQueue}, processing=${isCurrentlyProcessing}, succeeded=${download.succeeded}, hasAiName=${!!download.aiName}`);
+
+          // Update UI to show queue status
+          if (isInQueue || isCurrentlyProcessing) {
+            updateQueueStatusInUI(keyToFocus);
+          }
+        } // End of a valid 'download' object check
+      } // End of valid 'cardDataToFocus' and 'podElement' check
+
+      // 4. Call managePodVisibilityAndAnimations (always call to ensure layout is correct)
+      // Use a small delay to ensure DOM updates are processed
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          managePodVisibilityAndAnimations();
+        });
+      });
+
+      // 6. Update which pod appears "focused" visually (this iterates all cards, safe to be here)
+      activeDownloadCards.forEach(cd => {
+        if (cd.podElement) {
+          if (cd.key === focusedDownloadKey) {
+            cd.podElement.classList.add('focused-pod');
+
+            // Use dominant color if available, otherwise default blue
+            const dominantColor = cd.podElement.dataset.dominantColor;
+            if (dominantColor) {
+              updatePodGlowColor(cd.podElement, dominantColor);
+            }
+          } else {
+            cd.podElement.classList.remove('focused-pod');
+          }
+        }
+      });
+    }
+
+    // Placeholder for the layout manager function
+    function managePodVisibilityAndAnimations() {
+      if (!masterTooltipDOMElement || !podsRowContainerElement) return;
+      debugLog("[LayoutManager] managePodVisibilityAndAnimations Natural Stacking Style called.");
+      debugLog(`[LayoutManager] Current state: orderedPodKeys=${orderedPodKeys.length}, focusedDownloadKey=${focusedDownloadKey}, activeDownloadCards=${activeDownloadCards.size}`);
+
+      const tooltipWidth = masterTooltipDOMElement.offsetWidth;
+      const podNominalWidth = 56;
+      const podOverlapAmount = 50;
+      const baseZIndex = 10;
+      const maxVisiblePodsInPile = Math.floor((tooltipWidth - podNominalWidth) / (podNominalWidth - podOverlapAmount)) + 1;
+
+      if (orderedPodKeys.length === 0) {
+        // Hide the entire container when no pods exist
+        if (downloadCardsContainer) {
+          downloadCardsContainer.style.display = "none";
+          downloadCardsContainer.style.opacity = "0";
+          downloadCardsContainer.style.visibility = "hidden";
+        }
+
+        if (masterTooltipDOMElement.style.opacity !== "0") {
+          debugLog("[LayoutManager] No pods, ensuring master tooltip is hidden.");
+          masterTooltipDOMElement.style.opacity = "0";
+          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+          masterTooltipDOMElement.style.pointerEvents = "none";
+          setTimeout(() => {
+            if (masterTooltipDOMElement.style.opacity === "0") masterTooltipDOMElement.style.display = "none";
+          }, 300);
         }
         showMediaControlsToolbar(); // Show media controls when no pods exist
         debugLog(`[LayoutManager] Exiting: No OrderedPodKeys.`);
         podsRowContainerElement.style.gap = '0px'; // Reset gap just in case
         return;
-    }
+      }
 
-    // Show the container when we have pods (respects compact mode via updateDownloadCardsVisibility)
-    updateDownloadCardsVisibility();
-    if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
+      // Show the container when we have pods (respects compact mode via updateDownloadCardsVisibility)
+      updateDownloadCardsVisibility();
+      if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
         hideMediaControlsToolbar(); // Hide media controls when showing download pods
-    }
+      }
 
-    if (tooltipWidth === 0 && orderedPodKeys.length > 0) {
+      if (tooltipWidth === 0 && orderedPodKeys.length > 0) {
         debugLog("[LayoutManager] Master tooltip width is 0. Cannot manage pod layout yet.");
         // Set a minimum height for the container to prevent layout collapse
         if (podsRowContainerElement.style.height === '0px') {
-            podsRowContainerElement.style.height = '56px';
+          podsRowContainerElement.style.height = '56px';
         }
-        return; 
-    }
-    
-    // Ensure focusedDownloadKey is valid and in orderedPodKeys, default to newest if not.
-    if (!focusedDownloadKey || !orderedPodKeys.includes(focusedDownloadKey)) {
-        if (orderedPodKeys.length > 0) {
-            const newFocusKey = orderedPodKeys[orderedPodKeys.length -1]; // Default to newest
-            if (focusedDownloadKey !== newFocusKey) {
-                focusedDownloadKey = newFocusKey;
-                debugLog(`[LayoutManager] Focused key was invalid or missing, defaulted to newest: ${focusedDownloadKey}`);
-            }
-        }
-    }
+        return;
+      }
 
-    // Ensure all pods in orderedPodKeys are in the DOM and have initial styles for animation/layout.
-    orderedPodKeys.forEach(key => {
+      // Ensure focusedDownloadKey is valid and in orderedPodKeys, default to newest if not.
+      if (!focusedDownloadKey || !orderedPodKeys.includes(focusedDownloadKey)) {
+        if (orderedPodKeys.length > 0) {
+          const newFocusKey = orderedPodKeys[orderedPodKeys.length - 1]; // Default to newest
+          if (focusedDownloadKey !== newFocusKey) {
+            focusedDownloadKey = newFocusKey;
+            debugLog(`[LayoutManager] Focused key was invalid or missing, defaulted to newest: ${focusedDownloadKey}`);
+          }
+        }
+      }
+
+      // Ensure all pods in orderedPodKeys are in the DOM and have initial styles for animation/layout.
+      orderedPodKeys.forEach(key => {
         const cardData = activeDownloadCards.get(key);
         if (cardData && cardData.podElement && !cardData.isWaitingForZenAnimation) {
-            if (!cardData.domAppended && podsRowContainerElement) {
-                podsRowContainerElement.appendChild(cardData.podElement);
-                cardData.domAppended = true;
-                debugLog(`[LayoutManager] Ensured pod ${key} is in DOM for Jukebox layout.`);
+          if (!cardData.domAppended && podsRowContainerElement) {
+            podsRowContainerElement.appendChild(cardData.podElement);
+            cardData.domAppended = true;
+            debugLog(`[LayoutManager] Ensured pod ${key} is in DOM for Jukebox layout.`);
+          }
+          // Ensure consistent styling for all pods (in case they were created before layout manager)
+          if (cardData.podElement.style.position !== 'absolute') {
+            cardData.podElement.style.position = 'absolute';
+            cardData.podElement.style.width = `${podNominalWidth}px`;
+            cardData.podElement.style.marginRight = '0px';
+            cardData.podElement.style.boxSizing = 'border-box';
+            if (!cardData.podElement.style.transition) {
+              cardData.podElement.style.transition =
+                'opacity 0.4s ease-out, transform 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55), ' +
+                'z-index 0.3s ease-out';
             }
-            // Ensure consistent styling for all pods (in case they were created before layout manager)
-            if (cardData.podElement.style.position !== 'absolute') {
-                cardData.podElement.style.position = 'absolute';
-                cardData.podElement.style.width = `${podNominalWidth}px`;
-                cardData.podElement.style.marginRight = '0px';
-                cardData.podElement.style.boxSizing = 'border-box';
-                if (!cardData.podElement.style.transition) {
-                    cardData.podElement.style.transition = 
-                        'opacity 0.4s ease-out, transform 0.5s cubic-bezier(0.68, -0.55, 0.27, 1.55), ' + 
-                        'z-index 0.3s ease-out';
-                }
-                debugLog(`[LayoutManager] Updated pod ${key} styling for absolute positioning.`);
-            }
+            debugLog(`[LayoutManager] Updated pod ${key} styling for absolute positioning.`);
+          }
         }
-    });
+      });
 
-    let visiblePodsLayoutData = []; // Stores {key, x, zIndex, isFocused}
-    const focusedIndexInOrdered = orderedPodKeys.indexOf(focusedDownloadKey);
+      let visiblePodsLayoutData = []; // Stores {key, x, zIndex, isFocused}
+      const focusedIndexInOrdered = orderedPodKeys.indexOf(focusedDownloadKey);
 
-    if (focusedIndexInOrdered === -1 && orderedPodKeys.length > 0) {
+      if (focusedIndexInOrdered === -1 && orderedPodKeys.length > 0) {
         // This should not happen if the check above worked, but as a failsafe:
         debugLog(`[LayoutManager_ERROR] Focused key ${focusedDownloadKey} not in ordered keys after all! Defaulting again.`);
         focusedDownloadKey = orderedPodKeys[orderedPodKeys.length - 1];
         // updateUIForFocusedDownload(focusedDownloadKey, false); // This could cause a loop, be careful
         // return; // Might be better to just proceed with the default for this frame
-    }
-    
-    if (!focusedDownloadKey) { // If still no focused key (e.g. orderedPodKeys became empty)
-      debugLog("[LayoutManager] No focused key available, cannot proceed with jukebox layout.");
-      // Potentially hide all pods if this state is reached unexpectedly.
-      orderedPodKeys.forEach(key => {
-        const cd = activeDownloadCards.get(key);
-        if (cd && cd.podElement && cd.isVisible) {
-          cd.podElement.style.opacity = '0';
-          cd.podElement.style.transform = 'scale(0.8) translateX(-30px)';
-          cd.isVisible = false;
-        }
-      });
-      return;
-    }
+      }
 
-    // 1. Position the focused pod
-    let currentX = 0;
-    visiblePodsLayoutData.push({
+      if (!focusedDownloadKey) { // If still no focused key (e.g. orderedPodKeys became empty)
+        debugLog("[LayoutManager] No focused key available, cannot proceed with jukebox layout.");
+        // Potentially hide all pods if this state is reached unexpectedly.
+        orderedPodKeys.forEach(key => {
+          const cd = activeDownloadCards.get(key);
+          if (cd && cd.podElement && cd.isVisible) {
+            cd.podElement.style.opacity = '0';
+            cd.podElement.style.transform = 'scale(0.8) translateX(-30px)';
+            cd.isVisible = false;
+          }
+        });
+        return;
+      }
+
+      // 1. Position the focused pod
+      let currentX = 0;
+      visiblePodsLayoutData.push({
         key: focusedDownloadKey,
         x: currentX,
         zIndex: baseZIndex + orderedPodKeys.length + 1, // Highest Z
         isFocused: true
-    });
-    currentX += podNominalWidth - podOverlapAmount; // Next pod starts offset by (width - overlap)
+      });
+      currentX += podNominalWidth - podOverlapAmount; // Next pod starts offset by (width - overlap)
 
-    // 2. Position the pile pods to the right in reverse chronological order (natural stacking)
-    // Create pile from newest to oldest, excluding the focused pod
-    const pileKeys = orderedPodKeys.slice().reverse().filter(key => key !== focusedDownloadKey);
-    let pileCount = 0;
-    
-    for (let i = 0; i < pileKeys.length && pileCount < maxVisiblePodsInPile - 1; i++) {
+      // 2. Position the pile pods to the right in reverse chronological order (natural stacking)
+      // Create pile from newest to oldest, excluding the focused pod
+      const pileKeys = orderedPodKeys.slice().reverse().filter(key => key !== focusedDownloadKey);
+      let pileCount = 0;
+
+      for (let i = 0; i < pileKeys.length && pileCount < maxVisiblePodsInPile - 1; i++) {
         const podKeyInPile = pileKeys[i];
 
         if (currentX + podNominalWidth <= tooltipWidth + podOverlapAmount) { // Allow last one to partially show
-            visiblePodsLayoutData.push({
-                key: podKeyInPile,
-                x: currentX,
-                zIndex: baseZIndex + pileKeys.length - i, // Decreasing Z (newest in pile has highest Z)
-                isFocused: false
-            });
-            currentX += (podNominalWidth - podOverlapAmount);
-            pileCount++;
-      } else {
-            break; // No more space
+          visiblePodsLayoutData.push({
+            key: podKeyInPile,
+            x: currentX,
+            zIndex: baseZIndex + pileKeys.length - i, // Decreasing Z (newest in pile has highest Z)
+            isFocused: false
+          });
+          currentX += (podNominalWidth - podOverlapAmount);
+          pileCount++;
+        } else {
+          break; // No more space
         }
-    }
+      }
 
-    debugLog(`[LayoutManager_NaturalStack] Calculated layout for ${visiblePodsLayoutData.length} pods. Focused: ${focusedDownloadKey}`, visiblePodsLayoutData);
+      debugLog(`[LayoutManager_NaturalStack] Calculated layout for ${visiblePodsLayoutData.length} pods. Focused: ${focusedDownloadKey}`, visiblePodsLayoutData);
 
-    // 3. Apply styles and animations
-    orderedPodKeys.forEach(key => {
+      // 3. Apply styles and animations
+      orderedPodKeys.forEach(key => {
         const cardData = activeDownloadCards.get(key);
         if (!cardData || !cardData.podElement || !cardData.domAppended || cardData.isWaitingForZenAnimation || cardData.isBeingRemoved) {
-            debugLog(`[LayoutManager_Jukebox_Skip] Skipping pod ${key}. Conditions: cardData=${!!cardData}, podElement=${!!cardData?.podElement}, domAppended=${cardData?.domAppended}, waitingZen=${cardData?.isWaitingForZenAnimation}, beingRemoved=${cardData?.isBeingRemoved}`);
-            return; // Skip pods that are not ready, waiting for Zen, or being removed
+          debugLog(`[LayoutManager_Jukebox_Skip] Skipping pod ${key}. Conditions: cardData=${!!cardData}, podElement=${!!cardData?.podElement}, domAppended=${cardData?.domAppended}, waitingZen=${cardData?.isWaitingForZenAnimation}, beingRemoved=${cardData?.isBeingRemoved}`);
+          return; // Skip pods that are not ready, waiting for Zen, or being removed
         }
 
         // Additional safety check: ensure pod is actually in the DOM
         if (!cardData.podElement.parentNode) {
-            debugLog(`[LayoutManager_Jukebox_Skip] Pod ${key} not in DOM, skipping layout.`);
-            return;
+          debugLog(`[LayoutManager_Jukebox_Skip] Pod ${key} not in DOM, skipping layout.`);
+          return;
         }
 
         const podElement = cardData.podElement;
         const layoutData = visiblePodsLayoutData.find(p => p.key === key);
 
         if (layoutData) {
-            // This pod should be visible
-            podElement.style.display = 'flex';
-            podElement.style.zIndex = `${layoutData.zIndex}`;
-            const targetTransform = `translateX(${layoutData.x}px) scale(1) translateY(0)`;
-            const targetOpacity = layoutData.isFocused ? '1' : '0.75';
+          // This pod should be visible
+          podElement.style.display = 'flex';
+          podElement.style.zIndex = `${layoutData.zIndex}`;
+          const targetTransform = `translateX(${layoutData.x}px) scale(1) translateY(0)`;
+          const targetOpacity = layoutData.isFocused ? '1' : '0.75';
 
-            // Only animate if intended state changes or if it's becoming visible
-            if (!cardData.isVisible || cardData.intendedTargetTransform !== targetTransform || cardData.intendedTargetOpacity !== targetOpacity) {
-                debugLog(`[LayoutManager_Jukebox_Anim_Setup] Pod ${key}: Setting up IN/MOVE animation to X=${layoutData.x}, Opacity=${targetOpacity}. Prev IntendedTransform: ${cardData.intendedTargetTransform}, Prev Opacity: ${cardData.intendedTargetOpacity}, IsVisible: ${cardData.isVisible}`);
-                
-                // Apply directional entrance animation for newly focused pods during rotation
-                if (layoutData.isFocused && !cardData.isVisible && lastRotationDirection) {
-                    let entranceTransform;
-                    if (lastRotationDirection === 'forward') {
-                        // Forward rotation: new focused pod slides in from the right
-                        entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
-                    } else if (lastRotationDirection === 'backward') {
-                        // Backward rotation: new focused pod slides in from the right (same as forward - reverse animation)
-                        entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
-      } else {
-                        entranceTransform = targetTransform;
-                    }
-                    
-                    // Set initial position for entrance animation
-                    podElement.style.transform = entranceTransform;
-                    podElement.style.opacity = '0';
-                    
-                    debugLog(`[LayoutManager_DirectionalAnim] Pod ${key}: Starting ${lastRotationDirection} entrance from ${entranceTransform}`);
-                    
-                    // Animate to final position
-                    requestAnimationFrame(() => {
-                        requestAnimationFrame(() => {
-                            podElement.style.opacity = targetOpacity;
-                            podElement.style.transform = targetTransform;
-                            debugLog(`[LayoutManager_DirectionalAnim] Pod ${key}: Animating to final position ${targetTransform}`);
-                        });
-                    });
-                } else {
-                    // Normal animation for non-focused pods or non-rotation scenarios
-                    requestAnimationFrame(() => {
-                        podElement.style.opacity = targetOpacity;
-                        podElement.style.transform = targetTransform;
-                        debugLog(`[LayoutManager_Jukebox_Anim_Execute] Pod ${key}: Executing IN/MOVE to X=${layoutData.x}, Opacity=${targetOpacity}`);
-                    });
-                }
-            }
-            cardData.intendedTargetTransform = targetTransform;
-            cardData.intendedTargetOpacity = targetOpacity;
-            cardData.isVisible = true;
+          // Only animate if intended state changes or if it's becoming visible
+          if (!cardData.isVisible || cardData.intendedTargetTransform !== targetTransform || cardData.intendedTargetOpacity !== targetOpacity) {
+            debugLog(`[LayoutManager_Jukebox_Anim_Setup] Pod ${key}: Setting up IN/MOVE animation to X=${layoutData.x}, Opacity=${targetOpacity}. Prev IntendedTransform: ${cardData.intendedTargetTransform}, Prev Opacity: ${cardData.intendedTargetOpacity}, IsVisible: ${cardData.isVisible}`);
 
-            // Tooltip animation for focused pod
-            if (layoutData.isFocused && masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === '0') {
-                 // Pod is focused and tooltip is currently hidden, animate tooltip IN.
-                 // This relies on updateUIForFocusedDownload having set the initial opacity/transform if focus changed.
-                 debugLog(`[LayoutManager_Jukebox_Tooltip] Focused pod ${key} is visible/animating, and tooltip is hidden. Animating tooltip IN.`);
-                 setTimeout(() => { 
-                    masterTooltipDOMElement.style.opacity = "1";
-                    masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
-                    masterTooltipDOMElement.style.pointerEvents = "auto"; // Enable interactions when visible
-                    hideMediaControlsToolbar(); // Hide media controls when tooltip is shown
-                }, 100); 
+            // Apply directional entrance animation for newly focused pods during rotation
+            if (layoutData.isFocused && !cardData.isVisible && lastRotationDirection) {
+              let entranceTransform;
+              if (lastRotationDirection === 'forward') {
+                // Forward rotation: new focused pod slides in from the right
+                entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
+              } else if (lastRotationDirection === 'backward') {
+                // Backward rotation: new focused pod slides in from the right (same as forward - reverse animation)
+                entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
+              } else {
+                entranceTransform = targetTransform;
+              }
+
+              // Set initial position for entrance animation
+              podElement.style.transform = entranceTransform;
+              podElement.style.opacity = '0';
+
+              debugLog(`[LayoutManager_DirectionalAnim] Pod ${key}: Starting ${lastRotationDirection} entrance from ${entranceTransform}`);
+
+              // Animate to final position
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                  podElement.style.opacity = targetOpacity;
+                  podElement.style.transform = targetTransform;
+                  debugLog(`[LayoutManager_DirectionalAnim] Pod ${key}: Animating to final position ${targetTransform}`);
+                });
+              });
+            } else {
+              // Normal animation for non-focused pods or non-rotation scenarios
+              requestAnimationFrame(() => {
+                podElement.style.opacity = targetOpacity;
+                podElement.style.transform = targetTransform;
+                debugLog(`[LayoutManager_Jukebox_Anim_Execute] Pod ${key}: Executing IN/MOVE to X=${layoutData.x}, Opacity=${targetOpacity}`);
+              });
             }
+          }
+          cardData.intendedTargetTransform = targetTransform;
+          cardData.intendedTargetOpacity = targetOpacity;
+          cardData.isVisible = true;
+
+          // Tooltip animation for focused pod
+          if (layoutData.isFocused && masterTooltipDOMElement && masterTooltipDOMElement.style.opacity === '0') {
+            // Pod is focused and tooltip is currently hidden, animate tooltip IN.
+            // This relies on updateUIForFocusedDownload having set the initial opacity/transform if focus changed.
+            debugLog(`[LayoutManager_Jukebox_Tooltip] Focused pod ${key} is visible/animating, and tooltip is hidden. Animating tooltip IN.`);
+            setTimeout(() => {
+              masterTooltipDOMElement.style.opacity = "1";
+              masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
+              masterTooltipDOMElement.style.pointerEvents = "auto"; // Enable interactions when visible
+              hideMediaControlsToolbar(); // Hide media controls when tooltip is shown
+            }, 100);
+          }
         } else {
-            // This pod should be hidden or moved to pile
-            if (cardData.isVisible || podElement.style.opacity !== '0') {
-                debugLog(`[LayoutManager_Jukebox_Anim_OUT] Pod ${key}`);
-                
-                // Apply directional exit animation for previously focused pod during rotation
-                let targetTransformOut;
-                if (cardData.key === focusedDownloadKey && lastRotationDirection) {
-                    // This shouldn't happen as focused pod should be visible, but safety check
-                    targetTransformOut = 'scale(0.8) translateX(-30px)';
-                } else if (lastRotationDirection === 'forward') {
-                    // Forward rotation: previously focused pod slides left to join pile
-                    targetTransformOut = 'scale(0.8) translateX(-60px)';
-                } else if (lastRotationDirection === 'backward') {
-                    // Backward rotation: previously focused pod slides left to join pile (same as forward - reverse animation)
-                    targetTransformOut = 'scale(0.8) translateX(-60px)';
-                } else {
-                    // Default exit animation
-                    targetTransformOut = 'scale(0.8) translateX(-30px)';
-                }
-                
-                if (cardData.intendedTargetTransform !== targetTransformOut || cardData.intendedTargetOpacity !== '0') {
-                    podElement.style.opacity = '0';
-                    podElement.style.transform = targetTransformOut;
-                    debugLog(`[LayoutManager_DirectionalExit] Pod ${key}: Exiting with ${lastRotationDirection || 'default'} animation: ${targetTransformOut}`);
-                }
-                cardData.intendedTargetTransform = targetTransformOut;
-                cardData.intendedTargetOpacity = '0';
+          // This pod should be hidden or moved to pile
+          if (cardData.isVisible || podElement.style.opacity !== '0') {
+            debugLog(`[LayoutManager_Jukebox_Anim_OUT] Pod ${key}`);
+
+            // Apply directional exit animation for previously focused pod during rotation
+            let targetTransformOut;
+            if (cardData.key === focusedDownloadKey && lastRotationDirection) {
+              // This shouldn't happen as focused pod should be visible, but safety check
+              targetTransformOut = 'scale(0.8) translateX(-30px)';
+            } else if (lastRotationDirection === 'forward') {
+              // Forward rotation: previously focused pod slides left to join pile
+              targetTransformOut = 'scale(0.8) translateX(-60px)';
+            } else if (lastRotationDirection === 'backward') {
+              // Backward rotation: previously focused pod slides left to join pile (same as forward - reverse animation)
+              targetTransformOut = 'scale(0.8) translateX(-60px)';
+            } else {
+              // Default exit animation
+              targetTransformOut = 'scale(0.8) translateX(-30px)';
             }
-            cardData.isVisible = false;
+
+            if (cardData.intendedTargetTransform !== targetTransformOut || cardData.intendedTargetOpacity !== '0') {
+              podElement.style.opacity = '0';
+              podElement.style.transform = targetTransformOut;
+              debugLog(`[LayoutManager_DirectionalExit] Pod ${key}: Exiting with ${lastRotationDirection || 'default'} animation: ${targetTransformOut}`);
+            }
+            cardData.intendedTargetTransform = targetTransformOut;
+            cardData.intendedTargetOpacity = '0';
+          }
+          cardData.isVisible = false;
         }
-    });
-    
-    // Set container height dynamically based on whether any pods are visible
-    // This is important as pods are position:absolute now.
-    if (visiblePodsLayoutData.length > 0) {
+      });
+
+      // Set container height dynamically based on whether any pods are visible
+      // This is important as pods are position:absolute now.
+      if (visiblePodsLayoutData.length > 0) {
         podsRowContainerElement.style.height = `${podNominalWidth}px`; // Set to pod height
       } else {
         podsRowContainerElement.style.height = '0px';
-    }
+      }
 
-    debugLog(`[LayoutManager_NaturalStack] Finished. Visible pods: ${visiblePodsLayoutData.map(p=>p.key).join(", ")}`);
-    
-    // Reset rotation direction after animations are set up
-    if (lastRotationDirection) {
+      debugLog(`[LayoutManager_NaturalStack] Finished. Visible pods: ${visiblePodsLayoutData.map(p => p.key).join(", ")}`);
+
+      // Reset rotation direction after animations are set up
+      if (lastRotationDirection) {
         setTimeout(() => {
-            lastRotationDirection = null;
-            debugLog(`[LayoutManager] Reset rotation direction after animation`);
+          lastRotationDirection = null;
+          debugLog(`[LayoutManager] Reset rotation direction after animation`);
         }, 100); // Small delay to ensure animations start before reset
-    }
-  }
-
-  // --- Mouse Wheel Scroll Handler for Stack Rotation ---
-  function handlePodScrollFocus(event) {
-    if (!orderedPodKeys || orderedPodKeys.length <= 1) return; // Need at least 2 pods to rotate
-
-    event.preventDefault(); // Prevent page scroll
-    event.stopPropagation();
-
-    if (!focusedDownloadKey || !orderedPodKeys.includes(focusedDownloadKey)) {
-      debugLog("[StackRotation] No valid focused key, cannot rotate stack");
-      return;
-    }
-
-    // Get current stack arrangement: focused pod + pile in reverse chronological order
-    const currentFocused = focusedDownloadKey;
-    const pileKeys = orderedPodKeys.slice().reverse().filter(key => key !== currentFocused);
-    
-    let newFocusedKey;
-
-    if (event.deltaY > 0) {
-      // Scroll DOWN: Current focused goes to END of pile, FIRST in pile becomes focused
-      // Current: Pod D (focused) + [Pod C, Pod B, Pod A] (pile)
-      // Result:  Pod C (focused) + [Pod B, Pod A, Pod D] (pile)
-      
-      if (pileKeys.length > 0) {
-        newFocusedKey = pileKeys[0]; // First in pile becomes focused
-        debugLog(`[StackRotation] Scroll DOWN: ${currentFocused} → end of pile, ${newFocusedKey} → focused`);
-      }
-      
-    } else if (event.deltaY < 0) {
-      // Scroll UP: Current focused goes to FRONT of pile, LAST in pile becomes focused  
-      // Current: Pod D (focused) + [Pod C, Pod B, Pod A] (pile)
-      // Result:  Pod A (focused) + [Pod D, Pod C, Pod B] (pile)
-      
-      if (pileKeys.length > 0) {
-        newFocusedKey = pileKeys[pileKeys.length - 1]; // Last in pile becomes focused
-        debugLog(`[StackRotation] Scroll UP: ${currentFocused} → front of pile, ${newFocusedKey} → focused`);
       }
     }
 
-    // Apply the rotation by updating the orderedPodKeys array and focus
-    if (newFocusedKey && newFocusedKey !== currentFocused) {
-      // Remove the new focused key from its current position in orderedPodKeys
-      const newFocusedIndex = orderedPodKeys.indexOf(newFocusedKey);
-      if (newFocusedIndex > -1) {
-        orderedPodKeys.splice(newFocusedIndex, 1);
+    // --- Mouse Wheel Scroll Handler for Stack Rotation ---
+    function handlePodScrollFocus(event) {
+      if (!orderedPodKeys || orderedPodKeys.length <= 1) return; // Need at least 2 pods to rotate
+
+      event.preventDefault(); // Prevent page scroll
+      event.stopPropagation();
+
+      if (!focusedDownloadKey || !orderedPodKeys.includes(focusedDownloadKey)) {
+        debugLog("[StackRotation] No valid focused key, cannot rotate stack");
+        return;
       }
-      
-      // Remove the current focused key from its position
-      const currentFocusedIndex = orderedPodKeys.indexOf(currentFocused);
-      if (currentFocusedIndex > -1) {
-        orderedPodKeys.splice(currentFocusedIndex, 1);
-      }
+
+      // Get current stack arrangement: focused pod + pile in reverse chronological order
+      const currentFocused = focusedDownloadKey;
+      const pileKeys = orderedPodKeys.slice().reverse().filter(key => key !== currentFocused);
+
+      let newFocusedKey;
 
       if (event.deltaY > 0) {
-        // Scroll DOWN: new focused goes to end (newest position), current focused goes to beginning (oldest position)
-        orderedPodKeys.unshift(currentFocused); // Add current focused to beginning (oldest)
-        orderedPodKeys.push(newFocusedKey);     // Add new focused to end (newest)
-      } else {
-        // Scroll UP: new focused goes to end (newest position), current focused goes to second-to-last
-        orderedPodKeys.push(newFocusedKey);     // Add new focused to end (newest)
-        orderedPodKeys.splice(-1, 0, currentFocused); // Insert current focused before the last element
-      }
+        // Scroll DOWN: Current focused goes to END of pile, FIRST in pile becomes focused
+        // Current: Pod D (focused) + [Pod C, Pod B, Pod A] (pile)
+        // Result:  Pod C (focused) + [Pod B, Pod A, Pod D] (pile)
 
-      // Track rotation direction for animation purposes
-      if (event.deltaY > 0) {
-        lastRotationDirection = 'forward';
-      } else {
-        lastRotationDirection = 'backward';
-      }
-
-      // Update focus and refresh UI
-      focusedDownloadKey = newFocusedKey;
-      debugLog(`[StackRotation] Stack rotated ${lastRotationDirection}. New order:`, orderedPodKeys);
-      debugLog(`[StackRotation] New focused: ${focusedDownloadKey}`);
-      
-      // Update UI with the new focus
-      updateUIForFocusedDownload(newFocusedKey, false);
-    }
-  }
-
-
-
-  // Improved card removal function
-  async function removeCard(downloadKey, force = false) {
-    try {
-      const cardData = activeDownloadCards.get(downloadKey);
-      if (!cardData) {
-        debugLog(`removeCard: No card data found for key: ${downloadKey}`);
-        return false;
-      }
-
-      const podElement = cardData.podElement;
-      if (!podElement) {
-        debugLog(`removeCard: No pod element found for key: ${downloadKey}`);
-        return false;
-      }
-
-      if (!force && cardData.lastInteractionTime && 
-          Date.now() - cardData.lastInteractionTime < getPref("extensions.downloads.interaction_grace_period_ms", 5000)) {
-        debugLog(`removeCard: Skipping removal due to recent interaction: ${downloadKey}`, null, 'autohide');
-        return false;
-      }
-
-      // === CAPTURE POD DATA FOR DISMISSAL PILE ===
-      const dismissedData = capturePodDataForDismissal(downloadKey);
-      if (dismissedData) {
-        // Store the dismissed pod data
-        dismissedPodsData.set(downloadKey, dismissedData);
-        
-        // Fire dismiss event for pile system
-        dismissEventListeners.forEach(callback => {
-          try {
-            callback(dismissedData);
-          } catch (error) {
-            debugLog(`[Dismiss] Error in dismiss event callback:`, error);
-          }
-        });
-        
-        // Fire custom DOM event
-        fireCustomEvent('pod-dismissed', { 
-          podKey: downloadKey, 
-          podData: dismissedData,
-          wasManual: force 
-        });
-        
-        debugLog(`[Dismiss] Pod dismissed and captured for pile: ${downloadKey}`);
-      }
-
-      cardData.isBeingRemoved = true; // Mark for exclusion from layout management
-      debugLog(`[RemoveCard] Marked card ${downloadKey} as isBeingRemoved.`);
-
-      // Cancel any active AI process before removal
-      await cancelAIProcessForDownload(downloadKey);
-
-      // Clear any pending autohide timeout
-      if (cardData.autohideTimeoutId) {
-        clearTimeout(cardData.autohideTimeoutId);
-        cardData.autohideTimeoutId = null;
-        debugLog(`[RemoveCard] Cleared pending autohide timeout for ${downloadKey}`);
-      }
-
-
-
-      // --- New Exit Animation for Pod: Slide Left & Fade --- 
-      podElement.style.transition = "opacity 0.3s ease-out, transform 0.3s ease-in-out";
-      podElement.style.opacity = "0";
-      podElement.style.transform = "translateX(-60px) scale(0.8)"; // Slide left and slightly shrink
-      // podElement.style.width = "0px"; // Optional: remove if translateX is enough
-      debugLog(`[RemoveCard] Initiated slide-out animation for pod ${downloadKey}`);
-
-      setTimeout(() => {
-        // Get download info before deleting cardData
-        const cardData = activeDownloadCards.get(downloadKey);
-        const download = cardData?.download;
-        
-        if (podElement.parentNode) {
-          podElement.parentNode.removeChild(podElement);
-        }
-        activeDownloadCards.delete(downloadKey);
-        cardUpdateThrottle.delete(downloadKey);
-        
-        const removedPodIndex = orderedPodKeys.indexOf(downloadKey);
-        if (removedPodIndex > -1) {
-          orderedPodKeys.splice(removedPodIndex, 1);
+        if (pileKeys.length > 0) {
+          newFocusedKey = pileKeys[0]; // First in pile becomes focused
+          debugLog(`[StackRotation] Scroll DOWN: ${currentFocused} → end of pile, ${newFocusedKey} → focused`);
         }
 
-        // Only mark as dismissed if this was a manual removal or auto-hide of old downloads
-        // Don't dismiss downloads that just completed (they might need to reappear for AI processing)
-        if (force || !download || !download.succeeded || 
-            (download.succeeded && Date.now() - (download.endTime || download.startTime || 0) > 60000)) {
-          // Mark as dismissed only if:
-          // - Manual removal (force=true)
-          // - No download object
-          // - Not a successful download
-          // - Successful download that's more than 1 minute old
-          dismissedDownloads.add(downloadKey);
-          debugLog(`Pod removed for download: ${downloadKey}, marked as dismissed. Remaining ordered keys:`, orderedPodKeys);
+      } else if (event.deltaY < 0) {
+        // Scroll UP: Current focused goes to FRONT of pile, LAST in pile becomes focused  
+        // Current: Pod D (focused) + [Pod C, Pod B, Pod A] (pile)
+        // Result:  Pod A (focused) + [Pod D, Pod C, Pod B] (pile)
+
+        if (pileKeys.length > 0) {
+          newFocusedKey = pileKeys[pileKeys.length - 1]; // Last in pile becomes focused
+          debugLog(`[StackRotation] Scroll UP: ${currentFocused} → front of pile, ${newFocusedKey} → focused`);
+        }
+      }
+
+      // Apply the rotation by updating the orderedPodKeys array and focus
+      if (newFocusedKey && newFocusedKey !== currentFocused) {
+        // Remove the new focused key from its current position in orderedPodKeys
+        const newFocusedIndex = orderedPodKeys.indexOf(newFocusedKey);
+        if (newFocusedIndex > -1) {
+          orderedPodKeys.splice(newFocusedIndex, 1);
+        }
+
+        // Remove the current focused key from its position
+        const currentFocusedIndex = orderedPodKeys.indexOf(currentFocused);
+        if (currentFocusedIndex > -1) {
+          orderedPodKeys.splice(currentFocusedIndex, 1);
+        }
+
+        if (event.deltaY > 0) {
+          // Scroll DOWN: new focused goes to end (newest position), current focused goes to beginning (oldest position)
+          orderedPodKeys.unshift(currentFocused); // Add current focused to beginning (oldest)
+          orderedPodKeys.push(newFocusedKey);     // Add new focused to end (newest)
         } else {
-          debugLog(`Pod removed for download: ${downloadKey}, NOT marked as dismissed (recent completion). Remaining ordered keys:`, orderedPodKeys);
+          // Scroll UP: new focused goes to end (newest position), current focused goes to second-to-last
+          orderedPodKeys.push(newFocusedKey);     // Add new focused to end (newest)
+          orderedPodKeys.splice(-1, 0, currentFocused); // Insert current focused before the last element
         }
 
-        if (focusedDownloadKey === downloadKey) {
-          focusedDownloadKey = null; // Clear focus first
-          if (orderedPodKeys.length > 0) {
-            // Try to focus an adjacent pod to the one removed.
-            // orderedPodKeys is [oldest, ..., newest]
-            // If removedPodIndex was valid, try to focus what's now at removedPodIndex (which was to its right)
-            // or removedPodIndex - 1 (to its left).
-            let newFocusKey = null;
-            if (removedPodIndex < orderedPodKeys.length) { // Try focusing the pod that took its place (originally to the right)
-                newFocusKey = orderedPodKeys[removedPodIndex];
-            } else if (removedPodIndex > 0 && orderedPodKeys.length > 0) { // Try focusing the pod to the left
-                newFocusKey = orderedPodKeys[removedPodIndex - 1];
-            } else if (orderedPodKeys.length > 0) { // Fallback to newest if extremes were removed
-                 newFocusKey = orderedPodKeys[orderedPodKeys.length - 1];
+        // Track rotation direction for animation purposes
+        if (event.deltaY > 0) {
+          lastRotationDirection = 'forward';
+        } else {
+          lastRotationDirection = 'backward';
+        }
+
+        // Update focus and refresh UI
+        focusedDownloadKey = newFocusedKey;
+        debugLog(`[StackRotation] Stack rotated ${lastRotationDirection}. New order:`, orderedPodKeys);
+        debugLog(`[StackRotation] New focused: ${focusedDownloadKey}`);
+
+        // Update UI with the new focus
+        updateUIForFocusedDownload(newFocusedKey, false);
+      }
+    }
+
+
+
+    // Improved card removal function
+    async function removeCard(downloadKey, force = false) {
+      try {
+        const cardData = activeDownloadCards.get(downloadKey);
+        if (!cardData) {
+          debugLog(`removeCard: No card data found for key: ${downloadKey}`);
+          return false;
+        }
+
+        const podElement = cardData.podElement;
+        if (!podElement) {
+          debugLog(`removeCard: No pod element found for key: ${downloadKey}`);
+          return false;
+        }
+
+        if (!force && cardData.lastInteractionTime &&
+          Date.now() - cardData.lastInteractionTime < getPref("extensions.downloads.interaction_grace_period_ms", 5000)) {
+          debugLog(`removeCard: Skipping removal due to recent interaction: ${downloadKey}`, null, 'autohide');
+          return false;
+        }
+
+        // === CAPTURE POD DATA FOR DISMISSAL PILE ===
+        const dismissedData = capturePodDataForDismissal(downloadKey);
+        if (dismissedData) {
+          // Store the dismissed pod data
+          dismissedPodsData.set(downloadKey, dismissedData);
+
+          // Fire dismiss event for pile system
+          dismissEventListeners.forEach(callback => {
+            try {
+              callback(dismissedData);
+            } catch (error) {
+              debugLog(`[Dismiss] Error in dismiss event callback:`, error);
             }
-            focusedDownloadKey = newFocusKey;
-            debugLog(`[RemoveCard] Old focus ${downloadKey} removed. New focus attempt: ${focusedDownloadKey}`);
+          });
+
+          // Fire custom DOM event
+          fireCustomEvent('pod-dismissed', {
+            podKey: downloadKey,
+            podData: dismissedData,
+            wasManual: force
+          });
+
+          debugLog(`[Dismiss] Pod dismissed and captured for pile: ${downloadKey}`);
+        }
+
+        cardData.isBeingRemoved = true; // Mark for exclusion from layout management
+        debugLog(`[RemoveCard] Marked card ${downloadKey} as isBeingRemoved.`);
+
+        // Cancel any active AI process before removal
+        await cancelAIProcessForDownload(downloadKey);
+
+        // Clear any pending autohide timeout
+        if (cardData.autohideTimeoutId) {
+          clearTimeout(cardData.autohideTimeoutId);
+          cardData.autohideTimeoutId = null;
+          debugLog(`[RemoveCard] Cleared pending autohide timeout for ${downloadKey}`);
+        }
+
+
+
+        // --- New Exit Animation for Pod: Slide Left & Fade --- 
+        podElement.style.transition = "opacity 0.3s ease-out, transform 0.3s ease-in-out";
+        podElement.style.opacity = "0";
+        podElement.style.transform = "translateX(-60px) scale(0.8)"; // Slide left and slightly shrink
+        // podElement.style.width = "0px"; // Optional: remove if translateX is enough
+        debugLog(`[RemoveCard] Initiated slide-out animation for pod ${downloadKey}`);
+
+        setTimeout(() => {
+          // Get download info before deleting cardData
+          const cardData = activeDownloadCards.get(downloadKey);
+          const download = cardData?.download;
+
+          if (podElement.parentNode) {
+            podElement.parentNode.removeChild(podElement);
           }
-        }
-        
+          activeDownloadCards.delete(downloadKey);
+          cardUpdateThrottle.delete(downloadKey);
 
-        
-        // Update UI based on new focus (or lack thereof)
-        // This will also hide the master tooltip if no pods are left or re-evaluate layout
-        updateUIForFocusedDownload(focusedDownloadKey, false); 
-        
-        // Additional check: if no cards remain, ensure container is hidden
-        if (orderedPodKeys.length === 0 && downloadCardsContainer) {
-          downloadCardsContainer.style.display = "none";
-          downloadCardsContainer.style.opacity = "0";
-          downloadCardsContainer.style.visibility = "hidden";
-          showMediaControlsToolbar(); // Show media controls when all pods are dismissed
-        }
+          const removedPodIndex = orderedPodKeys.indexOf(downloadKey);
+          if (removedPodIndex > -1) {
+            orderedPodKeys.splice(removedPodIndex, 1);
+          }
 
-      }, 300); // Corresponds to pod animation duration
+          // Only mark as dismissed if this was a manual removal or auto-hide of old downloads
+          // Don't dismiss downloads that just completed (they might need to reappear for AI processing)
+          if (force || !download || !download.succeeded ||
+            (download.succeeded && Date.now() - (download.endTime || download.startTime || 0) > 60000)) {
+            // Mark as dismissed only if:
+            // - Manual removal (force=true)
+            // - No download object
+            // - Not a successful download
+            // - Successful download that's more than 1 minute old
+            dismissedDownloads.add(downloadKey);
+            debugLog(`Pod removed for download: ${downloadKey}, marked as dismissed. Remaining ordered keys:`, orderedPodKeys);
+          } else {
+            debugLog(`Pod removed for download: ${downloadKey}, NOT marked as dismissed (recent completion). Remaining ordered keys:`, orderedPodKeys);
+          }
 
-      return true;
-    } catch (e) {
-      console.error("Error removing card:", e);
-      return false;
+          if (focusedDownloadKey === downloadKey) {
+            focusedDownloadKey = null; // Clear focus first
+            if (orderedPodKeys.length > 0) {
+              // Try to focus an adjacent pod to the one removed.
+              // orderedPodKeys is [oldest, ..., newest]
+              // If removedPodIndex was valid, try to focus what's now at removedPodIndex (which was to its right)
+              // or removedPodIndex - 1 (to its left).
+              let newFocusKey = null;
+              if (removedPodIndex < orderedPodKeys.length) { // Try focusing the pod that took its place (originally to the right)
+                newFocusKey = orderedPodKeys[removedPodIndex];
+              } else if (removedPodIndex > 0 && orderedPodKeys.length > 0) { // Try focusing the pod to the left
+                newFocusKey = orderedPodKeys[removedPodIndex - 1];
+              } else if (orderedPodKeys.length > 0) { // Fallback to newest if extremes were removed
+                newFocusKey = orderedPodKeys[orderedPodKeys.length - 1];
+              }
+              focusedDownloadKey = newFocusKey;
+              debugLog(`[RemoveCard] Old focus ${downloadKey} removed. New focus attempt: ${focusedDownloadKey}`);
+            }
+          }
+
+
+
+          // Update UI based on new focus (or lack thereof)
+          // This will also hide the master tooltip if no pods are left or re-evaluate layout
+          updateUIForFocusedDownload(focusedDownloadKey, false);
+
+          // Additional check: if no cards remain, ensure container is hidden
+          if (orderedPodKeys.length === 0 && downloadCardsContainer) {
+            downloadCardsContainer.style.display = "none";
+            downloadCardsContainer.style.opacity = "0";
+            downloadCardsContainer.style.visibility = "hidden";
+            showMediaControlsToolbar(); // Show media controls when all pods are dismissed
+          }
+
+        }, 300); // Corresponds to pod animation duration
+
+        return true;
+      } catch (e) {
+        console.error("Error removing card:", e);
+        return false;
+      }
     }
-  }
 
-  function scheduleCardRemoval(downloadKey) {
-    try {
-      const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
-      if (disableAutohide) return;
+    function scheduleCardRemoval(downloadKey) {
+      try {
+        const disableAutohide = getPref(DISABLE_AUTOHIDE_PREF, false);
+        if (disableAutohide) return;
 
-      const cardData = activeDownloadCards.get(downloadKey);
-      if (!cardData) {
-        debugLog(`scheduleCardRemoval: No card data found for key: ${downloadKey}`);
-        return;
+        const cardData = activeDownloadCards.get(downloadKey);
+        if (!cardData) {
+          debugLog(`scheduleCardRemoval: No card data found for key: ${downloadKey}`);
+          return;
+        }
+
+        // Clear any existing timeout
+        if (cardData.autohideTimeoutId) {
+          clearTimeout(cardData.autohideTimeoutId);
+          debugLog(`scheduleCardRemoval: Cleared existing timeout for key: ${downloadKey}`);
+        }
+
+        // Schedule new timeout and store the ID
+        cardData.autohideTimeoutId = setTimeout(() => {
+          debugLog(`scheduleCardRemoval: Timeout fired for key: ${downloadKey}`);
+          performAutohideSequence(downloadKey);
+        }, getPref("extensions.downloads.autohide_delay_ms", 20000));
+
+        debugLog(`scheduleCardRemoval: Scheduled removal for key: ${downloadKey} in ${getPref("extensions.downloads.autohide_delay_ms", 20000)}ms`, null, 'autohide');
+      } catch (e) {
+        console.error("Error scheduling card removal:", e);
       }
-
-      // Clear any existing timeout
-      if (cardData.autohideTimeoutId) {
-        clearTimeout(cardData.autohideTimeoutId);
-        debugLog(`scheduleCardRemoval: Cleared existing timeout for key: ${downloadKey}`);
-      }
-
-      // Schedule new timeout and store the ID
-      cardData.autohideTimeoutId = setTimeout(() => {
-        debugLog(`scheduleCardRemoval: Timeout fired for key: ${downloadKey}`);
-        performAutohideSequence(downloadKey);
-      }, getPref("extensions.downloads.autohide_delay_ms", 20000));
-      
-      debugLog(`scheduleCardRemoval: Scheduled removal for key: ${downloadKey} in ${getPref("extensions.downloads.autohide_delay_ms", 20000)}ms`, null, 'autohide');
-    } catch (e) {
-      console.error("Error scheduling card removal:", e);
     }
-  }
 
-  // Perform the two-stage autohide sequence: tooltip first, then pod
-  async function performAutohideSequence(downloadKey) {
-    try {
-      const cardData = activeDownloadCards.get(downloadKey);
-      if (!cardData) {
-        debugLog(`performAutohideSequence: No card data found for key: ${downloadKey}`);
-        return;
-      }
+    // Perform the two-stage autohide sequence: tooltip first, then pod
+    async function performAutohideSequence(downloadKey) {
+      try {
+        const cardData = activeDownloadCards.get(downloadKey);
+        if (!cardData) {
+          debugLog(`performAutohideSequence: No card data found for key: ${downloadKey}`);
+          return;
+        }
 
-      debugLog(`[AutohideSequence] Starting autohide sequence for ${downloadKey}`);
+        debugLog(`[AutohideSequence] Starting autohide sequence for ${downloadKey}`);
 
-      // Stage 1: Hide tooltip if this item is focused
-      if (focusedDownloadKey === downloadKey && masterTooltipDOMElement) {
-        debugLog(`[AutohideSequence] Stage 1: Hiding tooltip for focused item ${downloadKey}`);
-        masterTooltipDOMElement.style.opacity = "0";
-        masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
-        masterTooltipDOMElement.style.pointerEvents = "none";
-        
-        // Stage 2: Remove the pod after tooltip animation completes
-        setTimeout(async () => {
-          debugLog(`[AutohideSequence] Stage 2: Removing pod for ${downloadKey}`);
+        // Stage 1: Hide tooltip if this item is focused
+        if (focusedDownloadKey === downloadKey && masterTooltipDOMElement) {
+          debugLog(`[AutohideSequence] Stage 1: Hiding tooltip for focused item ${downloadKey}`);
+          masterTooltipDOMElement.style.opacity = "0";
+          masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
+          masterTooltipDOMElement.style.pointerEvents = "none";
+
+          // Stage 2: Remove the pod after tooltip animation completes
+          setTimeout(async () => {
+            debugLog(`[AutohideSequence] Stage 2: Removing pod for ${downloadKey}`);
+            await removeCard(downloadKey, false);
+          }, 300); // Match tooltip animation duration
+        } else {
+          // If not focused, just remove the pod directly
+          debugLog(`[AutohideSequence] Item ${downloadKey} not focused, removing pod directly`);
           await removeCard(downloadKey, false);
-        }, 300); // Match tooltip animation duration
-      } else {
-        // If not focused, just remove the pod directly
-        debugLog(`[AutohideSequence] Item ${downloadKey} not focused, removing pod directly`);
+        }
+      } catch (e) {
+        console.error("Error in autohide sequence:", e);
+        // Fallback to direct removal
         await removeCard(downloadKey, false);
       }
-    } catch (e) {
-      console.error("Error in autohide sequence:", e);
-      // Fallback to direct removal
-      await removeCard(downloadKey, false);
     }
-  }
 
-  // SecurityUtils, getPref, sanitizeFilename, waitForElement: see tidy-downloads-utils.uc.js
+    // SecurityUtils, getPref, sanitizeFilename, waitForElement: see tidy-downloads-utils.uc.js
 
-  // Optimized function to find the downloads/library button
-  async function findDownloadsButton() {
-    try {
-      const useLibraryButton = getPref("zen.tidy-downloads.use-library-button", false);
-      console.log(`[Tidy Downloads] useLibraryButton preference: ${useLibraryButton}`);
-      
-      if (useLibraryButton) {
-        // Try zen-library-button with retry mechanism since it's custom and takes time to initialize
-        console.log(`[Tidy Downloads] Waiting for zen-library-button to initialize...`);
-        const libraryButton = await waitForElement('zen-library-button', 5000); // Wait up to 5 seconds
-        
+    // Optimized function to find the downloads/library button
+    async function findDownloadsButton() {
+      try {
+        // Always try zen-library-button first (auto-detect).
+        // Applies patches and animation overrides when found, just like manual pref mode.
+        console.log(`[Tidy Downloads] Auto-detecting download button (trying zen-library-button first)...`);
+        const libraryButton = await waitForElement('zen-library-button', 2000);
+
         if (libraryButton) {
-          console.log("[Tidy Downloads] ✅ Found zen-library-button for hover detection (after wait)");
-          debugLog("Found zen-library-button for hover detection");
-          
+          console.log("[Tidy Downloads] ✅ Found zen-library-button (auto-detected)");
+          debugLog("Found zen-library-button for hover detection (auto-detected)");
+
           // Patch downloads indicator methods immediately to prevent errors
           patchDownloadsIndicatorMethods();
-          
+
           // Set up animation target override for zen-library-button
           setupLibraryButtonAnimationTarget(libraryButton);
-          
+
           return libraryButton;
         }
-        console.log("[Tidy Downloads] ❌ zen-library-button not found after waiting, falling back to downloads button");
-        debugLog("zen-library-button not found after waiting, falling back to downloads button");
-      } else {
-        console.log("[Tidy Downloads] Using downloads button (library button disabled)");
-      }
-      
-      // Optimized selector order - most common first
-      const selectors = [
-        '#downloads-button',
-        '#downloads-indicator', 
-        '[data-l10n-id="downloads-button"]',
-        '.toolbarbutton-1[command="Tools:Downloads"]'
-      ];
+        console.log("[Tidy Downloads] zen-library-button not found, trying downloads button...");
+        debugLog("zen-library-button not found, falling back to downloads button");
 
-      for (const selector of selectors) {
-        const button = document.querySelector(selector);
-        if (button) {
-          console.log(`[Tidy Downloads] ✅ Found downloads button using selector: ${selector}`, button);
-          debugLog(`Found downloads button using selector: ${selector}`);
-          return button;
+        // Optimized selector order - most common first
+        const selectors = [
+          '#downloads-button',
+          '#downloads-indicator',
+          '[data-l10n-id="downloads-button"]',
+          '.toolbarbutton-1[command="Tools:Downloads"]'
+        ];
+
+        for (const selector of selectors) {
+          const button = document.querySelector(selector);
+          if (button) {
+            console.log(`[Tidy Downloads] ✅ Found downloads button using selector: ${selector}`, button);
+            debugLog(`Found downloads button using selector: ${selector}`);
+            return button;
+          }
         }
-      }
 
-      // Fallback: look for any element with downloads-related attributes
-      const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
-      for (const element of fallbackElements) {
-        if (element.getAttribute('command')?.includes('Downloads') ||
+        // Fallback: look for any element with downloads-related attributes
+        const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
+        for (const element of fallbackElements) {
+          if (element.getAttribute('command')?.includes('Downloads') ||
             element.textContent?.toLowerCase().includes('download')) {
-          console.log("[Tidy Downloads] ✅ Found downloads button using fallback method", element);
-          debugLog("Found downloads button using fallback method", element);
-          return element;
+            console.log("[Tidy Downloads] ✅ Found downloads button using fallback method", element);
+            debugLog("Found downloads button using fallback method", element);
+            return element;
+          }
         }
+
+        console.warn("[Tidy Downloads] ❌ Downloads button not found after all attempts");
+        console.warn("Downloads button not found after all attempts");
+        return null;
+      } catch (error) {
+        console.error("[Tidy Downloads] Error finding downloads button:", error);
+        console.error("Error finding downloads button:", error);
+        return null;
       }
-
-      console.warn("[Tidy Downloads] ❌ Downloads button not found after all attempts");
-      console.warn("Downloads button not found after all attempts");
-      return null;
-    } catch (error) {
-      console.error("[Tidy Downloads] Error finding downloads button:", error);
-      console.error("Error finding downloads button:", error);
-      return null;
     }
-  }
 
-  // Set up animation target override for zen-library-button
-  function setupLibraryButtonAnimationTarget(libraryButton) {
-    try {
-      // Override the browser's download animation target detection
-      // This ensures the download animation targets the library button instead of downloads button
-      const originalDetermineEndPosition = window.nsZenDownloadAnimationElement?.prototype?._determineEndPosition;
-      
-      if (window.nsZenDownloadAnimationElement?.prototype) {
-        window.nsZenDownloadAnimationElement.prototype._determineEndPosition = function() {
-          // Check if zen-library-button should be used
-          const useLibraryButton = getPref("zen.tidy-downloads.use-library-button", false);
-          const zenLibraryButton = document.getElementById("zen-library-button");
-          
-          if (useLibraryButton && zenLibraryButton && isElementVisible(zenLibraryButton)) {
-            // Use zen-library-button as target
-            const buttonRect = zenLibraryButton.getBoundingClientRect();
-            const endPosition = {
-              clientX: buttonRect.left + buttonRect.width / 2,
-              clientY: buttonRect.top + buttonRect.height / 2,
-            };
-            
-            console.log("[Tidy Downloads] Animation targeting zen-library-button", endPosition);
-            return { endPosition, isDownloadButtonVisible: true };
-          }
-          
-          // Fall back to original behavior
-          if (originalDetermineEndPosition) {
-            return originalDetermineEndPosition.call(this);
-          }
-          
-          // Fallback implementation
-          const downloadsButton = document.getElementById("downloads-button");
-          const isDownloadButtonVisible = downloadsButton && isElementVisible(downloadsButton);
-          let endPosition = { clientX: 0, clientY: 0 };
-          
-          if (isDownloadButtonVisible) {
-            const buttonRect = downloadsButton.getBoundingClientRect();
-            endPosition = {
-              clientX: buttonRect.left + buttonRect.width / 2,
-              clientY: buttonRect.top + buttonRect.height / 2,
-            };
-          } else {
-            const areTabsPositionedRight = Services.prefs.getBoolPref("zen.tabs.vertical.right-side");
-            const wrapper = document.getElementById("zen-main-app-wrapper");
-            const wrapperRect = wrapper.getBoundingClientRect();
-            endPosition = {
-              clientX: areTabsPositionedRight ? wrapperRect.right - 42 : wrapperRect.left + 42,
-              clientY: wrapperRect.bottom - 40,
-            };
-          }
-          
-          return { endPosition, isDownloadButtonVisible };
-        };
-        
-        console.log("[Tidy Downloads] Successfully overrode animation target for zen-library-button");
-      } else {
-        // Alternative approach: Monitor for animation elements and patch them
-        setupAnimationElementPatcher();
-      }
-      
-      // Additional approach: Create a MutationObserver to catch animation elements
-      setupAnimationObserver();
-      
-    } catch (error) {
-      console.error("[Tidy Downloads] Error setting up library button animation target:", error);
-    }
-  }
+    // Set up animation target override for zen-library-button
+    function setupLibraryButtonAnimationTarget(libraryButton) {
+      try {
+        // Override the browser's download animation target detection
+        // This ensures the download animation targets the library button instead of downloads button
+        const originalDetermineEndPosition = window.nsZenDownloadAnimationElement?.prototype?._determineEndPosition;
 
-  // Set up a patcher for animation elements that get created
-  function setupAnimationElementPatcher() {
-    // Watch for zen-download-animation elements being created
-    const observer = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            if (node.tagName === 'ZEN-DOWNLOAD-ANIMATION') {
-              patchAnimationElement(node);
+        if (window.nsZenDownloadAnimationElement?.prototype) {
+          window.nsZenDownloadAnimationElement.prototype._determineEndPosition = function () {
+            // Use zen-library-button automatically if it is present and visible
+            const zenLibraryButton = document.getElementById("zen-library-button");
+
+            if (zenLibraryButton && isElementVisible(zenLibraryButton)) {
+              // Use zen-library-button as target
+              const buttonRect = zenLibraryButton.getBoundingClientRect();
+              const endPosition = {
+                clientX: buttonRect.left + buttonRect.width / 2,
+                clientY: buttonRect.top + buttonRect.height / 2,
+              };
+
+              console.log("[Tidy Downloads] Animation targeting zen-library-button", endPosition);
+              return { endPosition, isDownloadButtonVisible: true };
             }
-            // Also check child elements
-            const animationElements = node.querySelectorAll?.('zen-download-animation');
-            animationElements?.forEach(patchAnimationElement);
-          }
+
+            // Fall back to original behavior
+            if (originalDetermineEndPosition) {
+              return originalDetermineEndPosition.call(this);
+            }
+
+            // Fallback implementation
+            const downloadsButton = document.getElementById("downloads-button");
+            const isDownloadButtonVisible = downloadsButton && isElementVisible(downloadsButton);
+            let endPosition = { clientX: 0, clientY: 0 };
+
+            if (isDownloadButtonVisible) {
+              const buttonRect = downloadsButton.getBoundingClientRect();
+              endPosition = {
+                clientX: buttonRect.left + buttonRect.width / 2,
+                clientY: buttonRect.top + buttonRect.height / 2,
+              };
+            } else {
+              const areTabsPositionedRight = Services.prefs.getBoolPref("zen.tabs.vertical.right-side");
+              const wrapper = document.getElementById("zen-main-app-wrapper");
+              const wrapperRect = wrapper.getBoundingClientRect();
+              endPosition = {
+                clientX: areTabsPositionedRight ? wrapperRect.right - 42 : wrapperRect.left + 42,
+                clientY: wrapperRect.bottom - 40,
+              };
+            }
+
+            return { endPosition, isDownloadButtonVisible };
+          };
+
+          console.log("[Tidy Downloads] Successfully overrode animation target for zen-library-button");
+        } else {
+          // Alternative approach: Monitor for animation elements and patch them
+          setupAnimationElementPatcher();
+        }
+
+        // Additional approach: Create a MutationObserver to catch animation elements
+        setupAnimationObserver();
+
+      } catch (error) {
+        console.error("[Tidy Downloads] Error setting up library button animation target:", error);
+      }
+    }
+
+    // Set up a patcher for animation elements that get created
+    function setupAnimationElementPatcher() {
+      // Watch for zen-download-animation elements being created
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              if (node.tagName === 'ZEN-DOWNLOAD-ANIMATION') {
+                patchAnimationElement(node);
+              }
+              // Also check child elements
+              const animationElements = node.querySelectorAll?.('zen-download-animation');
+              animationElements?.forEach(patchAnimationElement);
+            }
+          });
         });
       });
-    });
-    
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
-    
-    console.log("[Tidy Downloads] Set up animation element patcher");
-  }
 
-  // Patch an individual animation element
-  function patchAnimationElement(animationElement) {
-    try {
-      const useLibraryButton = getPref("zen.tidy-downloads.use-library-button", false);
-      if (!useLibraryButton) return;
-      
-      // Override the determineEndPosition method if it exists
-      if (animationElement.determineEndPosition) {
-        const originalMethod = animationElement.determineEndPosition;
-        animationElement.determineEndPosition = function() {
-          const zenLibraryButton = document.getElementById("zen-library-button");
-          
-          if (zenLibraryButton && isElementVisible(zenLibraryButton)) {
-            const buttonRect = zenLibraryButton.getBoundingClientRect();
-            const endPosition = {
-              clientX: buttonRect.left + buttonRect.width / 2,
-              clientY: buttonRect.top + buttonRect.height / 2,
-            };
-            
-            console.log("[Tidy Downloads] Patched animation element to target zen-library-button");
-            return { endPosition, isDownloadButtonVisible: true };
-          }
-          
-          return originalMethod.call(this);
-        };
-      }
-      
-      // Also try to patch the private method if accessible
-      if (animationElement._determineEndPosition) {
-        const originalPrivateMethod = animationElement._determineEndPosition;
-        animationElement._determineEndPosition = function() {
-          const zenLibraryButton = document.getElementById("zen-library-button");
-          
-          if (zenLibraryButton && isElementVisible(zenLibraryButton)) {
-            const buttonRect = zenLibraryButton.getBoundingClientRect();
-            const endPosition = {
-              clientX: buttonRect.left + buttonRect.width / 2,
-              clientY: buttonRect.top + buttonRect.height / 2,
-            };
-            
-            console.log("[Tidy Downloads] Patched private animation method to target zen-library-button");
-            return { endPosition, isDownloadButtonVisible: true };
-          }
-          
-          return originalPrivateMethod.call(this);
-        };
-      }
-    } catch (error) {
-      console.error("[Tidy Downloads] Error patching animation element:", error);
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+
+      console.log("[Tidy Downloads] Set up animation element patcher");
     }
-  }
 
-  // Set up observer for animation elements
-  function setupAnimationObserver() {
-    // Also try to patch existing animation elements
-    const existingAnimations = document.querySelectorAll('zen-download-animation');
-    existingAnimations.forEach(patchAnimationElement);
-    
-    // Set up a more aggressive approach: temporarily alias the downloads button
-    const useLibraryButton = getPref("zen.tidy-downloads.use-library-button", false);
-    if (useLibraryButton) {
-      // Create a proxy downloads button that points to the library button
-      createDownloadsButtonProxy();
+    // Patch an individual animation element
+    function patchAnimationElement(animationElement) {
+      try {
+        // Only patch if zen-library-button is present in the DOM
+        if (!document.getElementById("zen-library-button")) return;
+
+        // Override the determineEndPosition method if it exists
+        if (animationElement.determineEndPosition) {
+          const originalMethod = animationElement.determineEndPosition;
+          animationElement.determineEndPosition = function () {
+            const zenLibraryButton = document.getElementById("zen-library-button");
+
+            if (zenLibraryButton && isElementVisible(zenLibraryButton)) {
+              const buttonRect = zenLibraryButton.getBoundingClientRect();
+              const endPosition = {
+                clientX: buttonRect.left + buttonRect.width / 2,
+                clientY: buttonRect.top + buttonRect.height / 2,
+              };
+
+              console.log("[Tidy Downloads] Patched animation element to target zen-library-button");
+              return { endPosition, isDownloadButtonVisible: true };
+            }
+
+            return originalMethod.call(this);
+          };
+        }
+
+        // Also try to patch the private method if accessible
+        if (animationElement._determineEndPosition) {
+          const originalPrivateMethod = animationElement._determineEndPosition;
+          animationElement._determineEndPosition = function () {
+            const zenLibraryButton = document.getElementById("zen-library-button");
+
+            if (zenLibraryButton && isElementVisible(zenLibraryButton)) {
+              const buttonRect = zenLibraryButton.getBoundingClientRect();
+              const endPosition = {
+                clientX: buttonRect.left + buttonRect.width / 2,
+                clientY: buttonRect.top + buttonRect.height / 2,
+              };
+
+              console.log("[Tidy Downloads] Patched private animation method to target zen-library-button");
+              return { endPosition, isDownloadButtonVisible: true };
+            }
+
+            return originalPrivateMethod.call(this);
+          };
+        }
+      } catch (error) {
+        console.error("[Tidy Downloads] Error patching animation element:", error);
+      }
     }
-  }
 
-  // Create a proxy downloads button element
-  function createDownloadsButtonProxy() {
-    try {
-      const zenLibraryButton = document.getElementById("zen-library-button");
-      const existingDownloadsButton = document.getElementById("downloads-button");
-      
-      if (zenLibraryButton && !existingDownloadsButton) {
-        // Create a complete proxy element with all necessary child elements for the downloads indicator
-        const proxy = document.createElement("toolbarbutton");
-        proxy.id = "downloads-button";
-        proxy.className = "toolbarbutton-1 chromeclass-toolbar-additional";
-        proxy.setAttribute("command", "Tools:Downloads");
-        proxy.setAttribute("tooltiptext", "Downloads");
-        
-        // Create the necessary child elements that the downloads indicator expects
-        // Structure: toolbarbutton > stack > [main-icon, progress-icon]
-        const stack = document.createElement("stack");
-        stack.className = "toolbarbutton-icon";
-        
-        // Create main icon (visible icon)
-        const mainIcon = document.createElement("image");
-        mainIcon.className = "toolbarbutton-icon";
-        mainIcon.setAttribute("src", "chrome://browser/skin/downloads/downloads.svg");
-        
-        // Create progress icon element (this is what _progressIcon should reference)
-        const progressIcon = document.createElement("vbox");
-        progressIcon.className = "toolbarbutton-icon";
-        progressIcon.id = "downloads-indicator-progress-icon";
-        progressIcon.style.cssText = "opacity: 0; pointer-events: none; position: relative;";
-        
-        // Create progress area with proper structure
-        const progressArea = document.createElement("vbox");
-        progressArea.className = "downloads-indicator-progress-area";
-        progressArea.style.cssText = "position: relative; overflow: hidden; width: 100%; height: 100%;";
-        
-        // Create progress inner element
-        const progressInner = document.createElement("vbox");
-        progressInner.className = "downloads-indicator-progress-inner";
-        progressInner.style.cssText = "background-color: #0a84ff; height: 100%; transition: transform 0.2s ease; transform: translateY(100%);";
-        
-        // Create notification dot (for completed downloads)
-        const notificationDot = document.createElement("box");
-        notificationDot.className = "downloads-indicator-notification";
-        notificationDot.style.cssText = "display: none; position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; background: #ff4444; border-radius: 50%; border: 1px solid white;";
-        
-        // Assemble the structure properly
-        progressArea.appendChild(progressInner);
-        progressIcon.appendChild(progressArea);
-        progressIcon.appendChild(notificationDot);
-        
-        stack.appendChild(mainIcon);
-        stack.appendChild(progressIcon);
-        proxy.appendChild(stack);
-        
-        // Position the proxy to match the library button exactly
-        proxy.style.cssText = `
+    // Set up observer for animation elements
+    function setupAnimationObserver() {
+      // Also try to patch existing animation elements
+      const existingAnimations = document.querySelectorAll('zen-download-animation');
+      existingAnimations.forEach(patchAnimationElement);
+
+      // Create a proxy downloads button if zen-library-button is present and no downloads-button exists
+      if (document.getElementById("zen-library-button")) {
+        createDownloadsButtonProxy();
+      }
+    }
+
+    // Create a proxy downloads button element
+    function createDownloadsButtonProxy() {
+      try {
+        const zenLibraryButton = document.getElementById("zen-library-button");
+        const existingDownloadsButton = document.getElementById("downloads-button");
+
+        if (zenLibraryButton && !existingDownloadsButton) {
+          // Create a complete proxy element with all necessary child elements for the downloads indicator
+          const proxy = document.createElement("toolbarbutton");
+          proxy.id = "downloads-button";
+          proxy.className = "toolbarbutton-1 chromeclass-toolbar-additional";
+          proxy.setAttribute("command", "Tools:Downloads");
+          proxy.setAttribute("tooltiptext", "Downloads");
+
+          // Create the necessary child elements that the downloads indicator expects
+          // Structure: toolbarbutton > stack > [main-icon, progress-icon]
+          const stack = document.createElement("stack");
+          stack.className = "toolbarbutton-icon";
+
+          // Create main icon (visible icon)
+          const mainIcon = document.createElement("image");
+          mainIcon.className = "toolbarbutton-icon";
+          mainIcon.setAttribute("src", "chrome://browser/skin/downloads/downloads.svg");
+
+          // Create progress icon element (this is what _progressIcon should reference)
+          const progressIcon = document.createElement("vbox");
+          progressIcon.className = "toolbarbutton-icon";
+          progressIcon.id = "downloads-indicator-progress-icon";
+          progressIcon.style.cssText = "opacity: 0; pointer-events: none; position: relative;";
+
+          // Create progress area with proper structure
+          const progressArea = document.createElement("vbox");
+          progressArea.className = "downloads-indicator-progress-area";
+          progressArea.style.cssText = "position: relative; overflow: hidden; width: 100%; height: 100%;";
+
+          // Create progress inner element
+          const progressInner = document.createElement("vbox");
+          progressInner.className = "downloads-indicator-progress-inner";
+          progressInner.style.cssText = "background-color: #0a84ff; height: 100%; transition: transform 0.2s ease; transform: translateY(100%);";
+
+          // Create notification dot (for completed downloads)
+          const notificationDot = document.createElement("box");
+          notificationDot.className = "downloads-indicator-notification";
+          notificationDot.style.cssText = "display: none; position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; background: #ff4444; border-radius: 50%; border: 1px solid white;";
+
+          // Assemble the structure properly
+          progressArea.appendChild(progressInner);
+          progressIcon.appendChild(progressArea);
+          progressIcon.appendChild(notificationDot);
+
+          stack.appendChild(mainIcon);
+          stack.appendChild(progressIcon);
+          proxy.appendChild(stack);
+
+          // Position the proxy to match the library button exactly
+          proxy.style.cssText = `
           position: absolute;
           left: ${zenLibraryButton.offsetLeft}px;
           top: ${zenLibraryButton.offsetTop}px;
@@ -2437,536 +2415,536 @@
           z-index: -1;
           visibility: hidden;
         `;
-        
-        // Insert the proxy near the library button
-        zenLibraryButton.parentNode.insertBefore(proxy, zenLibraryButton);
-        
-        // Update proxy position when library button moves or resizes
-        const updateProxyPosition = () => {
-          if (zenLibraryButton.isConnected && proxy.isConnected) {
-            proxy.style.left = `${zenLibraryButton.offsetLeft}px`;
-            proxy.style.top = `${zenLibraryButton.offsetTop}px`;
-            proxy.style.width = `${zenLibraryButton.offsetWidth}px`;
-            proxy.style.height = `${zenLibraryButton.offsetHeight}px`;
-          }
-        };
-        
-        // Set up observers for position updates (more efficient than intervals)
-        let resizeObserver, mutationObserver;
-        
-        try {
-          resizeObserver = new ResizeObserver(updateProxyPosition);
-          resizeObserver.observe(zenLibraryButton);
-          
-          mutationObserver = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-              if (mutation.type === 'attributes' && 
+
+          // Insert the proxy near the library button
+          zenLibraryButton.parentNode.insertBefore(proxy, zenLibraryButton);
+
+          // Update proxy position when library button moves or resizes
+          const updateProxyPosition = () => {
+            if (zenLibraryButton.isConnected && proxy.isConnected) {
+              proxy.style.left = `${zenLibraryButton.offsetLeft}px`;
+              proxy.style.top = `${zenLibraryButton.offsetTop}px`;
+              proxy.style.width = `${zenLibraryButton.offsetWidth}px`;
+              proxy.style.height = `${zenLibraryButton.offsetHeight}px`;
+            }
+          };
+
+          // Set up observers for position updates (more efficient than intervals)
+          let resizeObserver, mutationObserver;
+
+          try {
+            resizeObserver = new ResizeObserver(updateProxyPosition);
+            resizeObserver.observe(zenLibraryButton);
+
+            mutationObserver = new MutationObserver((mutations) => {
+              mutations.forEach((mutation) => {
+                if (mutation.type === 'attributes' &&
                   (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
-                updateProxyPosition();
+                  updateProxyPosition();
+                }
+              });
+            });
+            mutationObserver.observe(zenLibraryButton, {
+              attributes: true,
+              attributeFilter: ['style', 'class']
+            });
+          } catch (observerError) {
+            console.warn("[Tidy Downloads] Observer setup failed, using fallback interval:", observerError);
+            // Fallback to interval if observers fail
+            const positionInterval = setInterval(() => {
+              if (!proxy.isConnected) {
+                clearInterval(positionInterval);
+                return;
               }
-            });
-          });
-          mutationObserver.observe(zenLibraryButton, { 
-            attributes: true, 
-            attributeFilter: ['style', 'class'] 
-          });
-        } catch (observerError) {
-          console.warn("[Tidy Downloads] Observer setup failed, using fallback interval:", observerError);
-          // Fallback to interval if observers fail
-          const positionInterval = setInterval(() => {
-            if (!proxy.isConnected) {
-              clearInterval(positionInterval);
-              return;
-            }
-            updateProxyPosition();
-          }, 200);
-        }
-        
-        // Clean up observers when elements are removed
-        const cleanupObservers = () => {
-          if (resizeObserver) resizeObserver.disconnect();
-          if (mutationObserver) mutationObserver.disconnect();
-        };
-        
-        // Store cleanup function for later use
-        proxy._cleanupObservers = cleanupObservers;
-        
-        // Set up the downloads indicator fix immediately
-        setupDownloadsIndicatorFix(proxy);
-        
-        console.log("[Tidy Downloads] Created complete downloads-button proxy with progress elements for zen-library-button");
-      }
-    } catch (error) {
-      console.error("[Tidy Downloads] Error creating downloads button proxy:", error);
-    }
-  }
+              updateProxyPosition();
+            }, 200);
+          }
 
-  // Fix the downloads indicator to work with the proxy button
-  function setupDownloadsIndicatorFix(proxyButton) {
-    try {
-      // Immediately patch methods to prevent errors, then set up proper references
-      patchDownloadsIndicatorMethods();
-      
-      // Wait for the downloads indicator to initialize
-      setTimeout(() => {
-        // Try to get the downloads indicator
-        const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
-        
-        if (indicator) {
-          // Point the indicator to our proxy elements
-          const progressIcon = proxyButton.querySelector("#downloads-indicator-progress-icon");
-          const progressArea = proxyButton.querySelector(".downloads-indicator-progress-area");
-          
-          if (progressIcon && progressArea) {
-            // Override the indicator's element references
-            Object.defineProperty(indicator, '_progressIcon', {
-              get: () => progressIcon,
-              configurable: true,
-              enumerable: true
-            });
-            
-            Object.defineProperty(indicator, '_progressArea', {
-              get: () => progressArea,
-              configurable: true,
-              enumerable: true
-            });
-            
-            // Also ensure the button reference points to our proxy
-            Object.defineProperty(indicator, 'indicator', {
-              get: () => proxyButton,
-              configurable: true,
-              enumerable: true
-            });
-            
-            console.log("[Tidy Downloads] Fixed downloads indicator references to use proxy elements");
-          }
-        }
-        
-      }, 500); // Reduced timeout for faster response
-      
-      // Also try again after a longer delay in case the indicator initializes late
-      setTimeout(() => {
-        const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
-        if (indicator && !indicator._progressIcon) {
-          const progressIcon = proxyButton.querySelector("#downloads-indicator-progress-icon");
-          if (progressIcon) {
-            Object.defineProperty(indicator, '_progressIcon', {
-              get: () => progressIcon,
-              configurable: true,
-              enumerable: true
-            });
-            console.log("[Tidy Downloads] Late fix applied for downloads indicator progress icon");
-          }
-        }
-      }, 2000);
-      
-    } catch (error) {
-      console.error("[Tidy Downloads] Error setting up downloads indicator fix:", error);
-    }
-  }
+          // Clean up observers when elements are removed
+          const cleanupObservers = () => {
+            if (resizeObserver) resizeObserver.disconnect();
+            if (mutationObserver) mutationObserver.disconnect();
+          };
 
-  // Patch downloads indicator methods to handle missing elements gracefully
-  function patchDownloadsIndicatorMethods() {
-    try {
-      const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
-      
-      if (!indicator) {
-        console.debug("[Tidy Downloads] No downloads indicator found to patch");
-        return;
+          // Store cleanup function for later use
+          proxy._cleanupObservers = cleanupObservers;
+
+          // Set up the downloads indicator fix immediately
+          setupDownloadsIndicatorFix(proxy);
+
+          console.log("[Tidy Downloads] Created complete downloads-button proxy with progress elements for zen-library-button");
+        }
+      } catch (error) {
+        console.error("[Tidy Downloads] Error creating downloads button proxy:", error);
       }
-      
-      // Patch _progressRaf method (from error stack trace)
-      if (indicator._progressRaf && !indicator._progressRaf._patched) {
-        const originalProgressRaf = indicator._progressRaf;
-        indicator._progressRaf = function() {
-          try {
-            // Check if _progressIcon exists and has style property before calling original method
-            if (this._progressIcon && this._progressIcon.style) {
-              return originalProgressRaf.call(this);
-            } else {
-              // Silently skip if elements don't exist
-              console.debug("[Tidy Downloads] Skipping _progressRaf - no progress icon available");
-              return;
+    }
+
+    // Fix the downloads indicator to work with the proxy button
+    function setupDownloadsIndicatorFix(proxyButton) {
+      try {
+        // Immediately patch methods to prevent errors, then set up proper references
+        patchDownloadsIndicatorMethods();
+
+        // Wait for the downloads indicator to initialize
+        setTimeout(() => {
+          // Try to get the downloads indicator
+          const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
+
+          if (indicator) {
+            // Point the indicator to our proxy elements
+            const progressIcon = proxyButton.querySelector("#downloads-indicator-progress-icon");
+            const progressArea = proxyButton.querySelector(".downloads-indicator-progress-area");
+
+            if (progressIcon && progressArea) {
+              // Override the indicator's element references
+              Object.defineProperty(indicator, '_progressIcon', {
+                get: () => progressIcon,
+                configurable: true,
+                enumerable: true
+              });
+
+              Object.defineProperty(indicator, '_progressArea', {
+                get: () => progressArea,
+                configurable: true,
+                enumerable: true
+              });
+
+              // Also ensure the button reference points to our proxy
+              Object.defineProperty(indicator, 'indicator', {
+                get: () => proxyButton,
+                configurable: true,
+                enumerable: true
+              });
+
+              console.log("[Tidy Downloads] Fixed downloads indicator references to use proxy elements");
             }
-          } catch (error) {
-            console.debug("[Tidy Downloads] _progressRaf error handled:", error.message);
-            return;
           }
-        };
-        indicator._progressRaf._patched = true;
-      }
-      
-      // Patch _maybeScheduleProgressUpdate method (from error stack trace)
-      if (indicator._maybeScheduleProgressUpdate && !indicator._maybeScheduleProgressUpdate._patched) {
-        const originalMaybeSchedule = indicator._maybeScheduleProgressUpdate;
-        indicator._maybeScheduleProgressUpdate = function() {
-          try {
-            if (this._progressIcon && this._progressIcon.style) {
-              return originalMaybeSchedule.call(this);
-            } else {
-              console.debug("[Tidy Downloads] Skipping _maybeScheduleProgressUpdate - no progress icon available");
-              return;
+
+        }, 500); // Reduced timeout for faster response
+
+        // Also try again after a longer delay in case the indicator initializes late
+        setTimeout(() => {
+          const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
+          if (indicator && !indicator._progressIcon) {
+            const progressIcon = proxyButton.querySelector("#downloads-indicator-progress-icon");
+            if (progressIcon) {
+              Object.defineProperty(indicator, '_progressIcon', {
+                get: () => progressIcon,
+                configurable: true,
+                enumerable: true
+              });
+              console.log("[Tidy Downloads] Late fix applied for downloads indicator progress icon");
             }
-          } catch (error) {
-            console.debug("[Tidy Downloads] _maybeScheduleProgressUpdate error handled:", error.message);
-            return;
           }
-        };
-        indicator._maybeScheduleProgressUpdate._patched = true;
+        }, 2000);
+
+      } catch (error) {
+        console.error("[Tidy Downloads] Error setting up downloads indicator fix:", error);
       }
-      
-      // Patch set percentComplete method (from error stack trace)
-      const percentCompleteDescriptor = Object.getOwnPropertyDescriptor(indicator, 'percentComplete') || 
-                                       Object.getOwnPropertyDescriptor(Object.getPrototypeOf(indicator), 'percentComplete');
-      
-      if (percentCompleteDescriptor && percentCompleteDescriptor.set && !percentCompleteDescriptor.set._patched) {
-        const originalSetter = percentCompleteDescriptor.set;
-        Object.defineProperty(indicator, 'percentComplete', {
-          get: percentCompleteDescriptor.get,
-          set: function(value) {
+    }
+
+    // Patch downloads indicator methods to handle missing elements gracefully
+    function patchDownloadsIndicatorMethods() {
+      try {
+        const indicator = window.DownloadsIndicatorView || window.DownloadsButton;
+
+        if (!indicator) {
+          console.debug("[Tidy Downloads] No downloads indicator found to patch");
+          return;
+        }
+
+        // Patch _progressRaf method (from error stack trace)
+        if (indicator._progressRaf && !indicator._progressRaf._patched) {
+          const originalProgressRaf = indicator._progressRaf;
+          indicator._progressRaf = function () {
             try {
+              // Check if _progressIcon exists and has style property before calling original method
               if (this._progressIcon && this._progressIcon.style) {
-                return originalSetter.call(this, value);
+                return originalProgressRaf.call(this);
               } else {
-                console.debug("[Tidy Downloads] Skipping percentComplete setter - no progress icon available");
+                // Silently skip if elements don't exist
+                console.debug("[Tidy Downloads] Skipping _progressRaf - no progress icon available");
                 return;
               }
             } catch (error) {
-              console.debug("[Tidy Downloads] percentComplete setter error handled:", error.message);
+              console.debug("[Tidy Downloads] _progressRaf error handled:", error.message);
               return;
             }
-          },
-          configurable: true,
-          enumerable: true
-        });
-        // Mark as patched by adding property to the setter function
-        Object.defineProperty(indicator, '_percentCompletePatched', { value: true });
-      }
-      
-      // Patch _updateView method if it exists
-      if (indicator._updateView && !indicator._updateView._patched) {
-        const originalUpdateView = indicator._updateView;
-        indicator._updateView = function() {
-          try {
-            if (this._progressIcon && this._progressIcon.style) {
-              return originalUpdateView.call(this);
-            } else {
-              console.debug("[Tidy Downloads] Skipping _updateView - no progress icon available");
+          };
+          indicator._progressRaf._patched = true;
+        }
+
+        // Patch _maybeScheduleProgressUpdate method (from error stack trace)
+        if (indicator._maybeScheduleProgressUpdate && !indicator._maybeScheduleProgressUpdate._patched) {
+          const originalMaybeSchedule = indicator._maybeScheduleProgressUpdate;
+          indicator._maybeScheduleProgressUpdate = function () {
+            try {
+              if (this._progressIcon && this._progressIcon.style) {
+                return originalMaybeSchedule.call(this);
+              } else {
+                console.debug("[Tidy Downloads] Skipping _maybeScheduleProgressUpdate - no progress icon available");
+                return;
+              }
+            } catch (error) {
+              console.debug("[Tidy Downloads] _maybeScheduleProgressUpdate error handled:", error.message);
               return;
             }
-          } catch (error) {
-            console.debug("[Tidy Downloads] _updateView error handled:", error.message);
-            return;
-          }
-        };
-        indicator._updateView._patched = true;
-      }
-      
-      // Patch refreshView method if it exists
-      if (indicator.refreshView && !indicator.refreshView._patched) {
-        const originalRefreshView = indicator.refreshView;
-        indicator.refreshView = function() {
-          try {
-            if (this._progressIcon && this._progressIcon.style) {
-              return originalRefreshView.call(this);
-            } else {
-              console.debug("[Tidy Downloads] Skipping refreshView - no progress icon available");
+          };
+          indicator._maybeScheduleProgressUpdate._patched = true;
+        }
+
+        // Patch set percentComplete method (from error stack trace)
+        const percentCompleteDescriptor = Object.getOwnPropertyDescriptor(indicator, 'percentComplete') ||
+          Object.getOwnPropertyDescriptor(Object.getPrototypeOf(indicator), 'percentComplete');
+
+        if (percentCompleteDescriptor && percentCompleteDescriptor.set && !percentCompleteDescriptor.set._patched) {
+          const originalSetter = percentCompleteDescriptor.set;
+          Object.defineProperty(indicator, 'percentComplete', {
+            get: percentCompleteDescriptor.get,
+            set: function (value) {
+              try {
+                if (this._progressIcon && this._progressIcon.style) {
+                  return originalSetter.call(this, value);
+                } else {
+                  console.debug("[Tidy Downloads] Skipping percentComplete setter - no progress icon available");
+                  return;
+                }
+              } catch (error) {
+                console.debug("[Tidy Downloads] percentComplete setter error handled:", error.message);
+                return;
+              }
+            },
+            configurable: true,
+            enumerable: true
+          });
+          // Mark as patched by adding property to the setter function
+          Object.defineProperty(indicator, '_percentCompletePatched', { value: true });
+        }
+
+        // Patch _updateView method if it exists
+        if (indicator._updateView && !indicator._updateView._patched) {
+          const originalUpdateView = indicator._updateView;
+          indicator._updateView = function () {
+            try {
+              if (this._progressIcon && this._progressIcon.style) {
+                return originalUpdateView.call(this);
+              } else {
+                console.debug("[Tidy Downloads] Skipping _updateView - no progress icon available");
+                return;
+              }
+            } catch (error) {
+              console.debug("[Tidy Downloads] _updateView error handled:", error.message);
               return;
             }
-          } catch (error) {
-            console.debug("[Tidy Downloads] refreshView error handled:", error.message);
-            return;
-          }
-        };
-        indicator.refreshView._patched = true;
-      }
-      
-      // Patch _ensureOperational method if it exists
-      if (indicator._ensureOperational && !indicator._ensureOperational._patched) {
-        const originalEnsureOperational = indicator._ensureOperational;
-        indicator._ensureOperational = function() {
-          try {
-            return originalEnsureOperational.call(this);
-          } catch (error) {
-            console.debug("[Tidy Downloads] _ensureOperational error handled:", error.message);
-            // Try to set up basic functionality even if original fails
-            if (!this._progressIcon) {
-              const proxyButton = document.getElementById("downloads-button");
-              if (proxyButton) {
-                const progressIcon = proxyButton.querySelector("#downloads-indicator-progress-icon");
-                if (progressIcon) {
-                  this._progressIcon = progressIcon;
-                  console.debug("[Tidy Downloads] Set up progress icon in _ensureOperational fallback");
+          };
+          indicator._updateView._patched = true;
+        }
+
+        // Patch refreshView method if it exists
+        if (indicator.refreshView && !indicator.refreshView._patched) {
+          const originalRefreshView = indicator.refreshView;
+          indicator.refreshView = function () {
+            try {
+              if (this._progressIcon && this._progressIcon.style) {
+                return originalRefreshView.call(this);
+              } else {
+                console.debug("[Tidy Downloads] Skipping refreshView - no progress icon available");
+                return;
+              }
+            } catch (error) {
+              console.debug("[Tidy Downloads] refreshView error handled:", error.message);
+              return;
+            }
+          };
+          indicator.refreshView._patched = true;
+        }
+
+        // Patch _ensureOperational method if it exists
+        if (indicator._ensureOperational && !indicator._ensureOperational._patched) {
+          const originalEnsureOperational = indicator._ensureOperational;
+          indicator._ensureOperational = function () {
+            try {
+              return originalEnsureOperational.call(this);
+            } catch (error) {
+              console.debug("[Tidy Downloads] _ensureOperational error handled:", error.message);
+              // Try to set up basic functionality even if original fails
+              if (!this._progressIcon) {
+                const proxyButton = document.getElementById("downloads-button");
+                if (proxyButton) {
+                  const progressIcon = proxyButton.querySelector("#downloads-indicator-progress-icon");
+                  if (progressIcon) {
+                    this._progressIcon = progressIcon;
+                    console.debug("[Tidy Downloads] Set up progress icon in _ensureOperational fallback");
+                  }
                 }
               }
-            }
-            return;
-          }
-        };
-        indicator._ensureOperational._patched = true;
-      }
-      
-      // Patch set hasDownloads method if it exists (from error stack trace)
-      const hasDownloadsDescriptor = Object.getOwnPropertyDescriptor(indicator, 'hasDownloads') || 
-                                    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(indicator), 'hasDownloads');
-      
-      if (hasDownloadsDescriptor && hasDownloadsDescriptor.set && !indicator._hasDownloadsPatched) {
-        const originalSetter = hasDownloadsDescriptor.set;
-        Object.defineProperty(indicator, 'hasDownloads', {
-          get: hasDownloadsDescriptor.get,
-          set: function(value) {
-            try {
-              return originalSetter.call(this, value);
-            } catch (error) {
-              console.debug("[Tidy Downloads] hasDownloads setter error handled:", error.message);
               return;
             }
-          },
-          configurable: true,
-          enumerable: true
-        });
-        // Mark as patched
-        Object.defineProperty(indicator, '_hasDownloadsPatched', { value: true });
-      }
-      
-      console.log("[Tidy Downloads] Comprehensively patched downloads indicator methods for error handling");
-    } catch (error) {
-      console.error("[Tidy Downloads] Error patching downloads indicator methods:", error);
-    }
-  }
+          };
+          indicator._ensureOperational._patched = true;
+        }
 
-  // Helper function to check if element is visible (copied from animation code)
-  function isElementVisible(element) {
-    if (!element) {
-      return false;
+        // Patch set hasDownloads method if it exists (from error stack trace)
+        const hasDownloadsDescriptor = Object.getOwnPropertyDescriptor(indicator, 'hasDownloads') ||
+          Object.getOwnPropertyDescriptor(Object.getPrototypeOf(indicator), 'hasDownloads');
+
+        if (hasDownloadsDescriptor && hasDownloadsDescriptor.set && !indicator._hasDownloadsPatched) {
+          const originalSetter = hasDownloadsDescriptor.set;
+          Object.defineProperty(indicator, 'hasDownloads', {
+            get: hasDownloadsDescriptor.get,
+            set: function (value) {
+              try {
+                return originalSetter.call(this, value);
+              } catch (error) {
+                console.debug("[Tidy Downloads] hasDownloads setter error handled:", error.message);
+                return;
+              }
+            },
+            configurable: true,
+            enumerable: true
+          });
+          // Mark as patched
+          Object.defineProperty(indicator, '_hasDownloadsPatched', { value: true });
+        }
+
+        console.log("[Tidy Downloads] Comprehensively patched downloads indicator methods for error handling");
+      } catch (error) {
+        console.error("[Tidy Downloads] Error patching downloads indicator methods:", error);
+      }
     }
-    const rect = element.getBoundingClientRect();
-    // Element must be in the viewport
-    // Is 1 and no 0 because if you pin the download button in the overflow menu
-    // the download button is in the viewport but in the position 0,0 so this
-    // avoid this case
-    if (rect.bottom < 1 ||
+
+    // Helper function to check if element is visible (copied from animation code)
+    function isElementVisible(element) {
+      if (!element) {
+        return false;
+      }
+      const rect = element.getBoundingClientRect();
+      // Element must be in the viewport
+      // Is 1 and no 0 because if you pin the download button in the overflow menu
+      // the download button is in the viewport but in the position 0,0 so this
+      // avoid this case
+      if (rect.bottom < 1 ||
         rect.right < 1 ||
         rect.top > window.innerHeight ||
         rect.left > window.innerWidth) {
-      return false;
-    }
-    return true;
-  }
-
-
-
-  // Set generic icon for file type
-  function setGenericIcon(previewElement, contentType) {
-    if (!previewElement) return;
-    try {
-      let icon = "📄";
-      if (typeof contentType === "string") {
-        if (contentType.includes("image/")) icon = "🖼️";
-        else if (contentType.includes("video/")) icon = "🎬";
-        else if (contentType.includes("audio/")) icon = "🎵";
-        else if (contentType.includes("text/")) icon = "📝";
-        else if (contentType.includes("application/pdf")) icon = "📕";
-        else if (contentType.includes("application/zip") || contentType.includes("application/x-rar")) icon = "🗜️";
-        else if (contentType.includes("application/")) icon = "📦";
+        return false;
       }
-      previewElement.innerHTML = `<span style="font-size: 24px;">${icon}</span>`;
-      previewElement.style.display = "flex";
-      previewElement.style.alignItems = "center";
-      previewElement.style.justifyContent = "center";
-    } catch (e) {
-      debugLog("Error setting generic icon:", e);
-      previewElement.innerHTML = `<span style="font-size: 24px;">📄</span>`;
+      return true;
     }
-  }
 
-  // Extract dominant color from an image element
-  function extractDominantColor(imgElement) {
-    try {
-      // Create a canvas to analyze the image
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      // Set canvas size (smaller for performance)
-      canvas.width = 50;
-      canvas.height = 50;
-      
-      // Draw the image onto the canvas
-      ctx.drawImage(imgElement, 0, 0, 50, 50);
-      
-      // Get image data
-      const imageData = ctx.getImageData(0, 0, 50, 50);
-      const data = imageData.data;
-      
-      // Color frequency map
-      const colorMap = {};
-      
-      // Sample every 4th pixel for performance
-      for (let i = 0; i < data.length; i += 16) { // RGBA = 4 bytes, so i += 16 samples every 4th pixel
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        const a = data[i + 3];
-        
-        // Skip transparent or very dark/light pixels
-        if (a < 128 || (r + g + b) < 50 || (r + g + b) > 650) continue;
-        
-        // Group similar colors (reduce precision)
-        const rGroup = Math.floor(r / 32) * 32;
-        const gGroup = Math.floor(g / 32) * 32;
-        const bGroup = Math.floor(b / 32) * 32;
-        
-        const colorKey = `${rGroup},${gGroup},${bGroup}`;
-        colorMap[colorKey] = (colorMap[colorKey] || 0) + 1;
-      }
-      
-      // Find the most frequent color
-      let dominantColor = null;
-      let maxCount = 0;
-      
-      for (const [color, count] of Object.entries(colorMap)) {
-        if (count > maxCount) {
-          maxCount = count;
-          dominantColor = color;
+
+
+    // Set generic icon for file type
+    function setGenericIcon(previewElement, contentType) {
+      if (!previewElement) return;
+      try {
+        let icon = "📄";
+        if (typeof contentType === "string") {
+          if (contentType.includes("image/")) icon = "🖼️";
+          else if (contentType.includes("video/")) icon = "🎬";
+          else if (contentType.includes("audio/")) icon = "🎵";
+          else if (contentType.includes("text/")) icon = "📝";
+          else if (contentType.includes("application/pdf")) icon = "📕";
+          else if (contentType.includes("application/zip") || contentType.includes("application/x-rar")) icon = "🗜️";
+          else if (contentType.includes("application/")) icon = "📦";
         }
+        previewElement.innerHTML = `<span style="font-size: 24px;">${icon}</span>`;
+        previewElement.style.display = "flex";
+        previewElement.style.alignItems = "center";
+        previewElement.style.justifyContent = "center";
+      } catch (e) {
+        debugLog("Error setting generic icon:", e);
+        previewElement.innerHTML = `<span style="font-size: 24px;">📄</span>`;
       }
-      
-      if (dominantColor) {
-        const [r, g, b] = dominantColor.split(',').map(Number);
-        
-        // Enhance saturation and brightness for glow effect
-        const enhancedColor = enhanceColorForGlow(r, g, b);
-        
-        debugLog("[ColorExtraction] Extracted dominant color", { 
-          original: `rgb(${r}, ${g}, ${b})`, 
-          enhanced: enhancedColor,
-          frequency: maxCount 
-        });
-        
-        return enhancedColor;
+    }
+
+    // Extract dominant color from an image element
+    function extractDominantColor(imgElement) {
+      try {
+        // Create a canvas to analyze the image
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Set canvas size (smaller for performance)
+        canvas.width = 50;
+        canvas.height = 50;
+
+        // Draw the image onto the canvas
+        ctx.drawImage(imgElement, 0, 0, 50, 50);
+
+        // Get image data
+        const imageData = ctx.getImageData(0, 0, 50, 50);
+        const data = imageData.data;
+
+        // Color frequency map
+        const colorMap = {};
+
+        // Sample every 4th pixel for performance
+        for (let i = 0; i < data.length; i += 16) { // RGBA = 4 bytes, so i += 16 samples every 4th pixel
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const a = data[i + 3];
+
+          // Skip transparent or very dark/light pixels
+          if (a < 128 || (r + g + b) < 50 || (r + g + b) > 650) continue;
+
+          // Group similar colors (reduce precision)
+          const rGroup = Math.floor(r / 32) * 32;
+          const gGroup = Math.floor(g / 32) * 32;
+          const bGroup = Math.floor(b / 32) * 32;
+
+          const colorKey = `${rGroup},${gGroup},${bGroup}`;
+          colorMap[colorKey] = (colorMap[colorKey] || 0) + 1;
+        }
+
+        // Find the most frequent color
+        let dominantColor = null;
+        let maxCount = 0;
+
+        for (const [color, count] of Object.entries(colorMap)) {
+          if (count > maxCount) {
+            maxCount = count;
+            dominantColor = color;
+          }
+        }
+
+        if (dominantColor) {
+          const [r, g, b] = dominantColor.split(',').map(Number);
+
+          // Enhance saturation and brightness for glow effect
+          const enhancedColor = enhanceColorForGlow(r, g, b);
+
+          debugLog("[ColorExtraction] Extracted dominant color", {
+            original: `rgb(${r}, ${g}, ${b})`,
+            enhanced: enhancedColor,
+            frequency: maxCount
+          });
+
+          return enhancedColor;
+        }
+
+        return null;
+      } catch (e) {
+        debugLog("[ColorExtraction] Error extracting color:", e);
+        return null;
       }
-      
-      return null;
-    } catch (e) {
-      debugLog("[ColorExtraction] Error extracting color:", e);
-      return null;
     }
-  }
 
-  // Enhance color for better glow visibility
-  function enhanceColorForGlow(r, g, b) {
-    // Convert to HSL for easier manipulation
-    const [h, s, l] = rgbToHsl(r, g, b);
-    
-    // Increase saturation and adjust lightness for better glow
-    const newS = Math.min(1, s + 0.3); // Increase saturation
-    const newL = Math.max(0.4, Math.min(0.7, l + 0.2)); // Ensure good visibility
-    
-    // Convert back to RGB
-    const [newR, newG, newB] = hslToRgb(h, newS, newL);
-    
-    return `rgb(${Math.round(newR)}, ${Math.round(newG)}, ${Math.round(newB)})`;
-  }
+    // Enhance color for better glow visibility
+    function enhanceColorForGlow(r, g, b) {
+      // Convert to HSL for easier manipulation
+      const [h, s, l] = rgbToHsl(r, g, b);
 
-  // RGB to HSL conversion
-  function rgbToHsl(r, g, b) {
-    r /= 255;
-    g /= 255;
-    b /= 255;
-    
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    let h, s, l = (max + min) / 2;
-    
-    if (max === min) {
-      h = s = 0; // achromatic
-    } else {
-      const d = max - min;
-      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-      
-      switch (max) {
-        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-        case g: h = (b - r) / d + 2; break;
-        case b: h = (r - g) / d + 4; break;
+      // Increase saturation and adjust lightness for better glow
+      const newS = Math.min(1, s + 0.3); // Increase saturation
+      const newL = Math.max(0.4, Math.min(0.7, l + 0.2)); // Ensure good visibility
+
+      // Convert back to RGB
+      const [newR, newG, newB] = hslToRgb(h, newS, newL);
+
+      return `rgb(${Math.round(newR)}, ${Math.round(newG)}, ${Math.round(newB)})`;
+    }
+
+    // RGB to HSL conversion
+    function rgbToHsl(r, g, b) {
+      r /= 255;
+      g /= 255;
+      b /= 255;
+
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      let h, s, l = (max + min) / 2;
+
+      if (max === min) {
+        h = s = 0; // achromatic
+      } else {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+
+        switch (max) {
+          case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+          case g: h = (b - r) / d + 2; break;
+          case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
       }
-      h /= 6;
-    }
-    
-    return [h, s, l];
-  }
 
-  // HSL to RGB conversion
-  function hslToRgb(h, s, l) {
-    let r, g, b;
-    
-    if (s === 0) {
-      r = g = b = l; // achromatic
-    } else {
-      const hue2rgb = (p, q, t) => {
-        if (t < 0) t += 1;
-        if (t > 1) t -= 1;
-        if (t < 1/6) return p + (q - p) * 6 * t;
-        if (t < 1/2) return q;
-        if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-        return p;
-      };
-      
-      const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-      const p = 2 * l - q;
-      r = hue2rgb(p, q, h + 1/3);
-      g = hue2rgb(p, q, h);
-      b = hue2rgb(p, q, h - 1/3);
+      return [h, s, l];
     }
-    
-    return [r * 255, g * 255, b * 255];
-  }
 
-  // Read text file preview (first 500 chars)
-  async function readTextFilePreview(path) {
-    try {
-      // Try IOUtils first (modern FF)
-      if (typeof IOUtils !== 'undefined') {
+    // HSL to RGB conversion
+    function hslToRgb(h, s, l) {
+      let r, g, b;
+
+      if (s === 0) {
+        r = g = b = l; // achromatic
+      } else {
+        const hue2rgb = (p, q, t) => {
+          if (t < 0) t += 1;
+          if (t > 1) t -= 1;
+          if (t < 1 / 6) return p + (q - p) * 6 * t;
+          if (t < 1 / 2) return q;
+          if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+          return p;
+        };
+
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1 / 3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1 / 3);
+      }
+
+      return [r * 255, g * 255, b * 255];
+    }
+
+    // Read text file preview (first 500 chars)
+    async function readTextFilePreview(path) {
+      try {
+        // Try IOUtils first (modern FF)
+        if (typeof IOUtils !== 'undefined') {
           const content = await IOUtils.readUTF8(path, { maxBytes: 500 });
           return content;
+        }
+
+        // Fallback to legacy file stream
+        const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+        file.initWithPath(path);
+        if (!file.exists()) return null;
+
+        const fstream = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(Ci.nsIFileInputStream);
+        const cstream = Cc["@mozilla.org/intl/converter-input-stream;1"].createInstance(Ci.nsIConverterInputStream);
+
+        fstream.init(file, -1, 0, 0);
+        cstream.init(fstream, "UTF-8", 0, 0);
+
+        let str = {};
+        // Read up to 500 chars
+        cstream.readString(500, str);
+        cstream.close();
+        return str.value;
+      } catch (e) {
+        debugLog("Error reading text file preview:", e);
+        return null;
       }
-      
-      // Fallback to legacy file stream
-      const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-      file.initWithPath(path);
-      if (!file.exists()) return null;
-
-      const fstream = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(Ci.nsIFileInputStream);
-      const cstream = Cc["@mozilla.org/intl/converter-input-stream;1"].createInstance(Ci.nsIConverterInputStream);
-      
-      fstream.init(file, -1, 0, 0);
-      cstream.init(fstream, "UTF-8", 0, 0);
-
-      let str = {};
-      // Read up to 500 chars
-      cstream.readString(500, str);
-      cstream.close();
-      return str.value;
-    } catch (e) {
-      debugLog("Error reading text file preview:", e);
-      return null;
-    }
-  }
-
-  // Set preview for completed file - supports Images, Text, and System Icons
-  async function setCompletedFilePreview(previewElement, download) {
-    if (!previewElement) {
-      debugLog("[setCompletedFilePreview] No preview element provided");
-      return;
     }
 
-    debugLog("[setCompletedFilePreview] Called", { 
-      contentType: download?.contentType, 
-      targetPath: download?.target?.path,
-      filename: download?.filename 
-    });
-    
-    // Extensions mapping
-    const SYSTEM_ICON_EXTS = new Set([
+    // Set preview for completed file - supports Images, Text, and System Icons
+    async function setCompletedFilePreview(previewElement, download) {
+      if (!previewElement) {
+        debugLog("[setCompletedFilePreview] No preview element provided");
+        return;
+      }
+
+      debugLog("[setCompletedFilePreview] Called", {
+        contentType: download?.contentType,
+        targetPath: download?.target?.path,
+        filename: download?.filename
+      });
+
+      // Extensions mapping
+      const SYSTEM_ICON_EXTS = new Set([
         // Video
         '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
         // Audio
@@ -2977,89 +2955,101 @@
         '.exe', '.msi', '.bat', '.cmd', '.scr',
         // Archives
         '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.iso'
-    ]);
+      ]);
 
-    const TEXT_EXTS = new Set([
+      const TEXT_EXTS = new Set([
         '.txt', '.md', '.js', '.css', '.html', '.json', '.xml', '.log', '.ini', '.sh', '.py', '.java', '.c', '.cpp', '.h', '.ts', '.jsx', '.tsx'
-    ]);
+      ]);
 
-    try {
-      if (!download.target?.path) {
-         setGenericIcon(previewElement, null);
-         return;
-      }
+      try {
+        if (!download.target?.path) {
+          setGenericIcon(previewElement, null);
+          return;
+        }
 
-      const filePath = download.target.path;
-      const lowerPath = filePath.toLowerCase();
-      
-      // 1. Check for Images (via ContentType OR Extension)
-      const isImageContentType = download?.contentType?.startsWith("image/");
-      let isImageExtension = false;
-      for (const ext of IMAGE_EXTENSIONS) {
-        if (lowerPath.endsWith(ext)) {
+        const filePath = download.target.path;
+        const lowerPath = filePath.toLowerCase();
+
+        // 1. Check for Images (via ContentType OR Extension)
+        const isImageContentType = download?.contentType?.startsWith("image/");
+        let isImageExtension = false;
+        for (const ext of IMAGE_EXTENSIONS) {
+          if (lowerPath.endsWith(ext)) {
             isImageExtension = true;
             break;
+          }
         }
-      }
 
-      if (isImageContentType || isImageExtension) {
-        debugLog("[setCompletedFilePreview] Rendering Image Preview");
-        const img = document.createElement("img");
-        const imgSrc = `file:///${filePath.replace(/\\/g, '/')}`;
-        img.src = imgSrc;
-        img.style.width = "100%";
-        img.style.height = "100%";
-        img.style.objectFit = "cover";
-        img.style.borderRadius = "12px";
-        img.style.transition = "all 0.3s ease";
-        img.style.opacity = "0";
-        
-        img.onload = () => { 
-          img.style.opacity = "1"; 
-          
-          // Extract dominant color
-          setTimeout(() => {
-            const dominantColor = extractDominantColor(img);
-            if (dominantColor) {
-              const podElement = previewElement.closest('.download-pod');
-              if (podElement) {
-                podElement.dataset.dominantColor = dominantColor;
-                // If this pod is currently focused, update its glow immediately
-                const downloadKey = podElement.dataset.downloadKey;
-                if (downloadKey === focusedDownloadKey) {
-                  updatePodGlowColor(podElement, dominantColor);
+        if (isImageContentType || isImageExtension) {
+          debugLog("[setCompletedFilePreview] Rendering Image Preview");
+
+          const podElement = previewElement.closest('.download-pod');
+          if (podElement) {
+            podElement.classList.add("is-image-pod");
+          }
+
+          const img = document.createElement("img");
+          const imgSrc = `file:///${filePath.replace(/\\/g, '/')}`;
+          img.src = imgSrc;
+          img.style.width = "100%";
+          img.style.height = "100%";
+          img.style.objectFit = "cover";
+          img.style.borderRadius = "12px";
+          img.style.transition = "all 0.3s ease";
+          img.style.opacity = "0";
+
+          img.onload = () => {
+            img.style.opacity = "1";
+
+            // Extract dominant color
+            setTimeout(() => {
+              const dominantColor = extractDominantColor(img);
+              if (dominantColor) {
+                const podElement = previewElement.closest('.download-pod');
+                if (podElement) {
+                  podElement.dataset.dominantColor = dominantColor;
+                  // If this pod is currently focused, update its glow immediately
+                  const downloadKey = podElement.dataset.downloadKey;
+                  if (downloadKey === focusedDownloadKey) {
+                    updatePodGlowColor(podElement, dominantColor);
+                  }
                 }
               }
-            }
-          }, 100);
-        };
-        img.onerror = () => {
-           // Fallback to system icon if image fails
-           renderSystemIcon(previewElement, filePath);
-        };
-        
-        previewElement.innerHTML = "";
-        previewElement.appendChild(img);
-        return;
-      }
+            }, 100);
+          };
+          img.onerror = () => {
+            // Fallback to system icon if image fails
+            renderSystemIcon(previewElement, filePath);
+          };
 
-      // 2. Check for Text Files (preview disabled by default - use generic icon)
-      let isTextExtension = false;
-      for (const ext of TEXT_EXTS) {
+          previewElement.innerHTML = "";
+          previewElement.appendChild(img);
+          return;
+        }
+
+        // If we fall through to non-images, ensure the class is removed
+        const nonImagePodElement = previewElement.closest('.download-pod');
+        if (nonImagePodElement) {
+          nonImagePodElement.classList.remove("is-image-pod");
+        }
+
+        // 2. Check for Text Files (preview disabled by default - use generic icon)
+        let isTextExtension = false;
+        for (const ext of TEXT_EXTS) {
           if (lowerPath.endsWith(ext)) {
-              isTextExtension = true;
-              break;
+            isTextExtension = true;
+            break;
           }
-      }
-      
-      if (isTextExtension || download?.contentType?.startsWith("text/")) {
+        }
+
+        if (isTextExtension || download?.contentType?.startsWith("text/")) {
           if (filePreviewEnabled) {
-              debugLog("[setCompletedFilePreview] Rendering Text Preview");
-              const textContent = await readTextFilePreview(filePath);
-              if (textContent) {
-                  previewElement.innerHTML = "";
-                  const textDiv = document.createElement("div");
-                  textDiv.style.cssText = `
+            debugLog("[setCompletedFilePreview] Rendering Text Preview");
+            const textContent = await readTextFilePreview(filePath);
+            if (textContent) {
+              previewElement.innerHTML = "";
+              const textDiv = document.createElement("div");
+              textDiv.style.cssText = `
                       width: 100%;
                       height: 100%;
                       padding: 6px;
@@ -3070,203 +3060,201 @@
                       overflow: hidden;
                       white-space: pre-wrap;
                       color: rgba(255,255,255,0.8);
-                      background: rgba(0,0,0,0.2);
-                      border-radius: 8px;
+                      background: transparent;
                       text-align: left;
                       word-break: break-all;
                   `;
-                  textDiv.textContent = textContent;
-                  previewElement.appendChild(textDiv);
-                  return;
-              }
+              textDiv.textContent = textContent;
+              previewElement.appendChild(textDiv);
+              return;
+            }
           }
           debugLog("[setCompletedFilePreview] Text file, no preview - using System Icon (extension-based)");
           const ext = lowerPath.includes(".") ? lowerPath.slice(lowerPath.lastIndexOf(".")) : ".txt";
           renderSystemIconByExtension(previewElement, ext);
           return;
-      }
+        }
 
-      // 3. Check for System Icon Types (Video, PDF, Exe, etc.)
-      let isSystemIconType = false;
-      for (const ext of SYSTEM_ICON_EXTS) {
+        // 3. Check for System Icon Types (Video, PDF, Exe, etc.)
+        let isSystemIconType = false;
+        for (const ext of SYSTEM_ICON_EXTS) {
           if (lowerPath.endsWith(ext)) {
-              isSystemIconType = true;
-              break;
+            isSystemIconType = true;
+            break;
           }
-      }
-      
-      if (isSystemIconType || download?.contentType?.startsWith("video/") || download?.contentType?.startsWith("application/pdf")) {
+        }
+
+        if (isSystemIconType || download?.contentType?.startsWith("video/") || download?.contentType?.startsWith("application/pdf")) {
           debugLog("[setCompletedFilePreview] Rendering System Icon");
           renderSystemIcon(previewElement, filePath);
           return;
+        }
+
+        // 4. Default / Fallback
+        debugLog("[setCompletedFilePreview] Using Generic Icon");
+        setGenericIcon(previewElement, download?.contentType);
+
+      } catch (e) {
+        debugLog("Error setting file preview:", e);
+        previewElement.innerHTML = `<span style="font-size: 24px;">🚫</span>`;
       }
-
-      // 4. Default / Fallback
-      debugLog("[setCompletedFilePreview] Using Generic Icon");
-      setGenericIcon(previewElement, download?.contentType);
-
-    } catch (e) {
-      debugLog("Error setting file preview:", e);
-      previewElement.innerHTML = `<span style="font-size: 24px;">🚫</span>`;
     }
-  }
 
-  // Helper to render system icon by file path
-  function renderSystemIcon(container, filePath) {
+    // Helper to render system icon by file path
+    function renderSystemIcon(container, filePath) {
       const fileUrl = "file:///" + filePath.replace(/\\/g, "/");
-      const iconUrl = `moz-icon://${fileUrl}?size=32`;
+      const iconUrl = `moz-icon://${fileUrl}?size=25`;
       renderIconImg(container, iconUrl, () => setGenericIcon(container, null));
-  }
+    }
 
-  // Helper to render system icon by extension only (more reliable in download panel context)
-  function renderSystemIconByExtension(container, ext) {
+    // Helper to render system icon by extension only (more reliable in download panel context)
+    function renderSystemIconByExtension(container, ext) {
       const extSafe = ext && ext.startsWith(".") ? ext : "." + (ext || "txt");
-      const iconUrl = `moz-icon://${extSafe}?size=32`;
+      const iconUrl = `moz-icon://${extSafe}?size=25`;
       renderIconImg(container, iconUrl, () => setGenericIcon(container, null));
-  }
+    }
 
-  function renderIconImg(container, iconUrl, onError) {
+    function renderIconImg(container, iconUrl, onError) {
       const img = document.createElement("img");
       img.src = iconUrl;
-      img.style.width = "32px";
-      img.style.height = "32px";
+      img.style.width = "25px";
+      img.style.height = "25px";
       img.style.objectFit = "contain";
       img.onerror = () => {
-          debugLog("[renderIconImg] Failed to load icon, falling back to generic", { url: iconUrl });
-          onError();
+        debugLog("[renderIconImg] Failed to load icon, falling back to generic", { url: iconUrl });
+        onError();
       };
       img.onload = () => {
-          if (img.naturalWidth === 0 || img.naturalHeight === 0) onError();
+        if (img.naturalWidth === 0 || img.naturalHeight === 0) onError();
       };
       container.innerHTML = "";
       container.style.display = "flex";
       container.style.alignItems = "center";
       container.style.justifyContent = "center";
-      container.style.background = "rgba(80, 80, 80, 0.5)";
-      container.style.borderRadius = "6px";
+      container.style.background = "transparent";
       container.appendChild(img);
-  }
-
-  // Update pod glow color based on dominant color
-  function updatePodGlowColor(podElement, color) {
-    if (!podElement) return;
-    try {
-      // Always use a subtle grey shadow, ignore color extraction
-      const subtleGreyShadow = '0 2px 8px rgba(60,60,60,0.18), 0 3px 10px rgba(0,0,0,0.10)';
-      podElement.style.boxShadow = subtleGreyShadow;
-      debugLog('[GlowUpdate] Applied subtle grey shadow under pod', {
-        podKey: podElement.dataset.downloadKey,
-        shadow: subtleGreyShadow
-      });
-    } catch (e) {
-      debugLog('[GlowUpdate] Error updating pod shadow:', e);
-      // Fallback to a basic grey shadow
-      podElement.style.boxShadow = '0 2px 8px rgba(60,60,60,0.18)';
     }
-  }
 
-  // Simple Toast for generic messages
-  function showSimpleToast(message) {
-    const container = document.getElementById('zen-toast-container');
-    if (!container) return;
-    
-    const wrapper = document.createXULElement('hbox');
-    wrapper.classList.add('zen-toast');
-    wrapper.style.alignItems = "center";
-    wrapper.style.padding = "10px 16px";
-    
-    const label = document.createXULElement('label');
-    label.textContent = message;
-    label.style.margin = "0";
-    wrapper.appendChild(label);
-    
-    container.removeAttribute('hidden');
-    container.appendChild(wrapper);
-    
-    // Animation
-    if (!wrapper.style.transform) wrapper.style.transform = 'scale(0)';
-    if (window.gZenUIManager && window.gZenUIManager.motion) {
+    // Update pod glow color based on dominant color
+    function updatePodGlowColor(podElement, color) {
+      if (!podElement) return;
+      try {
+        // Always use a subtle grey shadow, ignore color extraction
+        const subtleGreyShadow = '0 2px 8px rgba(60,60,60,0.18), 0 3px 10px rgba(0,0,0,0.10)';
+        podElement.style.boxShadow = subtleGreyShadow;
+        debugLog('[GlowUpdate] Applied subtle grey shadow under pod', {
+          podKey: podElement.dataset.downloadKey,
+          shadow: subtleGreyShadow
+        });
+      } catch (e) {
+        debugLog('[GlowUpdate] Error updating pod shadow:', e);
+        // Fallback to a basic grey shadow
+        podElement.style.boxShadow = '0 2px 8px rgba(60,60,60,0.18)';
+      }
+    }
+
+    // Simple Toast for generic messages
+    function showSimpleToast(message) {
+      const container = document.getElementById('zen-toast-container');
+      if (!container) return;
+
+      const wrapper = document.createXULElement('hbox');
+      wrapper.classList.add('zen-toast');
+      wrapper.style.alignItems = "center";
+      wrapper.style.padding = "10px 16px";
+
+      const label = document.createXULElement('label');
+      label.textContent = message;
+      label.style.margin = "0";
+      wrapper.appendChild(label);
+
+      container.removeAttribute('hidden');
+      container.appendChild(wrapper);
+
+      // Animation
+      if (!wrapper.style.transform) wrapper.style.transform = 'scale(0)';
+      if (window.gZenUIManager && window.gZenUIManager.motion) {
         window.gZenUIManager.motion.animate(wrapper, { scale: 1 }, { type: 'spring', bounce: 0.2, duration: 0.5 });
-    } else {
+      } else {
         wrapper.style.transform = 'scale(1)';
-    }
-    
-    const remove = () => {
+      }
+
+      const remove = () => {
         if (window.gZenUIManager && window.gZenUIManager.motion) {
-             window.gZenUIManager.motion.animate(wrapper, { opacity: [1, 0], scale: [1, 0.5] }, { duration: 0.2, bounce: 0 })
+          window.gZenUIManager.motion.animate(wrapper, { opacity: [1, 0], scale: [1, 0.5] }, { duration: 0.2, bounce: 0 })
             .then(() => {
-                wrapper.remove();
-                if (container.children.length === 0) container.setAttribute('hidden', true);
+              wrapper.remove();
+              if (container.children.length === 0) container.setAttribute('hidden', true);
             });
         } else {
-            wrapper.remove();
-            if (container.children.length === 0) container.setAttribute('hidden', true);
+          wrapper.remove();
+          if (container.children.length === 0) container.setAttribute('hidden', true);
         }
-    };
-    
-    setTimeout(remove, 3000);
-  }
+      };
 
-  // Custom Toast Notification Helper for AI Rename
-  function showRenameToast(newName, oldName, onUndo) {
-    const container = document.getElementById('zen-toast-container');
-    if (!container) return null;
+      setTimeout(remove, 3000);
+    }
 
-    const wrapper = document.createXULElement('hbox');
-    wrapper.style.position = "relative"; // For absolute positioning of undo button
-    wrapper.style.overflow = "visible"; // Allow undo button to hang out
-    wrapper.style.alignItems = "start"; // Align content to top
-    wrapper.style.height = "auto"; // Allow auto height
-    wrapper.style.minHeight = "fit-content"; // Ensure it fits content
+    // Custom Toast Notification Helper for AI Rename
+    function showRenameToast(newName, oldName, onUndo) {
+      const container = document.getElementById('zen-toast-container');
+      if (!container) return null;
 
-    const contentBox = document.createXULElement('vbox');
-    contentBox.style.padding = "4px";
-    // Ensure contentBox respects parent width for children truncation
-    contentBox.style.width = "100%"; 
-    contentBox.style.maxWidth = "100%";
-    
-    // 1. "Download renamed !" (small font)
-    const titleLabel = document.createXULElement('label');
-    titleLabel.textContent = "Download renamed !";
-    titleLabel.style.fontSize = "0.85em";
-    titleLabel.style.opacity = "0.7";
-    titleLabel.style.marginBottom = "2px";
-    
-    // 2. [NEW NAME]
-    const newNameLabel = document.createXULElement('label');
-    newNameLabel.textContent = newName;
-    newNameLabel.style.fontWeight = "bold";
-    newNameLabel.style.fontSize = "1.1em";
-    newNameLabel.style.marginBottom = "1px";
-    newNameLabel.style.whiteSpace = "nowrap"; // Keep on one line
-    newNameLabel.style.overflow = "hidden"; // Hide overflow
-    newNameLabel.style.textOverflow = "ellipsis"; // Add ellipsis
-    newNameLabel.style.width = "100%"; // Changed from maxWidth to width to force ellipsis constraint
-    newNameLabel.style.display = "block"; // Block display for width constraints
-    
-    // 3. [OLD NAME] (crossed out)
-    const oldNameLabel = document.createXULElement('label');
-    oldNameLabel.textContent = oldName;
-    oldNameLabel.style.textDecoration = "line-through";
-    oldNameLabel.style.opacity = "0.6";
-    oldNameLabel.style.fontSize = "0.9em";
-    oldNameLabel.style.whiteSpace = "nowrap"; // Keep on one line
-    oldNameLabel.style.overflow = "hidden"; // Hide overflow
-    oldNameLabel.style.textOverflow = "ellipsis"; // Add ellipsis
-    oldNameLabel.style.width = "90%"; // Changed from maxWidth to width to force ellipsis constraint
-    oldNameLabel.style.display = "block"; // Block display for width constraints
-    
-    contentBox.appendChild(titleLabel);
-    contentBox.appendChild(newNameLabel);
-    contentBox.appendChild(oldNameLabel);
-    wrapper.appendChild(contentBox);
+      const wrapper = document.createXULElement('hbox');
+      wrapper.style.position = "relative"; // For absolute positioning of undo button
+      wrapper.style.overflow = "visible"; // Allow undo button to hang out
+      wrapper.style.alignItems = "start"; // Align content to top
+      wrapper.style.height = "auto"; // Allow auto height
+      wrapper.style.minHeight = "fit-content"; // Ensure it fits content
 
-    let dismissToast = null;
+      const contentBox = document.createXULElement('vbox');
+      contentBox.style.padding = "4px";
+      // Ensure contentBox respects parent width for children truncation
+      contentBox.style.width = "100%";
+      contentBox.style.maxWidth = "100%";
 
-    if (onUndo) {
-      // Create pill-shaped undo container
-      const pill = document.createElement('div');
-      pill.style.cssText = `
+      // 1. "Download renamed !" (small font)
+      const titleLabel = document.createXULElement('label');
+      titleLabel.textContent = "Download renamed !";
+      titleLabel.style.fontSize = "0.85em";
+      titleLabel.style.opacity = "0.7";
+      titleLabel.style.marginBottom = "2px";
+
+      // 2. [NEW NAME]
+      const newNameLabel = document.createXULElement('label');
+      newNameLabel.textContent = newName;
+      newNameLabel.style.fontWeight = "bold";
+      newNameLabel.style.fontSize = "1.1em";
+      newNameLabel.style.marginBottom = "1px";
+      newNameLabel.style.whiteSpace = "nowrap"; // Keep on one line
+      newNameLabel.style.overflow = "hidden"; // Hide overflow
+      newNameLabel.style.textOverflow = "ellipsis"; // Add ellipsis
+      newNameLabel.style.width = "100%"; // Changed from maxWidth to width to force ellipsis constraint
+      newNameLabel.style.display = "block"; // Block display for width constraints
+
+      // 3. [OLD NAME] (crossed out)
+      const oldNameLabel = document.createXULElement('label');
+      oldNameLabel.textContent = oldName;
+      oldNameLabel.style.textDecoration = "line-through";
+      oldNameLabel.style.opacity = "0.6";
+      oldNameLabel.style.fontSize = "0.9em";
+      oldNameLabel.style.whiteSpace = "nowrap"; // Keep on one line
+      oldNameLabel.style.overflow = "hidden"; // Hide overflow
+      oldNameLabel.style.textOverflow = "ellipsis"; // Add ellipsis
+      oldNameLabel.style.width = "90%"; // Changed from maxWidth to width to force ellipsis constraint
+      oldNameLabel.style.display = "block"; // Block display for width constraints
+
+      contentBox.appendChild(titleLabel);
+      contentBox.appendChild(newNameLabel);
+      contentBox.appendChild(oldNameLabel);
+      wrapper.appendChild(contentBox);
+
+      let dismissToast = null;
+
+      if (onUndo) {
+        // Create pill-shaped undo container
+        const pill = document.createElement('div');
+        pill.style.cssText = `
         position: absolute;
         bottom: -28px;
         right: 0;
@@ -3284,50 +3272,50 @@
         font-weight: 600;
       `;
 
-      // Small Undo Icon
-      const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      icon.setAttribute("viewBox", "0 0 52 52");
-      icon.style.width = "14px";
-      icon.style.height = "14px";
-      icon.style.fill = "currentColor";
-      
-      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute("d", "M30.3,12.6c10.4,0,18.9,8.4,18.9,18.9s-8.5,18.9-18.9,18.9h-8.2c-0.8,0-1.3-0.6-1.3-1.4v-3.2c0-0.8,0.6-1.5,1.4-1.5h8.1c7.1,0,12.8-5.7,12.8-12.8s-5.7-12.8-12.8-12.8H16.4c0,0-0.8,0-1.1,0.1c-0.8,0.4-0.6,1,0.1,1.7l4.9,4.9c0.6,0.6,0.5,1.5-0.1,2.1L18,29.7c-0.6,0.6-1.3,0.6-1.9,0.1l-13-13c-0.5-0.5-0.5-1.3,0-1.8L16,2.1c0.6-0.6,1.6-0.6,2.1,0l2.1,2.1c0.6,0.6,0.6,1.6,0,2.1l-4.9,4.9c-0.6,0.6-0.6,1.3,0.4,1.3c0.3,0,0.7,0,0.7,0L30.3,12.6z");
-      icon.appendChild(path);
-      
-      // "Undo" Text
-      const text = document.createElement('span');
-      text.textContent = "Undo";
+        // Small Undo Icon
+        const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        icon.setAttribute("viewBox", "0 0 52 52");
+        icon.style.width = "14px";
+        icon.style.height = "14px";
+        icon.style.fill = "currentColor";
 
-      pill.appendChild(icon);
-      pill.appendChild(text);
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", "M30.3,12.6c10.4,0,18.9,8.4,18.9,18.9s-8.5,18.9-18.9,18.9h-8.2c-0.8,0-1.3-0.6-1.3-1.4v-3.2c0-0.8,0.6-1.5,1.4-1.5h8.1c7.1,0,12.8-5.7,12.8-12.8s-5.7-12.8-12.8-12.8H16.4c0,0-0.8,0-1.1,0.1c-0.8,0.4-0.6,1,0.1,1.7l4.9,4.9c0.6,0.6,0.5,1.5-0.1,2.1L18,29.7c-0.6,0.6-1.3,0.6-1.9,0.1l-13-13c-0.5-0.5-0.5-1.3,0-1.8L16,2.1c0.6-0.6,1.6-0.6,2.1,0l2.1,2.1c0.6,0.6,0.6,1.6,0,2.1l-4.9,4.9c-0.6,0.6-0.6,1.3,0.4,1.3c0.3,0,0.7,0,0.7,0L30.3,12.6z");
+        icon.appendChild(path);
 
-      // Wrapper for XUL compatibility
-      const btnWrapper = document.createXULElement('box');
-      btnWrapper.appendChild(pill);
-      
-      // Hover effects
-      pill.addEventListener('mouseover', () => {
+        // "Undo" Text
+        const text = document.createElement('span');
+        text.textContent = "Undo";
+
+        pill.appendChild(icon);
+        pill.appendChild(text);
+
+        // Wrapper for XUL compatibility
+        const btnWrapper = document.createXULElement('box');
+        btnWrapper.appendChild(pill);
+
+        // Hover effects
+        pill.addEventListener('mouseover', () => {
           pill.style.transform = "scale(1.05)";
           pill.style.filter = "brightness(1.1)";
-      });
-      pill.addEventListener('mouseout', () => {
+        });
+        pill.addEventListener('mouseout', () => {
           pill.style.transform = "scale(1)";
           pill.style.filter = "brightness(1)";
-      });
+        });
 
-      pill.addEventListener('click', (e) => {
+        pill.addEventListener('click', (e) => {
           e.stopPropagation();
           onUndo(dismissToast);
-      });
-      
-      wrapper.appendChild(btnWrapper);
-    }
+        });
 
-    wrapper.classList.add('zen-toast');
-    // Ensure styles override class defaults if necessary for height
-    // Using cssText to ensure importance and override existing styles forcefully
-    wrapper.style.cssText = `
+        wrapper.appendChild(btnWrapper);
+      }
+
+      wrapper.classList.add('zen-toast');
+      // Ensure styles override class defaults if necessary for height
+      // Using cssText to ensure importance and override existing styles forcefully
+      wrapper.style.cssText = `
         height: 85px !important;
         max-height: none !important;
         min-height: fit-content !important;
@@ -3338,95 +3326,95 @@
         width: 300px !important; 
         max-width: 300px !important;
     `;
-    
-    // Force container styles too
-    if (container) {
+
+      // Force container styles too
+      if (container) {
         // We can't easily change the container's max-height if it's defined in CSS without !important
         // But we can try setting inline style
         container.style.height = "auto";
         container.style.maxHeight = "none";
-    }
-    container.appendChild(wrapper);
+      }
+      container.appendChild(wrapper);
 
-    // Initial state for animation
-    if (!wrapper.style.transform) {
-      wrapper.style.transform = 'scale(0)';
-    }
-    
-    // Animate in
-    if (window.gZenUIManager && window.gZenUIManager.motion) {
+      // Initial state for animation
+      if (!wrapper.style.transform) {
+        wrapper.style.transform = 'scale(0)';
+      }
+
+      // Animate in
+      if (window.gZenUIManager && window.gZenUIManager.motion) {
         window.gZenUIManager.motion.animate(wrapper, { scale: 1 }, { type: 'spring', bounce: 0.2, duration: 0.5 });
-    } else {
+      } else {
         wrapper.style.transform = 'scale(1)';
-    }
+      }
 
-    const timeoutDuration = 5000; // Slightly longer for more reading time
-    let isDismissed = false;
+      const timeoutDuration = 5000; // Slightly longer for more reading time
+      let isDismissed = false;
 
-    dismissToast = () => {
+      dismissToast = () => {
         if (isDismissed) return;
         isDismissed = true;
         if (timeoutId) clearTimeout(timeoutId);
-        
+
         if (window.gZenUIManager && window.gZenUIManager.motion) {
-             window.gZenUIManager.motion.animate(wrapper, { opacity: [1, 0], scale: [1, 0.5] }, { duration: 0.2, bounce: 0 })
+          window.gZenUIManager.motion.animate(wrapper, { opacity: [1, 0], scale: [1, 0.5] }, { duration: 0.2, bounce: 0 })
             .then(() => {
-                wrapper.remove();
-                if (container.children.length === 0) container.setAttribute('hidden', true);
+              wrapper.remove();
+              if (container.children.length === 0) container.setAttribute('hidden', true);
             });
         } else {
-            wrapper.remove();
-            if (container.children.length === 0) container.setAttribute('hidden', true);
+          wrapper.remove();
+          if (container.children.length === 0) container.setAttribute('hidden', true);
         }
-    };
+      };
 
-    const autoRemove = () => {
+      const autoRemove = () => {
         dismissToast();
-    };
+      };
 
-    let timeoutId = setTimeout(autoRemove, timeoutDuration);
-    
-    wrapper.addEventListener('mouseover', () => clearTimeout(timeoutId));
-    wrapper.addEventListener('mouseout', () => {
+      let timeoutId = setTimeout(autoRemove, timeoutDuration);
+
+      wrapper.addEventListener('mouseover', () => clearTimeout(timeoutId));
+      wrapper.addEventListener('mouseout', () => {
         if (!isDismissed) timeoutId = setTimeout(autoRemove, timeoutDuration);
-    });
+      });
 
-    return { dismiss: dismissToast };
-  }
+      return { dismiss: dismissToast };
+    }
 
-  // Process download for AI renaming - with file size check
-  async function processDownloadForAIRenaming(download, originalNameForUICard, keyOverride) {
-    const key = keyOverride || getDownloadKey(download);
-    const cardData = activeDownloadCards.get(key);
-    
-    // Create AbortController for this AI process
-    const abortController = new AbortController();
-    const processState = {
-      phase: 'initializing',
-      startTime: Date.now()
-    };
-    
-    // Register the AI process
-    activeAIProcesses.set(key, {
-      abortController,
-      processState,
-      startTime: Date.now()
-    });
-    
-    debugLog(`[AI Process] Started AI renaming process for ${key}`, processState);
-    // Ensure we are updating the MASTER tooltip if this is the focused download
-    let statusElToUpdate;
-    let titleElToUpdate; // For AI name
-    let originalFilenameElToUpdate; // For the struck-through original name
-    let progressElToHide; // To hide progress when renamed info is shown
-    let podElementToStyle; // For .renaming class etc.
+    // Process download for AI renaming - with file size check
+    async function processDownloadForAIRenaming(download, originalNameForUICard, keyOverride) {
+      const key = keyOverride || getDownloadKey(download);
+      const cardData = activeDownloadCards.get(key);
 
-    if (focusedDownloadKey === key && masterTooltipDOMElement) {
+      // Create AbortController for this AI process
+      const abortController = new AbortController();
+      const processState = {
+        phase: 'initializing',
+        startTime: Date.now()
+      };
+
+      // Register the AI process
+      activeAIProcesses.set(key, {
+        abortController,
+        processState,
+        startTime: Date.now()
+      });
+
+      debugLog(`[AI Process] Started AI renaming process for ${key}`, processState);
+      // Ensure we are updating the MASTER tooltip if this is the focused download
+      let statusElToUpdate;
+      let titleElToUpdate; // For AI name
+      let originalFilenameElToUpdate; // For the struck-through original name
+      let progressElToHide; // To hide progress when renamed info is shown
+      let podElementToStyle; // For .renaming class etc.
+
+      if (focusedDownloadKey === key && masterTooltipDOMElement) {
         statusElToUpdate = masterTooltipDOMElement.querySelector(".card-status");
         titleElToUpdate = masterTooltipDOMElement.querySelector(".card-title");
         originalFilenameElToUpdate = masterTooltipDOMElement.querySelector(".card-original-filename");
         progressElToHide = masterTooltipDOMElement.querySelector(".card-progress");
-    } else if (cardData && cardData.podElement) {
+      } else if (cardData && cardData.podElement) {
         // Fallback: if not focused, or master tooltip somehow not found,
         // we might want to log or have a small indicator on the pod itself.
         // For now, if it's not focused, AI renaming might not show progress directly on master tooltip.
@@ -3434,65 +3422,65 @@
         // Let's assume if it's not focused, we might not update UI aggressively, or handle it differently.
         // For now, if not focused, we'll log and potentially skip aggressive UI updates.
         debugLog(`[AI Rename] processDownloadForAIRenaming called for non-focused item ${key}. UI updates will be minimal.`);
-    }
-    
-    if (cardData && cardData.podElement) {
+      }
+
+      if (cardData && cardData.podElement) {
         podElementToStyle = cardData.podElement;
-    }
+      }
 
 
-    if (!cardData) {
-      debugLog("AI Rename: Card data not found for download key:", key);
-      return false;
-    }
-    // const cardElement = cardData.podElement; // Use podElement
-    // const statusEl = cardElement.querySelector(".card-status"); // This would be on the individual card if it had one
-    // if (!statusEl) return false; // No individual status on pod. Master tooltip is primary.
+      if (!cardData) {
+        debugLog("AI Rename: Card data not found for download key:", key);
+        return false;
+      }
+      // const cardElement = cardData.podElement; // Use podElement
+      // const statusEl = cardElement.querySelector(".card-status"); // This would be on the individual card if it had one
+      // if (!statusEl) return false; // No individual status on pod. Master tooltip is primary.
 
-    const previewContainerOnPod = cardData.podElement ? cardData.podElement.querySelector(".card-preview-container") : null;
-    let originalPreviewTitle = "";
-    if (previewContainerOnPod) {
-      originalPreviewTitle = previewContainerOnPod.title;
-    }
+      const previewContainerOnPod = cardData.podElement ? cardData.podElement.querySelector(".card-preview-container") : null;
+      let originalPreviewTitle = "";
+      if (previewContainerOnPod) {
+        originalPreviewTitle = previewContainerOnPod.title;
+      }
 
-    const downloadPath = download.target.path;
-    if (!downloadPath) return false;
+      const downloadPath = download.target.path;
+      if (!downloadPath) return false;
 
-    // Capture the true original filename before any AI processing for this attempt
-    const trueOriginalFilename = cardData.originalFilename; 
+      // Capture the true original filename before any AI processing for this attempt
+      const trueOriginalFilename = cardData.originalFilename;
 
-    if (renamedFiles.has(downloadPath)) {
-      debugLog(`Skipping rename - already processed: ${downloadPath}`);
-      activeAIProcesses.delete(key); // Clean up
-      return false;
-    }
-    
-    // Check for abort signal
-    if (abortController.signal.aborted) {
-      debugLog(`[AI Process] Process aborted before file size check: ${key}`);
-      activeAIProcesses.delete(key);
-      throw new DOMException('AI process was aborted', 'AbortError');
-    }
+      if (renamedFiles.has(downloadPath)) {
+        debugLog(`Skipping rename - already processed: ${downloadPath}`);
+        activeAIProcesses.delete(key); // Clean up
+        return false;
+      }
 
-          try {
+      // Check for abort signal
+      if (abortController.signal.aborted) {
+        debugLog(`[AI Process] Process aborted before file size check: ${key}`);
+        activeAIProcesses.delete(key);
+        throw new DOMException('AI process was aborted', 'AbortError');
+      }
+
+      try {
         // SECURITY: Validate path before file operations (non-strict mode for edge cases)
         const validation = SecurityUtils.validateFilePath(downloadPath, { strict: false });
         if (!validation.valid) {
-          debugLog(`Path validation warning (continuing anyway): ${validation.error}`, { 
+          debugLog(`Path validation warning (continuing anyway): ${validation.error}`, {
             path: downloadPath,
-            code: validation.code 
+            code: validation.code
           });
         }
-        
+
         const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
         file.initWithPath(downloadPath);
-        
+
         if (!file.exists()) {
           debugLog(`File does not exist for AI rename: ${downloadPath}`);
           activeAIProcesses.delete(key);
           return false;
         }
-        
+
         /* 
         // Disabled size limit as requested - we analyze filename/metadata, not content
         if (file.fileSize > getPref("extensions.downloads.max_file_size_for_ai", 52428800)) { // 50MB default
@@ -3506,131 +3494,131 @@
         // Log the actual error message for debugging
         const errorMessage = e.message || e.toString() || 'Unknown error';
         const errorName = e.name || 'Error';
-        debugLog(`Error checking file size: ${errorName}: ${errorMessage}`, { 
+        debugLog(`Error checking file size: ${errorName}: ${errorMessage}`, {
           path: downloadPath,
-          error: errorMessage 
+          error: errorMessage
         });
         activeAIProcesses.delete(key); // Clean up
         return false;
       }
 
-    // Store the original path and simple name in cardData *before* attempting rename
-    // This is critical for the undo functionality.
-    if (cardData) {
-        cardData.trueOriginalPathBeforeAIRename = downloadPath; 
+      // Store the original path and simple name in cardData *before* attempting rename
+      // This is critical for the undo functionality.
+      if (cardData) {
+        cardData.trueOriginalPathBeforeAIRename = downloadPath;
         cardData.trueOriginalSimpleNameBeforeAIRename = downloadPath.split(PATH_SEPARATOR).pop();
-        debugLog("[AI Rename Prep] Stored for undo:", { 
-            path: cardData.trueOriginalPathBeforeAIRename, 
-            name: cardData.trueOriginalSimpleNameBeforeAIRename 
+        debugLog("[AI Rename Prep] Stored for undo:", {
+          path: cardData.trueOriginalPathBeforeAIRename,
+          name: cardData.trueOriginalSimpleNameBeforeAIRename
         });
-    }
-
-    // Note: We no longer add to renamedFiles here - we add ONLY after successful rename
-    // The queue system prevents duplicate processing
-
-    try {
-      // Update process state
-      processState.phase = 'analyzing';
-      
-      // Check for abort signal
-      if (abortController.signal.aborted) {
-        debugLog(`[AI Process] Process aborted during setup: ${key}`);
-        activeAIProcesses.delete(key);
-        throw new DOMException('AI process was aborted', 'AbortError');
-      }
-      
-      // cardElement.classList.add("renaming");
-      if (podElementToStyle) podElementToStyle.classList.add("renaming-active");
-      if (statusElToUpdate) statusElToUpdate.textContent = "Analyzing file...";
-      
-      if (previewContainerOnPod) {
-        previewContainerOnPod.style.pointerEvents = "none";
-        previewContainerOnPod.title = "Renaming in progress...";
       }
 
-      const currentFilename = downloadPath.split(PATH_SEPARATOR).pop();
-      const fileExtension = currentFilename.includes(".") 
-        ? currentFilename.substring(currentFilename.lastIndexOf(".")).toLowerCase() 
-        : "";
-
-      const isImage = IMAGE_EXTENSIONS.has(fileExtension);
-      debugLog(`Processing file for AI rename: ${currentFilename} (${isImage ? "Image" : "Non-image"})`);
-
-      let suggestedName = null;
-
-      // Check for abort signal before analysis
-      if (abortController.signal.aborted) {
-        debugLog(`[AI Process] Process aborted before analysis: ${key}`);
-        renamedFiles.delete(downloadPath);
-        activeAIProcesses.delete(key);
-        throw new DOMException('AI process was aborted', 'AbortError');
-      }
-      
-      processState.phase = 'metadata-analysis';
-      if (statusElToUpdate) statusElToUpdate.textContent = "Generating better name...";
-      
-      const sourceURL = download.source?.url || "unknown";
-      // Find tab title and context
-      let tabTitle = "unknown";
-      let pageHeader = "unknown";
-      let pageDescription = "unknown";
+      // Note: We no longer add to renamedFiles here - we add ONLY after successful rename
+      // The queue system prevents duplicate processing
 
       try {
-        if (typeof gBrowser !== "undefined" && gBrowser.tabs) {
-           let foundTab = null;
+        // Update process state
+        processState.phase = 'analyzing';
 
-           // Strategy 1: Match by exact URL
-           for (const tab of gBrowser.tabs) {
-             if (tab.linkedBrowser?.currentURI?.spec === sourceURL) {
-               foundTab = tab;
-               break;
-             }
-           }
-
-           // Strategy 2: Match by referrer if exact URL fails
-           if (!foundTab && download.source?.referrer) {
-               const referrerSpec = download.source.referrer; 
-               for (const tab of gBrowser.tabs) {
-                   // Check if referrer matches tab URL
-                   if (tab.linkedBrowser?.currentURI?.spec === referrerSpec) {
-                       foundTab = tab;
-                       break;
-                   }
-               }
-           }
-
-           if (foundTab) {
-               tabTitle = foundTab.label || foundTab.title || "unknown";
-
-               // Extract context from the tab content
-               try {
-                   const doc = foundTab.linkedBrowser.contentDocument;
-                   if (doc) {
-                       // Get H1
-                       const h1 = doc.querySelector('h1');
-                       if (h1) {
-                           const h1Text = h1.textContent.trim();
-                           if (h1Text) pageHeader = h1Text;
-                       }
-
-                       // Get Meta Description
-                       const metaDesc = doc.querySelector('meta[name="description"]');
-                       if (metaDesc) {
-                           const descContent = metaDesc.content.trim();
-                           if (descContent) pageDescription = descContent;
-                       }
-                   }
-               } catch (e) {
-                   // Accessing contentDocument might fail for some privileged pages or cross-origin restrictions (though less likely in userChrome)
-                   console.error("Error extracting tab context:", e);
-               }
-           }
+        // Check for abort signal
+        if (abortController.signal.aborted) {
+          debugLog(`[AI Process] Process aborted during setup: ${key}`);
+          activeAIProcesses.delete(key);
+          throw new DOMException('AI process was aborted', 'AbortError');
         }
-      } catch (e) {
-         console.error("Error finding tab title:", e);
-      }
 
-      const systemPrompt = `I am downloading a file. Rewrite its filename to be helpful, concise and readable. 2-4 words.
+        // cardElement.classList.add("renaming");
+        if (podElementToStyle) podElementToStyle.classList.add("renaming-active");
+        if (statusElToUpdate) statusElToUpdate.textContent = "Analyzing file...";
+
+        if (previewContainerOnPod) {
+          previewContainerOnPod.style.pointerEvents = "none";
+          previewContainerOnPod.title = "Renaming in progress...";
+        }
+
+        const currentFilename = downloadPath.split(PATH_SEPARATOR).pop();
+        const fileExtension = currentFilename.includes(".")
+          ? currentFilename.substring(currentFilename.lastIndexOf(".")).toLowerCase()
+          : "";
+
+        const isImage = IMAGE_EXTENSIONS.has(fileExtension);
+        debugLog(`Processing file for AI rename: ${currentFilename} (${isImage ? "Image" : "Non-image"})`);
+
+        let suggestedName = null;
+
+        // Check for abort signal before analysis
+        if (abortController.signal.aborted) {
+          debugLog(`[AI Process] Process aborted before analysis: ${key}`);
+          renamedFiles.delete(downloadPath);
+          activeAIProcesses.delete(key);
+          throw new DOMException('AI process was aborted', 'AbortError');
+        }
+
+        processState.phase = 'metadata-analysis';
+        if (statusElToUpdate) statusElToUpdate.textContent = "Generating better name...";
+
+        const sourceURL = download.source?.url || "unknown";
+        // Find tab title and context
+        let tabTitle = "unknown";
+        let pageHeader = "unknown";
+        let pageDescription = "unknown";
+
+        try {
+          if (typeof gBrowser !== "undefined" && gBrowser.tabs) {
+            let foundTab = null;
+
+            // Strategy 1: Match by exact URL
+            for (const tab of gBrowser.tabs) {
+              if (tab.linkedBrowser?.currentURI?.spec === sourceURL) {
+                foundTab = tab;
+                break;
+              }
+            }
+
+            // Strategy 2: Match by referrer if exact URL fails
+            if (!foundTab && download.source?.referrer) {
+              const referrerSpec = download.source.referrer;
+              for (const tab of gBrowser.tabs) {
+                // Check if referrer matches tab URL
+                if (tab.linkedBrowser?.currentURI?.spec === referrerSpec) {
+                  foundTab = tab;
+                  break;
+                }
+              }
+            }
+
+            if (foundTab) {
+              tabTitle = foundTab.label || foundTab.title || "unknown";
+
+              // Extract context from the tab content
+              try {
+                const doc = foundTab.linkedBrowser.contentDocument;
+                if (doc) {
+                  // Get H1
+                  const h1 = doc.querySelector('h1');
+                  if (h1) {
+                    const h1Text = h1.textContent.trim();
+                    if (h1Text) pageHeader = h1Text;
+                  }
+
+                  // Get Meta Description
+                  const metaDesc = doc.querySelector('meta[name="description"]');
+                  if (metaDesc) {
+                    const descContent = metaDesc.content.trim();
+                    if (descContent) pageDescription = descContent;
+                  }
+                }
+              } catch (e) {
+                // Accessing contentDocument might fail for some privileged pages or cross-origin restrictions (though less likely in userChrome)
+                console.error("Error extracting tab context:", e);
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Error finding tab title:", e);
+        }
+
+        const systemPrompt = `I am downloading a file. Rewrite its filename to be helpful, concise and readable. 2-4 words.
 - IMPORTANT: Return ONLY the new filename. Do not provide explanations, conversational text, or "based on the information provided".
 - Keep informative names mostly the same. For non-informative names, add information from the tab title or website.
 - Remove machine-generated cruft, like IDs, (1), (copy), etc.
@@ -3647,60 +3635,60 @@ Some examples, in the form "original name, tab title, domain -> new name"
 - 'CleanShot 2023-08-17 at 19.51.05@2x.png', 'dogfooding - The Browser Company - Slack', 'app.slack.com' -> 'CleanShot Aug 17 from dogfooding.png'
 - 'Screenshot 2023-09-26 at 11.12.18 PM', 'DM with Nate - Twitter', 'twitter.com' -> 'Sept 26 Screenshot from Nate.png'
 - 'image0.png', 'Nate - Slack', 'files.slack.com' -> 'Slack Image from Nate.png'`;
-      
-      let domain = "unknown";
-      try {
-        domain = new URL(sourceURL).hostname;
-      } catch (e) {}
 
-      // Check if this is an image search result (e.g., Google Images, DuckDuckGo Images)
-      // These sites often have the image preview in a special container, or the title is just the search query.
-      // We can try to extract more specific info.
-      const isSearchEngine = domain.includes('google') || domain.includes('duckduckgo') || domain.includes('bing') || domain.includes('yahoo') || domain.includes('yandex');
-      
-      // Try to extract search query regardless of tab title if it's a search engine domain
-      if (isSearchEngine) {
-             // If the tab title is generic, rely heavily on the page header (which might be the search query)
-             // or try to extract the search query from the URL.
-             try {
-                // Try referrer first, then sourceURL, AND the active tab URL if available
-                const urlStrings = [
-                    download.source?.referrer,
-                    sourceURL,
-                    (typeof gBrowser !== "undefined" && gBrowser.selectedBrowser?.currentURI?.spec) 
-                ].filter(Boolean);
+        let domain = "unknown";
+        try {
+          domain = new URL(sourceURL).hostname;
+        } catch (e) { }
 
-                debugLog("Checking URLs for search query:", urlStrings);
+        // Check if this is an image search result (e.g., Google Images, DuckDuckGo Images)
+        // These sites often have the image preview in a special container, or the title is just the search query.
+        // We can try to extract more specific info.
+        const isSearchEngine = domain.includes('google') || domain.includes('duckduckgo') || domain.includes('bing') || domain.includes('yahoo') || domain.includes('yandex');
 
-                for (const urlStr of urlStrings) {
-                    try {
-                        const urlObj = new URL(urlStr);
-                        // Common search query parameters: q (Google/DDG/Bing), p (Yahoo), text (Yandex)
-                        const q = urlObj.searchParams.get('q') || 
-                                  urlObj.searchParams.get('p') || 
-                                  urlObj.searchParams.get('text');
-                        
-                        if (q) {
-                            pageHeader = `Search Query: ${q}`; 
-                            // Add search query to tab title if it's generic, so AI definitely sees it
-                            if (tabTitle.toLowerCase().includes('search') || tabTitle.toLowerCase().includes('images') || tabTitle === 'unknown') {
-                                tabTitle = `${q} - Search`;
-                            }
-                            debugLog("Extracted search query for context", { 
-                                fromUrl: urlStr, 
-                                query: q,
-                                newTabTitle: tabTitle
-                            });
-                            break; // Stop once found
-                        }
-                    } catch(e) {}
+        // Try to extract search query regardless of tab title if it's a search engine domain
+        if (isSearchEngine) {
+          // If the tab title is generic, rely heavily on the page header (which might be the search query)
+          // or try to extract the search query from the URL.
+          try {
+            // Try referrer first, then sourceURL, AND the active tab URL if available
+            const urlStrings = [
+              download.source?.referrer,
+              sourceURL,
+              (typeof gBrowser !== "undefined" && gBrowser.selectedBrowser?.currentURI?.spec)
+            ].filter(Boolean);
+
+            debugLog("Checking URLs for search query:", urlStrings);
+
+            for (const urlStr of urlStrings) {
+              try {
+                const urlObj = new URL(urlStr);
+                // Common search query parameters: q (Google/DDG/Bing), p (Yahoo), text (Yandex)
+                const q = urlObj.searchParams.get('q') ||
+                  urlObj.searchParams.get('p') ||
+                  urlObj.searchParams.get('text');
+
+                if (q) {
+                  pageHeader = `Search Query: ${q}`;
+                  // Add search query to tab title if it's generic, so AI definitely sees it
+                  if (tabTitle.toLowerCase().includes('search') || tabTitle.toLowerCase().includes('images') || tabTitle === 'unknown') {
+                    tabTitle = `${q} - Search`;
+                  }
+                  debugLog("Extracted search query for context", {
+                    fromUrl: urlStr,
+                    query: q,
+                    newTabTitle: tabTitle
+                  });
+                  break; // Stop once found
                 }
-             } catch(e) {
-                debugLog("Failed to extract search query:", e);
-             }
-      }
+              } catch (e) { }
+            }
+          } catch (e) {
+            debugLog("Failed to extract search query:", e);
+          }
+        }
 
-      const userContent = `Original filename: '${currentFilename}'
+        const userContent = `Original filename: '${currentFilename}'
 Source domain: '${domain}'
 Source tab title: '${tabTitle}'
 Page Header: '${pageHeader}'
@@ -3711,1188 +3699,1188 @@ Instructions:
 2. ONLY if the "Original filename" is meaningless gibberish (e.g., "wp13801370.jpg", "OIP.jpg", "image.png"), rename it based on the "Source tab title" or "Page Header".
 3. Return ONLY the new filename.`;
 
-      suggestedName = await callMistralAI({
-        systemPrompt: systemPrompt,
-        userPrompt: userContent,
-        abortSignal: abortController.signal
-      });
+        suggestedName = await callMistralAI({
+          systemPrompt: systemPrompt,
+          userPrompt: userContent,
+          abortSignal: abortController.signal
+        });
 
-      if (!suggestedName) {
-        debugLog("No valid name suggestion received from AI");
-        if (statusElToUpdate) {
+        if (!suggestedName) {
+          debugLog("No valid name suggestion received from AI");
+          if (statusElToUpdate) {
             statusElToUpdate.textContent = "Could not generate a better name";
-        }
-        renamedFiles.delete(downloadPath);
-        if (podElementToStyle) podElementToStyle.classList.remove("renaming-active");
-        if (podElementToStyle) podElementToStyle.classList.remove('renaming-initiated'); // Allow retry by focus change
-        activeAIProcesses.delete(key); // Clean up
-        return false;
-      }
-      
-      // Check for abort signal before file operations
-      if (abortController.signal.aborted) {
-        debugLog(`[AI Process] Process aborted before file rename: ${key}`);
-        renamedFiles.delete(downloadPath);
-        activeAIProcesses.delete(key);
-        throw new DOMException('AI process was aborted', 'AbortError');
-      }
-      
-      processState.phase = 'renaming';
-
-      let cleanName = suggestedName
-        .replace(/[^a-zA-Z0-9\-_\.\s]/g, "") // Allow spaces first
-        .trim()
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-") // Collapse multiple dashes
-        .toLowerCase();
-
-      // Validation: Reject names that are just separators or too short
-      if (/^[\-_.]+$/.test(cleanName) || cleanName.replace(/[\-_.]/g, "").length < 2) {
-         debugLog("AI suggested invalid name (separators only):", cleanName);
-         cleanName = ""; // Force failure in next check
-      }
-
-      if (cleanName.length > getPref("extensions.downloads.max_filename_length", 70) - fileExtension.length) {
-        cleanName = cleanName.substring(0, getPref("extensions.downloads.max_filename_length", 70) - fileExtension.length);
-      }
-      if (fileExtension && !cleanName.toLowerCase().endsWith(fileExtension.toLowerCase())) {
-        cleanName = cleanName + fileExtension;
-      }
-
-      if (cleanName.length <= 2 || cleanName.toLowerCase() === currentFilename.toLowerCase()) {
-        debugLog("Skipping AI rename - name too short or same as original");
-        if (statusElToUpdate) statusElToUpdate.textContent = "Original name is suitable"; // Or some other neutral message
-        renamedFiles.delete(downloadPath);
-        if (podElementToStyle) podElementToStyle.classList.remove("renaming-active");
-        if (podElementToStyle) podElementToStyle.classList.remove('renaming-initiated');
-        activeAIProcesses.delete(key); // Clean up
-        return false;
-      }
-
-      debugLog(`AI suggested renaming to: ${cleanName}`);
-      if (statusElToUpdate) statusElToUpdate.textContent = `Renaming to: ${cleanName}`;
-
-      // Pass key to ensure the correct cardData (and thus podElement) is found by rename function
-      const success = await renameDownloadFileAndUpdateRecord(download, cleanName, key);
-
-      if (success) {
-        const newPath = download.target.path; // This is now the new path after rename
-        
-        // Extract the actual filename from the new path to ensure we capture OS renames (e.g. (1))
-        const pathSeparator = newPath.includes('\\') ? '\\' : '/';
-        const actualFilename = newPath.split(pathSeparator).pop() || cleanName;
-        
-        download.aiName = actualFilename; // Set the aiName property to the ACTUAL filename
-        
-        // Mark BOTH old and new paths as renamed to prevent re-processing
-        renamedFiles.add(downloadPath); // Original path
-        renamedFiles.add(newPath);      // New path after rename
-        debugLog(`[AI Rename] Added paths to renamedFiles: ${downloadPath} and ${newPath}`);
-        
-        // cardData.originalFilename = cleanName; // NO! Keep cardData.originalFilename as the name before this specific AI op.
-                                            // The titleEl will pick up download.aiName.
-                                            // The originalFilenameEl will use the trueOriginalFilename captured above.
-
-
-        if (titleElToUpdate) { 
-          titleElToUpdate.textContent = actualFilename; // Use actual filename
-          titleElToUpdate.title = actualFilename;
+          }
+          renamedFiles.delete(downloadPath);
+          if (podElementToStyle) podElementToStyle.classList.remove("renaming-active");
+          if (podElementToStyle) podElementToStyle.classList.remove('renaming-initiated'); // Allow retry by focus change
+          activeAIProcesses.delete(key); // Clean up
+          return false;
         }
 
-        if (statusElToUpdate) {
-          let finalSize = download.currentBytes;
-          if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
-          const fileSizeText = formatBytes(finalSize || 0);
-          
-          // Always show file size in bottom right corner for renamed files
-          const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
-          statusElToUpdate.textContent = "Download renamed to:";
-          if (fileSizeEl) {
+        // Check for abort signal before file operations
+        if (abortController.signal.aborted) {
+          debugLog(`[AI Process] Process aborted before file rename: ${key}`);
+          renamedFiles.delete(downloadPath);
+          activeAIProcesses.delete(key);
+          throw new DOMException('AI process was aborted', 'AbortError');
+        }
+
+        processState.phase = 'renaming';
+
+        let cleanName = suggestedName
+          .replace(/[^a-zA-Z0-9\-_\.\s]/g, "") // Allow spaces first
+          .trim()
+          .replace(/\s+/g, "-")
+          .replace(/-+/g, "-") // Collapse multiple dashes
+          .toLowerCase();
+
+        // Validation: Reject names that are just separators or too short
+        if (/^[\-_.]+$/.test(cleanName) || cleanName.replace(/[\-_.]/g, "").length < 2) {
+          debugLog("AI suggested invalid name (separators only):", cleanName);
+          cleanName = ""; // Force failure in next check
+        }
+
+        if (cleanName.length > getPref("extensions.downloads.max_filename_length", 70) - fileExtension.length) {
+          cleanName = cleanName.substring(0, getPref("extensions.downloads.max_filename_length", 70) - fileExtension.length);
+        }
+        if (fileExtension && !cleanName.toLowerCase().endsWith(fileExtension.toLowerCase())) {
+          cleanName = cleanName + fileExtension;
+        }
+
+        if (cleanName.length <= 2 || cleanName.toLowerCase() === currentFilename.toLowerCase()) {
+          debugLog("Skipping AI rename - name too short or same as original");
+          if (statusElToUpdate) statusElToUpdate.textContent = "Original name is suitable"; // Or some other neutral message
+          renamedFiles.delete(downloadPath);
+          if (podElementToStyle) podElementToStyle.classList.remove("renaming-active");
+          if (podElementToStyle) podElementToStyle.classList.remove('renaming-initiated');
+          activeAIProcesses.delete(key); // Clean up
+          return false;
+        }
+
+        debugLog(`AI suggested renaming to: ${cleanName}`);
+        if (statusElToUpdate) statusElToUpdate.textContent = `Renaming to: ${cleanName}`;
+
+        // Pass key to ensure the correct cardData (and thus podElement) is found by rename function
+        const success = await renameDownloadFileAndUpdateRecord(download, cleanName, key);
+
+        if (success) {
+          const newPath = download.target.path; // This is now the new path after rename
+
+          // Extract the actual filename from the new path to ensure we capture OS renames (e.g. (1))
+          const pathSeparator = newPath.includes('\\') ? '\\' : '/';
+          const actualFilename = newPath.split(pathSeparator).pop() || cleanName;
+
+          download.aiName = actualFilename; // Set the aiName property to the ACTUAL filename
+
+          // Mark BOTH old and new paths as renamed to prevent re-processing
+          renamedFiles.add(downloadPath); // Original path
+          renamedFiles.add(newPath);      // New path after rename
+          debugLog(`[AI Rename] Added paths to renamedFiles: ${downloadPath} and ${newPath}`);
+
+          // cardData.originalFilename = cleanName; // NO! Keep cardData.originalFilename as the name before this specific AI op.
+          // The titleEl will pick up download.aiName.
+          // The originalFilenameEl will use the trueOriginalFilename captured above.
+
+
+          if (titleElToUpdate) {
+            titleElToUpdate.textContent = actualFilename; // Use actual filename
+            titleElToUpdate.title = actualFilename;
+          }
+
+          if (statusElToUpdate) {
+            let finalSize = download.currentBytes;
+            if (!(typeof finalSize === 'number' && finalSize > 0)) finalSize = download.totalBytes;
+            const fileSizeText = formatBytes(finalSize || 0);
+
+            // Always show file size in bottom right corner for renamed files
+            const fileSizeEl = masterTooltipDOMElement.querySelector(".card-filesize");
+            statusElToUpdate.textContent = "Download renamed to:";
+            if (fileSizeEl) {
               fileSizeEl.textContent = fileSizeText;
               fileSizeEl.style.display = "block";
+            }
+            statusElToUpdate.style.color = "#a0a0a0";
           }
-          statusElToUpdate.style.color = "#a0a0a0";
-        }
 
-        if (originalFilenameElToUpdate) {
+          if (originalFilenameElToUpdate) {
             originalFilenameElToUpdate.textContent = trueOriginalFilename; // Use the captured true original name
             originalFilenameElToUpdate.title = trueOriginalFilename;
             originalFilenameElToUpdate.style.textDecoration = "line-through";
             originalFilenameElToUpdate.style.display = "block";
-        }
+          }
 
-        if (progressElToHide) {
+          if (progressElToHide) {
             progressElToHide.style.display = "none";
-        }
-        
-        if (podElementToStyle) {
+          }
+
+          if (podElementToStyle) {
             podElementToStyle.classList.remove("renaming-active");
             podElementToStyle.classList.add("renamed-by-ai");
-        }
-        
-        // IMPORTANT: If the renamed item was focused, update focusedDownloadKey to the new path
-        // and ensure the subsequent UI update uses this new key.
-        let keyForFinalUIUpdate = key; // Original key passed to this function
-        
-        // Update activeDownloadCards with the new key (path) BUT preserve original cardData object reference
-        // The cardData object itself should retain the *trueOriginalFilename* if needed for other contexts,
-        // or rely on the fact that renameDownloadFileAndUpdateRecord updates the key in activeDownloadCards.
-        // The critical part is that `download.aiName` is set, and `trueOriginalFilename` is available for this UI update.
-        // The `cardData.originalFilename` will naturally become the `cleanName` if `createOrUpdatePodElement` runs again for this item
-        // due to some other event, which is fine, as `download.aiName` would be preferred by `updateUIForFocusedDownload`.
+          }
 
-        if (focusedDownloadKey === key) { // 'key' here is the *original* key before rename
+          // IMPORTANT: If the renamed item was focused, update focusedDownloadKey to the new path
+          // and ensure the subsequent UI update uses this new key.
+          let keyForFinalUIUpdate = key; // Original key passed to this function
+
+          // Update activeDownloadCards with the new key (path) BUT preserve original cardData object reference
+          // The cardData object itself should retain the *trueOriginalFilename* if needed for other contexts,
+          // or rely on the fact that renameDownloadFileAndUpdateRecord updates the key in activeDownloadCards.
+          // The critical part is that `download.aiName` is set, and `trueOriginalFilename` is available for this UI update.
+          // The `cardData.originalFilename` will naturally become the `cleanName` if `createOrUpdatePodElement` runs again for this item
+          // due to some other event, which is fine, as `download.aiName` would be preferred by `updateUIForFocusedDownload`.
+
+          if (focusedDownloadKey === key) { // 'key' here is the *original* key before rename
             focusedDownloadKey = newPath; // Update global focus to the NEW path
             keyForFinalUIUpdate = newPath; // Use the NEW path for the upcoming UI update
             debugLog(`[AI Rename] Focused item ${key} renamed to ${newPath}. Updated focusedDownloadKey and keyForFinalUIUpdate.`);
-        }
+          }
 
-        // The call to updateUIForFocusedDownload will now correctly use download.aiName for the title,
-        // and cardData.originalFilename (which should be the one prior to this AI attempt or the one from pod creation)
-        // for the strikethrough, as per its own logic.
-        // The direct update of tooltip elements within this function ensures immediate feedback.
-        updateUIForFocusedDownload(keyForFinalUIUpdate, true); // Force a significant update as content structure changed
+          // The call to updateUIForFocusedDownload will now correctly use download.aiName for the title,
+          // and cardData.originalFilename (which should be the one prior to this AI attempt or the one from pod creation)
+          // for the strikethrough, as per its own logic.
+          // The direct update of tooltip elements within this function ensures immediate feedback.
+          updateUIForFocusedDownload(keyForFinalUIUpdate, true); // Force a significant update as content structure changed
 
-        debugLog(`Successfully AI-renamed to: ${actualFilename}`);
+          debugLog(`Successfully AI-renamed to: ${actualFilename}`);
 
-        // Compact mode notification
-        if (document.documentElement.getAttribute('zen-compact-mode') === 'true') {
+          // Compact mode notification
+          if (document.documentElement.getAttribute('zen-compact-mode') === 'true') {
             const currentAIPath = newPath; // Capture the path after AI rename
             showRenameToast(actualFilename, trueOriginalFilename, async (dismissPreviousToast) => {
-                 // Dismiss the previous toast immediately
-                 if (dismissPreviousToast) dismissPreviousToast();
+              // Dismiss the previous toast immediately
+              if (dismissPreviousToast) dismissPreviousToast();
 
-                 debugLog(`[Undo] Reverting rename for ${cleanName}`);
-                 
-                 // Revert the rename
-                 const success = await renameDownloadFileAndUpdateRecord(download, trueOriginalFilename, currentAIPath);
-                 
-                 if (success) {
-                     const revertedPath = download.target.path;
-                     
-                     // Clear the AI name property to reset UI state
-                     download.aiName = null;
+              debugLog(`[Undo] Reverting rename for ${cleanName}`);
 
-                     // 1. Update global focus if needed
-                     if (focusedDownloadKey === currentAIPath) {
-                         focusedDownloadKey = revertedPath;
-                         debugLog(`[Undo] Updated focusedDownloadKey to ${revertedPath}`);
-                     }
-                     
-                     // 2. Force UI update to show original name
-                     // Since we cleared download.aiName, this will render the standard completion state
-                     updateUIForFocusedDownload(revertedPath, true);
-                     
-                     // 3. Remove styling from pod
-                     const cardData = activeDownloadCards.get(revertedPath);
-                     if (cardData && cardData.podElement) {
-                         cardData.podElement.classList.remove("renamed-by-ai");
-                     }
-                     
-                     // 4. Ensure autohide is scheduled/rescheduled
-                     // We need to clear the old timeout associated with the OLD key (currentAIPath) 
-                     // and start a new one for the NEW key (revertedPath).
-                     
-                     // Try to find the cardData that was moved to the new key
-                     const revertedCardData = activeDownloadCards.get(revertedPath);
-                     
-                     if (revertedCardData) {
-                        // Reset timeout ID just in case it carried over but wasn't cleared
-                        if (revertedCardData.autohideTimeoutId) {
-                            clearTimeout(revertedCardData.autohideTimeoutId);
-                            revertedCardData.autohideTimeoutId = null;
-                        }
-                        
-                        // Schedule removal with a short delay (e.g. 2000ms) to allow user to see the change
-                        const shortDelay = 2000;
-                        debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
-                        revertedCardData.autohideTimeoutId = setTimeout(() => {
-                            performAutohideSequence(revertedPath);
-                        }, shortDelay);
-                     } else {
-                        // Fallback if cardData not found (unlikely)
-                        scheduleCardRemoval(revertedPath);
-                     }
-                     
-                     // 5. Fire event for pile to update
-                     window.dispatchEvent(new CustomEvent('pod-renamed-reverted', {
-                        detail: {
-                            podKey: currentAIPath,
-                            newPath: revertedPath,
-                            originalName: trueOriginalFilename
-                        }
-                     }));
+              // Revert the rename
+              const success = await renameDownloadFileAndUpdateRecord(download, trueOriginalFilename, currentAIPath);
 
-                     showSimpleToast("Rename reverted");
-                 } else {
-                     showSimpleToast("Undo failed");
-                 }
+              if (success) {
+                const revertedPath = download.target.path;
+
+                // Clear the AI name property to reset UI state
+                download.aiName = null;
+
+                // 1. Update global focus if needed
+                if (focusedDownloadKey === currentAIPath) {
+                  focusedDownloadKey = revertedPath;
+                  debugLog(`[Undo] Updated focusedDownloadKey to ${revertedPath}`);
+                }
+
+                // 2. Force UI update to show original name
+                // Since we cleared download.aiName, this will render the standard completion state
+                updateUIForFocusedDownload(revertedPath, true);
+
+                // 3. Remove styling from pod
+                const cardData = activeDownloadCards.get(revertedPath);
+                if (cardData && cardData.podElement) {
+                  cardData.podElement.classList.remove("renamed-by-ai");
+                }
+
+                // 4. Ensure autohide is scheduled/rescheduled
+                // We need to clear the old timeout associated with the OLD key (currentAIPath) 
+                // and start a new one for the NEW key (revertedPath).
+
+                // Try to find the cardData that was moved to the new key
+                const revertedCardData = activeDownloadCards.get(revertedPath);
+
+                if (revertedCardData) {
+                  // Reset timeout ID just in case it carried over but wasn't cleared
+                  if (revertedCardData.autohideTimeoutId) {
+                    clearTimeout(revertedCardData.autohideTimeoutId);
+                    revertedCardData.autohideTimeoutId = null;
+                  }
+
+                  // Schedule removal with a short delay (e.g. 2000ms) to allow user to see the change
+                  const shortDelay = 2000;
+                  debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
+                  revertedCardData.autohideTimeoutId = setTimeout(() => {
+                    performAutohideSequence(revertedPath);
+                  }, shortDelay);
+                } else {
+                  // Fallback if cardData not found (unlikely)
+                  scheduleCardRemoval(revertedPath);
+                }
+
+                // 5. Fire event for pile to update
+                window.dispatchEvent(new CustomEvent('pod-renamed-reverted', {
+                  detail: {
+                    podKey: currentAIPath,
+                    newPath: revertedPath,
+                    originalName: trueOriginalFilename
+                  }
+                }));
+
+                showSimpleToast("Rename reverted");
+              } else {
+                showSimpleToast("Undo failed");
+              }
             });
-        }
+          }
 
-        activeAIProcesses.delete(key); // Clean up successful process
-        return true;
-      } else {
-        renamedFiles.delete(downloadPath);
-        if (statusElToUpdate) statusElToUpdate.textContent = "Rename failed";
-        if (podElementToStyle) {
+          activeAIProcesses.delete(key); // Clean up successful process
+          return true;
+        } else {
+          renamedFiles.delete(downloadPath);
+          if (statusElToUpdate) statusElToUpdate.textContent = "Rename failed";
+          if (podElementToStyle) {
             podElementToStyle.classList.remove("renaming-active");
             podElementToStyle.classList.remove('renaming-initiated');
+          }
+          activeAIProcesses.delete(key); // Clean up failed process
+          return false;
         }
-        activeAIProcesses.delete(key); // Clean up failed process
-        return false;
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          debugLog(`[AI Process] AI rename process was aborted for ${key}`);
+          // Don't log as error, this is expected behavior
+        } else {
+          console.error("AI Rename process error:", e);
+        }
+        renamedFiles.delete(downloadPath); // Ensure it can be retried if it was an unexpected error
+        if (statusElToUpdate && e.name !== 'AbortError') statusElToUpdate.textContent = "Rename error";
+        if (podElementToStyle) {
+          podElementToStyle.classList.remove("renaming-active");
+          podElementToStyle.classList.remove('renaming-initiated');
+        }
+        activeAIProcesses.delete(key); // Clean up errored/aborted process
+        throw e; // Re-throw to be handled by caller
+      } finally {
+        if (previewContainerOnPod) {
+          previewContainerOnPod.style.pointerEvents = "auto";
+          previewContainerOnPod.title = originalPreviewTitle; // Restore original title or new name if successful? For now, original.
+        }
+        if (podElementToStyle) podElementToStyle.classList.remove("renaming-active"); // General cleanup
       }
-    } catch (e) {
-      if (e.name === 'AbortError') {
-        debugLog(`[AI Process] AI rename process was aborted for ${key}`);
-        // Don't log as error, this is expected behavior
-      } else {
-        console.error("AI Rename process error:", e);
-      }
-      renamedFiles.delete(downloadPath); // Ensure it can be retried if it was an unexpected error
-      if (statusElToUpdate && e.name !== 'AbortError') statusElToUpdate.textContent = "Rename error";
-      if (podElementToStyle) {
-        podElementToStyle.classList.remove("renaming-active");
-        podElementToStyle.classList.remove('renaming-initiated');
-      }
-      activeAIProcesses.delete(key); // Clean up errored/aborted process
-      throw e; // Re-throw to be handled by caller
-    } finally {
-      if (previewContainerOnPod) {
-        previewContainerOnPod.style.pointerEvents = "auto";
-        previewContainerOnPod.title = originalPreviewTitle; // Restore original title or new name if successful? For now, original.
-      }
-       if (podElementToStyle) podElementToStyle.classList.remove("renaming-active"); // General cleanup
     }
-  }
 
-  // Improved file renaming function
-  async function renameDownloadFileAndUpdateRecord(download, newName, key) {
-    try {
-      const oldPath = download.target.path;
-      if (!oldPath) throw new Error("No file path available");
+    // Improved file renaming function
+    async function renameDownloadFileAndUpdateRecord(download, newName, key) {
+      try {
+        const oldPath = download.target.path;
+        if (!oldPath) throw new Error("No file path available");
 
-      // SECURITY: Validate the existing path (non-strict mode)
-      const oldPathValidation = SecurityUtils.validateFilePath(oldPath, { strict: false });
-      if (!oldPathValidation.valid) {
-        debugLog(`Path validation warning for old path (continuing anyway): ${oldPathValidation.error}`, { 
-          path: oldPath,
-          code: oldPathValidation.code 
-        });
-      }
-
-      const directory = oldPath.substring(0, oldPath.lastIndexOf(PATH_SEPARATOR));
-      const oldFileName = oldPath.split(PATH_SEPARATOR).pop();
-      const fileExt = oldFileName.includes(".") 
-        ? oldFileName.substring(oldFileName.lastIndexOf(".")) 
-        : "";
-
-      // SECURITY: Use comprehensive filename sanitization
-      let cleanNewName = sanitizeFilename(newName);
-      // Ensure extension is preserved and re-sanitize if needed
-      if (fileExt && !cleanNewName.endsWith(fileExt)) {
-        cleanNewName = sanitizeFilename(cleanNewName + fileExt);
-      }
-
-      // Handle duplicate names
-      let finalName = cleanNewName;
-      let counter = 1;
-      while (counter < 100) {
-        const testPath = directory + PATH_SEPARATOR + finalName;
-        let exists = false;
-        try {
-          // SECURITY: Validate path (non-strict for duplicate check)
-          const testValidation = SecurityUtils.validateFilePath(testPath, { strict: false });
-          if (!testValidation.valid) {
-            // If validation fails, treat as non-existent to avoid infinite loop
-            debugLog(`Path validation warning in duplicate check (treating as non-existent): ${testValidation.error}`);
-            break;
-          }
-          const testFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-          testFile.initWithPath(testPath);
-          exists = testFile.exists();
-        } catch (e) {
-          // File doesn't exist or can't access - proceed
-          if (e.message && e.message.includes('Invalid file path')) {
-            break; // Break loop on path errors
-          }
+        // SECURITY: Validate the existing path (non-strict mode)
+        const oldPathValidation = SecurityUtils.validateFilePath(oldPath, { strict: false });
+        if (!oldPathValidation.valid) {
+          debugLog(`Path validation warning for old path (continuing anyway): ${oldPathValidation.error}`, {
+            path: oldPath,
+            code: oldPathValidation.code
+          });
         }
-        if (!exists) break;
-        
-        const baseName = cleanNewName.includes(".") 
-          ? cleanNewName.substring(0, cleanNewName.lastIndexOf(".")) 
-          : cleanNewName;
-        finalName = `${baseName}-${counter}${fileExt}`;
-        counter++;
-      }
 
-      const newPath = directory + PATH_SEPARATOR + finalName;
-      
-      // SECURITY: Validate new path (non-strict mode)
-      const newPathValidation = SecurityUtils.validateFilePath(newPath, { strict: false });
-      if (!newPathValidation.valid) {
-        debugLog(`Path validation warning for new path (continuing anyway): ${newPathValidation.error}`, { 
-          path: newPath,
-          code: newPathValidation.code 
-        });
-      }
-      debugLog("Rename paths", { oldPath, newPath });
+        const directory = oldPath.substring(0, oldPath.lastIndexOf(PATH_SEPARATOR));
+        const oldFileName = oldPath.split(PATH_SEPARATOR).pop();
+        const fileExt = oldFileName.includes(".")
+          ? oldFileName.substring(oldFileName.lastIndexOf("."))
+          : "";
 
-      const oldFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-      oldFile.initWithPath(oldPath);
+        // SECURITY: Use comprehensive filename sanitization
+        let cleanNewName = sanitizeFilename(newName);
+        // Ensure extension is preserved and re-sanitize if needed
+        if (fileExt && !cleanNewName.endsWith(fileExt)) {
+          cleanNewName = sanitizeFilename(cleanNewName + fileExt);
+        }
 
-      if (!oldFile.exists()) throw new Error("Source file does not exist");
+        // Handle duplicate names
+        let finalName = cleanNewName;
+        let counter = 1;
+        while (counter < 100) {
+          const testPath = directory + PATH_SEPARATOR + finalName;
+          let exists = false;
+          try {
+            // SECURITY: Validate path (non-strict for duplicate check)
+            const testValidation = SecurityUtils.validateFilePath(testPath, { strict: false });
+            if (!testValidation.valid) {
+              // If validation fails, treat as non-existent to avoid infinite loop
+              debugLog(`Path validation warning in duplicate check (treating as non-existent): ${testValidation.error}`);
+              break;
+            }
+            const testFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+            testFile.initWithPath(testPath);
+            exists = testFile.exists();
+          } catch (e) {
+            // File doesn't exist or can't access - proceed
+            if (e.message && e.message.includes('Invalid file path')) {
+              break; // Break loop on path errors
+            }
+          }
+          if (!exists) break;
 
-      // Perform the rename
-      oldFile.moveTo(null, finalName);
+          const baseName = cleanNewName.includes(".")
+            ? cleanNewName.substring(0, cleanNewName.lastIndexOf("."))
+            : cleanNewName;
+          finalName = `${baseName}-${counter}${fileExt}`;
+          counter++;
+        }
 
-      // Update download record
-      download.target.path = newPath;
-      
-      // Update card data key mapping
-      const cardData = activeDownloadCards.get(key); // key is the OLD key here
-      if (cardData) {
-        activeDownloadCards.delete(key);
-        activeDownloadCards.set(newPath, cardData);
-        cardData.key = newPath; // Update the key stored in cardData itself
-        if (cardData.podElement) { // Update dataset on the pod element itself
+        const newPath = directory + PATH_SEPARATOR + finalName;
+
+        // SECURITY: Validate new path (non-strict mode)
+        const newPathValidation = SecurityUtils.validateFilePath(newPath, { strict: false });
+        if (!newPathValidation.valid) {
+          debugLog(`Path validation warning for new path (continuing anyway): ${newPathValidation.error}`, {
+            path: newPath,
+            code: newPathValidation.code
+          });
+        }
+        debugLog("Rename paths", { oldPath, newPath });
+
+        const oldFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+        oldFile.initWithPath(oldPath);
+
+        if (!oldFile.exists()) throw new Error("Source file does not exist");
+
+        // Perform the rename
+        oldFile.moveTo(null, finalName);
+
+        // Update download record
+        download.target.path = newPath;
+
+        // Update card data key mapping
+        const cardData = activeDownloadCards.get(key); // key is the OLD key here
+        if (cardData) {
+          activeDownloadCards.delete(key);
+          activeDownloadCards.set(newPath, cardData);
+          cardData.key = newPath; // Update the key stored in cardData itself
+          if (cardData.podElement) { // Update dataset on the pod element itself
             cardData.podElement.dataset.downloadKey = newPath;
             debugLog(`[Rename] Updated podElement.dataset.downloadKey to ${newPath}`);
-        }
-        // Update the key in orderedPodKeys as well
-        const oldKeyIndex = orderedPodKeys.indexOf(key);
-        if (oldKeyIndex > -1) {
+          }
+          // Update the key in orderedPodKeys as well
+          const oldKeyIndex = orderedPodKeys.indexOf(key);
+          if (oldKeyIndex > -1) {
             orderedPodKeys.splice(oldKeyIndex, 1, newPath);
             debugLog(`[Rename] Updated key in orderedPodKeys from ${key} to ${newPath}`);
-        } else {
+          } else {
             debugLog(`[Rename] Warning: Old key ${key} not found in orderedPodKeys during rename.`);
+          }
+
+          // Reschedule autohide with the new key if there was an existing timeout
+          if (cardData.autohideTimeoutId) {
+            clearTimeout(cardData.autohideTimeoutId);
+            cardData.autohideTimeoutId = null;
+            debugLog(`[Rename] Cleared old autohide timeout for ${key}, rescheduling for ${newPath}`);
+            scheduleCardRemoval(newPath);
+          }
+
+          debugLog(`Updated card key mapping from ${key} to ${newPath}`);
         }
-        
-        // Reschedule autohide with the new key if there was an existing timeout
-        if (cardData.autohideTimeoutId) {
-          clearTimeout(cardData.autohideTimeoutId);
-          cardData.autohideTimeoutId = null;
-          debugLog(`[Rename] Cleared old autohide timeout for ${key}, rescheduling for ${newPath}`);
-          scheduleCardRemoval(newPath);
-        }
-        
-        debugLog(`Updated card key mapping from ${key} to ${newPath}`);
-      }
 
-      debugLog("File renamed successfully");
-      return true;
-    } catch (e) {
-      // Log detailed error information for debugging
-      const errorInfo = {
-        name: e.name || 'Error',
-        message: e.message || e.toString() || 'Unknown error',
-        oldPath: download?.target?.path,
-        newName: newName,
-        key: key
-      };
-      
-      console.error(`Rename failed: ${errorInfo.name}: ${errorInfo.message}`, errorInfo);
-      debugLog(`Rename failed: ${errorInfo.name}: ${errorInfo.message}`, {
-        oldPath: errorInfo.oldPath,
-        newName: errorInfo.newName
-      });
-      return false;
-    }
-  }
+        debugLog("File renamed successfully");
+        return true;
+      } catch (e) {
+        // Log detailed error information for debugging
+        const errorInfo = {
+          name: e.name || 'Error',
+          message: e.message || e.toString() || 'Unknown error',
+          oldPath: download?.target?.path,
+          newName: newName,
+          key: key
+        };
 
-  function formatBytes(b, d = 2) {
-    if (b === 0) return "0 B";
-    const sizes = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(b) / Math.log(1024));
-    return `${parseFloat((b / Math.pow(1024, i)).toFixed(d))} ${sizes[i]}`;
-  }
-
-  // Get content type from filename extension
-  function getContentTypeFromFilename(filename) {
-    if (!filename) return 'application/octet-stream';
-    
-    const ext = filename.toLowerCase().split('.').pop();
-    const mimeTypes = {
-      // Images
-      'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 
-      'gif': 'image/gif', 'webp': 'image/webp', 'bmp': 'image/bmp',
-      'svg': 'image/svg+xml', 'ico': 'image/x-icon',
-      
-      // Documents
-      'pdf': 'application/pdf', 'doc': 'application/msword',
-      'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'xls': 'application/vnd.ms-excel',
-      'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'ppt': 'application/vnd.ms-powerpoint',
-      'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      
-      // Text
-      'txt': 'text/plain', 'html': 'text/html', 'css': 'text/css',
-      'js': 'text/javascript', 'json': 'application/json',
-      'xml': 'text/xml', 'csv': 'text/csv',
-      
-      // Audio
-      'mp3': 'audio/mpeg', 'wav': 'audio/wav', 'ogg': 'audio/ogg',
-      'flac': 'audio/flac', 'aac': 'audio/aac', 'm4a': 'audio/mp4',
-      
-      // Video
-      'mp4': 'video/mp4', 'avi': 'video/x-msvideo', 'mov': 'video/quicktime',
-      'wmv': 'video/x-ms-wmv', 'flv': 'video/x-flv', 'webm': 'video/webm',
-      'mkv': 'video/x-matroska',
-      
-      // Archives
-      'zip': 'application/zip', 'rar': 'application/x-rar-compressed',
-      '7z': 'application/x-7z-compressed', 'tar': 'application/x-tar',
-      'gz': 'application/gzip',
-      
-      // Executables
-      'exe': 'application/x-msdownload', 'msi': 'application/x-msi',
-      'deb': 'application/x-debian-package', 'rpm': 'application/x-rpm'
-    };
-    
-    return mimeTypes[ext] || 'application/octet-stream';
-  }
-
-  // Helper functions to hide/show media controls toolbar
-  function hideMediaControlsToolbar() {
-    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-    if (mediaControlsToolbar) {
-      mediaControlsToolbar.style.opacity = '0';
-      mediaControlsToolbar.style.pointerEvents = 'none';
-      debugLog('[MediaControls] Hid media controls toolbar');
-    }
-  }
-
-  function showMediaControlsToolbar() {
-    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-    if (mediaControlsToolbar) {
-      // Check if context menu is visible
-      const contextMenu = document.getElementById('zen-pile-pod-context-menu');
-      const isContextMenuVisible = contextMenu && typeof contextMenu.state === 'string' && contextMenu.state === 'open';
-      
-      // Only show if no download pods are visible and context menu is not visible
-      if (orderedPodKeys.length === 0 && !isContextMenuVisible) {
-        mediaControlsToolbar.style.opacity = '1';
-        mediaControlsToolbar.style.pointerEvents = 'auto';
-        debugLog('[MediaControls] Showed media controls toolbar');
-      }
-    }
-  }
-
-  // Mistral AI function
-  /**
-   * Call Mistral AI API with rate limiting and security measures
-   * @param {Object} params - API call parameters
-   * @param {string} params.systemPrompt - System prompt for the AI
-   * @param {string} params.userPrompt - User prompt for the AI
-   * @param {AbortSignal} params.abortSignal - Signal to abort the request
-   * @returns {Promise<string|null>} AI-generated filename or null
-   */
-  async function callMistralAI({ systemPrompt, userPrompt, abortSignal }) {
-    if (abortSignal?.aborted) return null;
-
-    // SECURITY: Rate limiting check
-    const rateLimitCheck = RateLimiter.canMakeRequest();
-    if (!rateLimitCheck.allowed) {
-      debugLog(`Mistral AI rate limit exceeded: ${rateLimitCheck.reason}`, {
-        waitTime: rateLimitCheck.waitTime,
-        stats: RateLimiter.getStats()
-      });
-      console.warn(`API rate limit exceeded. Please wait ${rateLimitCheck.waitTime} seconds.`);
-      return null;
-    }
-
-    const apiKey = getPref(MISTRAL_API_KEY_PREF, "");
-    if (!apiKey) {
-      console.warn("Mistral API key not found in preferences");
-      return null;
-    }
-
-    // SECURITY: Never log the API key - validate it exists but don't expose it
-    if (apiKey.length < 10) {
-      console.warn("Mistral API key appears to be invalid (too short)");
-      return null;
-    }
-
-    try {
-      // Record the request for rate limiting
-      RateLimiter.recordRequest();
-      
-      debugLog("Sending request to Mistral AI", {
-        rateLimitStats: RateLimiter.getStats()
-      });
-      const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: "mistral-small-latest",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt }
-          ],
-          temperature: 0.1,
-          max_tokens: 50
-        }),
-        signal: abortSignal
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        // SECURITY: Redact any sensitive data from error messages
-        const safeErrorText = redactSensitiveData(errorText);
-        throw new Error(`HTTP error! status: ${response.status} - ${safeErrorText}`);
-      }
-
-      const data = await response.json();
-      let name = data.choices[0]?.message?.content?.trim();
-      
-      // Basic cleanup
-      if (name) {
-          name = name.replace(/^["']|["']$/g, ''); // Remove quotes if present
-          
-          // Heuristic: If the response is very long (e.g. > 50 chars) and contains spaces,
-           // it might be a sentence instead of a filename. 
-           // However, some valid filenames can be long. 
-           // Let's filter out known "chatty" prefixes if they exist.
-           const chattyPrefixes = [
-             "based on", "here is", "i have", "the filename", "new filename", "renamed file", "unknown", "file name"
-           ];
-           const lowerName = name.toLowerCase();
-           if (chattyPrefixes.some(prefix => lowerName.startsWith(prefix))) {
-              debugLog("Mistral AI returned conversational text or unknown, rejecting:", name);
-              return null;
-           }
-      }
-
-      debugLog("Mistral AI response:", name);
-      return name || null;
-    } catch (error) {
-      // SECURITY: Redact sensitive data from error logs
-      const safeError = error.message ? redactSensitiveData(error.message) : 'Unknown error';
-      console.error("Mistral AI error:", safeError);
-      return null;
-    }
-  }
-
-
-
-  // --- Function to Open Downloaded File ---
-  /**
-   * Open a downloaded file with the default system application
-   * @param {Object} download - Download object with target path
-   */
-  function openDownloadedFile(download) {
-    if (!download || !download.target || !download.target.path) {
-      debugLog("openDownloadedFile: Invalid download object or path", { download });
-      return;
-    }
-
-    const filePath = download.target.path;
-    
-    // SECURITY: Validate path before file operations (non-strict for user-initiated actions)
-    const validation = SecurityUtils.validateFilePath(filePath, { strict: false });
-    if (!validation.valid) {
-      debugLog("openDownloadedFile: Path validation failed", { 
-        filePath, 
-        error: validation.error,
-        code: validation.code 
-      });
-      return;
-    }
-
-    debugLog("openDownloadedFile: Attempting to open file", { filePath });
-
-    try {
-      const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-      file.initWithPath(filePath);
-
-      if (file.exists() && file.isReadable()) {
-        file.launch(); // Opens with default system application
-        debugLog("openDownloadedFile: File launched successfully", { filePath });
-      } else {
-        debugLog("openDownloadedFile: File does not exist or is not readable", { filePath });
-      }
-    } catch (ex) {
-      const errorInfo = {
-        filePath,
-        error: ex.message || ex.toString(),
-        name: ex.name || 'Error',
-        stack: ex.stack
-      };
-      debugLog("openDownloadedFile: Error launching file", errorInfo);
-      console.error("openDownloadedFile failed:", errorInfo);
-    }
-  }
-
-  /**
-   * Erase download from Firefox history
-   * @param {Object} download - Download object to remove
-   * @throws {Error} If download object is invalid or operation fails
-   */
-  async function eraseDownloadFromHistory(download) {
-    if (!download) {
-      debugLog("eraseDownloadFromHistory: Invalid download object", { download });
-      throw new Error("Invalid download object");
-    }
-
-    // SECURITY: Validate path if present (non-strict mode)
-    if (download.target?.path) {
-      const pathValidation = SecurityUtils.validateFilePath(download.target.path, { strict: false });
-      if (!pathValidation.valid) {
-        debugLog("eraseDownloadFromHistory: Path validation warning", {
-          path: download.target.path,
-          error: pathValidation.error,
-          code: pathValidation.code
+        console.error(`Rename failed: ${errorInfo.name}: ${errorInfo.message}`, errorInfo);
+        debugLog(`Rename failed: ${errorInfo.name}: ${errorInfo.message}`, {
+          oldPath: errorInfo.oldPath,
+          newName: errorInfo.newName
         });
-        // Continue anyway - path validation is advisory for this operation
-      }
-    }
-
-    try {
-      debugLog("eraseDownloadFromHistory: Attempting to erase download", { 
-        id: download.id, 
-        path: download.target?.path,
-        state: download.state 
-      });
-
-      // Get the Downloads list
-      const list = await window.Downloads.getList(window.Downloads.ALL);
-      
-      // Find the download in the list by multiple criteria
-      const downloads = await list.getAll();
-      const targetDownload = downloads.find(dl => {
-        // Try to match by ID first (most reliable)
-        if (download.id && dl.id === download.id) return true;
-        
-        // SECURITY: Validate paths before comparing (non-strict)
-        if (download.target?.path && dl.target?.path) {
-          const downloadPathValid = SecurityUtils.validateFilePath(download.target.path, { strict: false });
-          const dlPathValid = SecurityUtils.validateFilePath(dl.target.path, { strict: false });
-          
-          // Only compare if both paths are valid
-          if (downloadPathValid.valid && dlPathValid.valid && 
-              dl.target.path === download.target.path) return true;
-        }
-            
-        // Additional fallback for URL matching (in case path changed)
-        if (download.source?.url && dl.source?.url && 
-            dl.source.url === download.source.url && 
-            download.startTime && dl.startTime &&
-            Math.abs(new Date(download.startTime) - new Date(dl.startTime)) < 5000) return true;
-            
         return false;
-      });
-      
-      if (targetDownload) {
-        // Remove the download from the list (this erases it from history)
-        await list.remove(targetDownload);
-        debugLog("eraseDownloadFromHistory: Successfully removed download from list", { 
-          id: targetDownload.id,
-          originalId: download.id,
-          path: targetDownload.target?.path 
+      }
+    }
+
+    function formatBytes(b, d = 2) {
+      if (b === 0) return "0 B";
+      const sizes = ["B", "KB", "MB", "GB", "TB"];
+      const i = Math.floor(Math.log(b) / Math.log(1024));
+      return `${parseFloat((b / Math.pow(1024, i)).toFixed(d))} ${sizes[i]}`;
+    }
+
+    // Get content type from filename extension
+    function getContentTypeFromFilename(filename) {
+      if (!filename) return 'application/octet-stream';
+
+      const ext = filename.toLowerCase().split('.').pop();
+      const mimeTypes = {
+        // Images
+        'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png',
+        'gif': 'image/gif', 'webp': 'image/webp', 'bmp': 'image/bmp',
+        'svg': 'image/svg+xml', 'ico': 'image/x-icon',
+
+        // Documents
+        'pdf': 'application/pdf', 'doc': 'application/msword',
+        'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls': 'application/vnd.ms-excel',
+        'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'ppt': 'application/vnd.ms-powerpoint',
+        'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+
+        // Text
+        'txt': 'text/plain', 'html': 'text/html', 'css': 'text/css',
+        'js': 'text/javascript', 'json': 'application/json',
+        'xml': 'text/xml', 'csv': 'text/csv',
+
+        // Audio
+        'mp3': 'audio/mpeg', 'wav': 'audio/wav', 'ogg': 'audio/ogg',
+        'flac': 'audio/flac', 'aac': 'audio/aac', 'm4a': 'audio/mp4',
+
+        // Video
+        'mp4': 'video/mp4', 'avi': 'video/x-msvideo', 'mov': 'video/quicktime',
+        'wmv': 'video/x-ms-wmv', 'flv': 'video/x-flv', 'webm': 'video/webm',
+        'mkv': 'video/x-matroska',
+
+        // Archives
+        'zip': 'application/zip', 'rar': 'application/x-rar-compressed',
+        '7z': 'application/x-7z-compressed', 'tar': 'application/x-tar',
+        'gz': 'application/gzip',
+
+        // Executables
+        'exe': 'application/x-msdownload', 'msi': 'application/x-msi',
+        'deb': 'application/x-debian-package', 'rpm': 'application/x-rpm'
+      };
+
+      return mimeTypes[ext] || 'application/octet-stream';
+    }
+
+    // Helper functions to hide/show media controls toolbar
+    function hideMediaControlsToolbar() {
+      const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+      if (mediaControlsToolbar) {
+        mediaControlsToolbar.style.opacity = '0';
+        mediaControlsToolbar.style.pointerEvents = 'none';
+        debugLog('[MediaControls] Hid media controls toolbar');
+      }
+    }
+
+    function showMediaControlsToolbar() {
+      const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+      if (mediaControlsToolbar) {
+        // Check if context menu is visible
+        const contextMenu = document.getElementById('zen-pile-pod-context-menu');
+        const isContextMenuVisible = contextMenu && typeof contextMenu.state === 'string' && contextMenu.state === 'open';
+
+        // Only show if no download pods are visible and context menu is not visible
+        if (orderedPodKeys.length === 0 && !isContextMenuVisible) {
+          mediaControlsToolbar.style.opacity = '1';
+          mediaControlsToolbar.style.pointerEvents = 'auto';
+          debugLog('[MediaControls] Showed media controls toolbar');
+        }
+      }
+    }
+
+    // Mistral AI function
+    /**
+     * Call Mistral AI API with rate limiting and security measures
+     * @param {Object} params - API call parameters
+     * @param {string} params.systemPrompt - System prompt for the AI
+     * @param {string} params.userPrompt - User prompt for the AI
+     * @param {AbortSignal} params.abortSignal - Signal to abort the request
+     * @returns {Promise<string|null>} AI-generated filename or null
+     */
+    async function callMistralAI({ systemPrompt, userPrompt, abortSignal }) {
+      if (abortSignal?.aborted) return null;
+
+      // SECURITY: Rate limiting check
+      const rateLimitCheck = RateLimiter.canMakeRequest();
+      if (!rateLimitCheck.allowed) {
+        debugLog(`Mistral AI rate limit exceeded: ${rateLimitCheck.reason}`, {
+          waitTime: rateLimitCheck.waitTime,
+          stats: RateLimiter.getStats()
         });
-      } else {
-        debugLog("eraseDownloadFromHistory: Download not found in list", { 
+        console.warn(`API rate limit exceeded. Please wait ${rateLimitCheck.waitTime} seconds.`);
+        return null;
+      }
+
+      const apiKey = getPref(MISTRAL_API_KEY_PREF, "");
+      if (!apiKey) {
+        console.warn("Mistral API key not found in preferences");
+        return null;
+      }
+
+      // SECURITY: Never log the API key - validate it exists but don't expose it
+      if (apiKey.length < 10) {
+        console.warn("Mistral API key appears to be invalid (too short)");
+        return null;
+      }
+
+      try {
+        // Record the request for rate limiting
+        RateLimiter.recordRequest();
+
+        debugLog("Sending request to Mistral AI", {
+          rateLimitStats: RateLimiter.getStats()
+        });
+        const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: "mistral-small-latest",
+            messages: [
+              { role: "system", content: systemPrompt },
+              { role: "user", content: userPrompt }
+            ],
+            temperature: 0.1,
+            max_tokens: 50
+          }),
+          signal: abortSignal
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          // SECURITY: Redact any sensitive data from error messages
+          const safeErrorText = redactSensitiveData(errorText);
+          throw new Error(`HTTP error! status: ${response.status} - ${safeErrorText}`);
+        }
+
+        const data = await response.json();
+        let name = data.choices[0]?.message?.content?.trim();
+
+        // Basic cleanup
+        if (name) {
+          name = name.replace(/^["']|["']$/g, ''); // Remove quotes if present
+
+          // Heuristic: If the response is very long (e.g. > 50 chars) and contains spaces,
+          // it might be a sentence instead of a filename. 
+          // However, some valid filenames can be long. 
+          // Let's filter out known "chatty" prefixes if they exist.
+          const chattyPrefixes = [
+            "based on", "here is", "i have", "the filename", "new filename", "renamed file", "unknown", "file name"
+          ];
+          const lowerName = name.toLowerCase();
+          if (chattyPrefixes.some(prefix => lowerName.startsWith(prefix))) {
+            debugLog("Mistral AI returned conversational text or unknown, rejecting:", name);
+            return null;
+          }
+        }
+
+        debugLog("Mistral AI response:", name);
+        return name || null;
+      } catch (error) {
+        // SECURITY: Redact sensitive data from error logs
+        const safeError = error.message ? redactSensitiveData(error.message) : 'Unknown error';
+        console.error("Mistral AI error:", safeError);
+        return null;
+      }
+    }
+
+
+
+    // --- Function to Open Downloaded File ---
+    /**
+     * Open a downloaded file with the default system application
+     * @param {Object} download - Download object with target path
+     */
+    function openDownloadedFile(download) {
+      if (!download || !download.target || !download.target.path) {
+        debugLog("openDownloadedFile: Invalid download object or path", { download });
+        return;
+      }
+
+      const filePath = download.target.path;
+
+      // SECURITY: Validate path before file operations (non-strict for user-initiated actions)
+      const validation = SecurityUtils.validateFilePath(filePath, { strict: false });
+      if (!validation.valid) {
+        debugLog("openDownloadedFile: Path validation failed", {
+          filePath,
+          error: validation.error,
+          code: validation.code
+        });
+        return;
+      }
+
+      debugLog("openDownloadedFile: Attempting to open file", { filePath });
+
+      try {
+        const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+        file.initWithPath(filePath);
+
+        if (file.exists() && file.isReadable()) {
+          file.launch(); // Opens with default system application
+          debugLog("openDownloadedFile: File launched successfully", { filePath });
+        } else {
+          debugLog("openDownloadedFile: File does not exist or is not readable", { filePath });
+        }
+      } catch (ex) {
+        const errorInfo = {
+          filePath,
+          error: ex.message || ex.toString(),
+          name: ex.name || 'Error',
+          stack: ex.stack
+        };
+        debugLog("openDownloadedFile: Error launching file", errorInfo);
+        console.error("openDownloadedFile failed:", errorInfo);
+      }
+    }
+
+    /**
+     * Erase download from Firefox history
+     * @param {Object} download - Download object to remove
+     * @throws {Error} If download object is invalid or operation fails
+     */
+    async function eraseDownloadFromHistory(download) {
+      if (!download) {
+        debugLog("eraseDownloadFromHistory: Invalid download object", { download });
+        throw new Error("Invalid download object");
+      }
+
+      // SECURITY: Validate path if present (non-strict mode)
+      if (download.target?.path) {
+        const pathValidation = SecurityUtils.validateFilePath(download.target.path, { strict: false });
+        if (!pathValidation.valid) {
+          debugLog("eraseDownloadFromHistory: Path validation warning", {
+            path: download.target.path,
+            error: pathValidation.error,
+            code: pathValidation.code
+          });
+          // Continue anyway - path validation is advisory for this operation
+        }
+      }
+
+      try {
+        debugLog("eraseDownloadFromHistory: Attempting to erase download", {
           id: download.id,
           path: download.target?.path,
-          availableDownloads: downloads.length 
+          state: download.state
         });
-        // It might have already been removed, which is fine for our purposes
+
+        // Get the Downloads list
+        const list = await window.Downloads.getList(window.Downloads.ALL);
+
+        // Find the download in the list by multiple criteria
+        const downloads = await list.getAll();
+        const targetDownload = downloads.find(dl => {
+          // Try to match by ID first (most reliable)
+          if (download.id && dl.id === download.id) return true;
+
+          // SECURITY: Validate paths before comparing (non-strict)
+          if (download.target?.path && dl.target?.path) {
+            const downloadPathValid = SecurityUtils.validateFilePath(download.target.path, { strict: false });
+            const dlPathValid = SecurityUtils.validateFilePath(dl.target.path, { strict: false });
+
+            // Only compare if both paths are valid
+            if (downloadPathValid.valid && dlPathValid.valid &&
+              dl.target.path === download.target.path) return true;
+          }
+
+          // Additional fallback for URL matching (in case path changed)
+          if (download.source?.url && dl.source?.url &&
+            dl.source.url === download.source.url &&
+            download.startTime && dl.startTime &&
+            Math.abs(new Date(download.startTime) - new Date(dl.startTime)) < 5000) return true;
+
+          return false;
+        });
+
+        if (targetDownload) {
+          // Remove the download from the list (this erases it from history)
+          await list.remove(targetDownload);
+          debugLog("eraseDownloadFromHistory: Successfully removed download from list", {
+            id: targetDownload.id,
+            originalId: download.id,
+            path: targetDownload.target?.path
+          });
+        } else {
+          debugLog("eraseDownloadFromHistory: Download not found in list", {
+            id: download.id,
+            path: download.target?.path,
+            availableDownloads: downloads.length
+          });
+          // It might have already been removed, which is fine for our purposes
+        }
+
+      } catch (error) {
+        debugLog("eraseDownloadFromHistory: Error erasing download", {
+          id: download.id,
+          path: download.target?.path,
+          error: error.message,
+          stack: error.stack
+        });
+        throw error;
       }
-      
-    } catch (error) {
-      debugLog("eraseDownloadFromHistory: Error erasing download", { 
-        id: download.id, 
-        path: download.target?.path,
-        error: error.message, 
-        stack: error.stack 
+    }
+
+
+
+    // === AI RENAME QUEUE SYSTEM ===
+
+    // Add a completed download to the AI rename queue
+    function addToAIRenameQueue(downloadKey, download, originalFilename) {
+      debugLog(`[AI Queue] addToAIRenameQueue called for ${downloadKey}`, {
+        downloadKey,
+        hasDownload: !!download,
+        downloadPath: download?.target?.path,
+        originalFilename,
+        queueLength: aiRenameQueue.length,
+        isProcessing: isProcessingAIQueue,
+        currentlyProcessing: currentlyProcessingKey
       });
-      throw error;
-    }
-  }
 
+      // Check if already in queue or being processed
+      if (aiRenameQueue.some(item => item.downloadKey === downloadKey)) {
+        debugLog(`[AI Queue] Download ${downloadKey} already in queue, skipping`);
+        return false;
+      }
 
+      if (currentlyProcessingKey === downloadKey) {
+        debugLog(`[AI Queue] Download ${downloadKey} is currently being processed, skipping`);
+        return false;
+      }
 
-  // === AI RENAME QUEUE SYSTEM ===
-  
-  // Add a completed download to the AI rename queue
-  function addToAIRenameQueue(downloadKey, download, originalFilename) {
-    debugLog(`[AI Queue] addToAIRenameQueue called for ${downloadKey}`, {
-      downloadKey,
-      hasDownload: !!download,
-      downloadPath: download?.target?.path,
-      originalFilename,
-      queueLength: aiRenameQueue.length,
-      isProcessing: isProcessingAIQueue,
-      currentlyProcessing: currentlyProcessingKey
-    });
-    
-    // Check if already in queue or being processed
-    if (aiRenameQueue.some(item => item.downloadKey === downloadKey)) {
-      debugLog(`[AI Queue] Download ${downloadKey} already in queue, skipping`);
-      return false;
-    }
-    
-    if (currentlyProcessingKey === downloadKey) {
-      debugLog(`[AI Queue] Download ${downloadKey} is currently being processed, skipping`);
-      return false;
-    }
-    
-    // Check if already renamed
-    if (renamedFiles.has(download.target?.path)) {
-      debugLog(`[AI Queue] Download ${downloadKey} already renamed (path: ${download.target?.path}), skipping`);
-      return false;
-    }
-    
-    if (!download || !download.target?.path) {
-      debugLog(`[AI Queue] Download ${downloadKey} missing download object or path, skipping`);
-      return false;
-    }
-    
-    const queueItem = {
-      downloadKey,
-      download,
-      originalFilename,
-      queuedAt: Date.now()
-    };
-    
-    aiRenameQueue.push(queueItem);
-    debugLog(`[AI Queue] ✅ Successfully added ${downloadKey} to queue. Queue length: ${aiRenameQueue.length}`, {
-      position: aiRenameQueue.length,
-      originalFilename,
-      path: download.target.path
-    });
-    
-    // Update UI to show queue position if this is the focused download
-    updateQueueStatusInUI(downloadKey);
-    
-    // Start processing if not already running
-    if (!isProcessingAIQueue) {
-      debugLog(`[AI Queue] Starting queue processor (was not running)`);
-      processAIRenameQueue();
-    } else {
-      debugLog(`[AI Queue] Queue processor already running, will process this item when ready`);
-    }
-    
-    return true;
-  }
-  
-  // Remove a download from the queue (e.g., when dismissed or canceled)
-  function removeFromAIRenameQueue(downloadKey) {
-    const index = aiRenameQueue.findIndex(item => item.downloadKey === downloadKey);
-    if (index !== -1) {
-      aiRenameQueue.splice(index, 1);
-      debugLog(`[AI Queue] Removed ${downloadKey} from queue. Queue length: ${aiRenameQueue.length}`);
+      // Check if already renamed
+      if (renamedFiles.has(download.target?.path)) {
+        debugLog(`[AI Queue] Download ${downloadKey} already renamed (path: ${download.target?.path}), skipping`);
+        return false;
+      }
+
+      if (!download || !download.target?.path) {
+        debugLog(`[AI Queue] Download ${downloadKey} missing download object or path, skipping`);
+        return false;
+      }
+
+      const queueItem = {
+        downloadKey,
+        download,
+        originalFilename,
+        queuedAt: Date.now()
+      };
+
+      aiRenameQueue.push(queueItem);
+      debugLog(`[AI Queue] ✅ Successfully added ${downloadKey} to queue. Queue length: ${aiRenameQueue.length}`, {
+        position: aiRenameQueue.length,
+        originalFilename,
+        path: download.target.path
+      });
+
+      // Update UI to show queue position if this is the focused download
+      updateQueueStatusInUI(downloadKey);
+
+      // Start processing if not already running
+      if (!isProcessingAIQueue) {
+        debugLog(`[AI Queue] Starting queue processor (was not running)`);
+        processAIRenameQueue();
+      } else {
+        debugLog(`[AI Queue] Queue processor already running, will process this item when ready`);
+      }
+
       return true;
     }
-    return false;
-  }
-  
-  // Get a download's position in the queue (1-based, 0 means not in queue)
-  function getQueuePosition(downloadKey) {
-    if (currentlyProcessingKey === downloadKey) {
-      return 0; // Currently processing, not "waiting"
+
+    // Remove a download from the queue (e.g., when dismissed or canceled)
+    function removeFromAIRenameQueue(downloadKey) {
+      const index = aiRenameQueue.findIndex(item => item.downloadKey === downloadKey);
+      if (index !== -1) {
+        aiRenameQueue.splice(index, 1);
+        debugLog(`[AI Queue] Removed ${downloadKey} from queue. Queue length: ${aiRenameQueue.length}`);
+        return true;
+      }
+      return false;
     }
-    const index = aiRenameQueue.findIndex(item => item.downloadKey === downloadKey);
-    return index === -1 ? -1 : index + 1;
-  }
-  
-  // Update queue status in the tooltip UI
-  function updateQueueStatusInUI(downloadKey) {
-    if (downloadKey !== focusedDownloadKey || !masterTooltipDOMElement) return;
-    
-    const statusEl = masterTooltipDOMElement.querySelector(".card-status");
-    if (!statusEl) return;
-    
-    const position = getQueuePosition(downloadKey);
-    const cardData = activeDownloadCards.get(downloadKey);
-    
-    if (position > 0) {
-      // In queue, waiting
-      statusEl.textContent = `Waiting for AI rename (${position} in queue)...`;
-      statusEl.style.color = "#f39c12"; // Orange for waiting
-    } else if (currentlyProcessingKey === downloadKey) {
-      // Currently being processed - don't override the processing status
-      // The processDownloadForAIRenaming function handles its own status updates
-    } else if (cardData?.download?.aiName) {
-      // Already renamed
-      statusEl.textContent = "Download renamed to:";
-      statusEl.style.color = "#a0a0a0";
-    } else if (cardData?.download?.succeeded) {
-      // Completed but not in queue (either not eligible or already processed)
-      statusEl.textContent = "Download completed";
-      statusEl.style.color = "#1dd1a1";
+
+    // Get a download's position in the queue (1-based, 0 means not in queue)
+    function getQueuePosition(downloadKey) {
+      if (currentlyProcessingKey === downloadKey) {
+        return 0; // Currently processing, not "waiting"
+      }
+      const index = aiRenameQueue.findIndex(item => item.downloadKey === downloadKey);
+      return index === -1 ? -1 : index + 1;
     }
-  }
-  
-  // Process the AI rename queue - one at a time, FIFO order
-  async function processAIRenameQueue() {
-    debugLog(`[AI Queue] processAIRenameQueue called`, {
-      isProcessingAIQueue,
-      queueLength: aiRenameQueue.length,
-      currentlyProcessing: currentlyProcessingKey
-    });
-    
-    if (isProcessingAIQueue) {
-      debugLog("[AI Queue] Queue processing already in progress, returning");
-      return;
-    }
-    
-    if (aiRenameQueue.length === 0) {
-      debugLog("[AI Queue] Queue is empty, nothing to process");
-      return;
-    }
-    
-    isProcessingAIQueue = true;
-    debugLog(`[AI Queue] ✅ Starting queue processing. Queue length: ${aiRenameQueue.length}`, {
-      queueItems: aiRenameQueue.map(item => ({
-        key: item.downloadKey,
-        path: item.download?.target?.path
-      }))
-    });
-    
-    try {
-      while (aiRenameQueue.length > 0) {
-      const queueItem = aiRenameQueue.shift(); // Get first item (FIFO)
-      const { downloadKey, download, originalFilename } = queueItem;
-      
-      currentlyProcessingKey = downloadKey;
-      debugLog(`[AI Queue] Processing ${downloadKey}. Remaining in queue: ${aiRenameQueue.length}`);
-      
-      // Verify the download is still valid and eligible
+
+    // Update queue status in the tooltip UI
+    function updateQueueStatusInUI(downloadKey) {
+      if (downloadKey !== focusedDownloadKey || !masterTooltipDOMElement) return;
+
+      const statusEl = masterTooltipDOMElement.querySelector(".card-status");
+      if (!statusEl) return;
+
+      const position = getQueuePosition(downloadKey);
       const cardData = activeDownloadCards.get(downloadKey);
-      if (!cardData || !cardData.download) {
-        debugLog(`[AI Queue] Skipping ${downloadKey} - card data no longer exists`);
-        currentlyProcessingKey = null;
-        continue;
+
+      if (position > 0) {
+        // In queue, waiting
+        statusEl.textContent = `Waiting for AI rename (${position} in queue)...`;
+        statusEl.style.color = "#f39c12"; // Orange for waiting
+      } else if (currentlyProcessingKey === downloadKey) {
+        // Currently being processed - don't override the processing status
+        // The processDownloadForAIRenaming function handles its own status updates
+      } else if (cardData?.download?.aiName) {
+        // Already renamed
+        statusEl.textContent = "Download renamed to:";
+        statusEl.style.color = "#a0a0a0";
+      } else if (cardData?.download?.succeeded) {
+        // Completed but not in queue (either not eligible or already processed)
+        statusEl.textContent = "Download completed";
+        statusEl.style.color = "#1dd1a1";
       }
-      
-      // Check if already renamed (path might have changed)
-      const currentPath = cardData.download.target?.path;
-      if (renamedFiles.has(currentPath)) {
-        debugLog(`[AI Queue] Skipping ${downloadKey} - already renamed`);
-        currentlyProcessingKey = null;
-        continue;
+    }
+
+    // Process the AI rename queue - one at a time, FIFO order
+    async function processAIRenameQueue() {
+      debugLog(`[AI Queue] processAIRenameQueue called`, {
+        isProcessingAIQueue,
+        queueLength: aiRenameQueue.length,
+        currentlyProcessing: currentlyProcessingKey
+      });
+
+      if (isProcessingAIQueue) {
+        debugLog("[AI Queue] Queue processing already in progress, returning");
+        return;
       }
-      
-      // Check if download still succeeded (might have been retried/canceled)
-      if (!cardData.download.succeeded) {
-        debugLog(`[AI Queue] Skipping ${downloadKey} - no longer in succeeded state`);
-        currentlyProcessingKey = null;
-        continue;
+
+      if (aiRenameQueue.length === 0) {
+        debugLog("[AI Queue] Queue is empty, nothing to process");
+        return;
       }
-      
-      // Update UI to show "processing" for this download if it's focused
-      if (focusedDownloadKey === downloadKey && masterTooltipDOMElement) {
-        const statusEl = masterTooltipDOMElement.querySelector(".card-status");
-        if (statusEl) {
-          statusEl.textContent = "Analyzing for rename...";
-          statusEl.style.color = "#54a0ff";
-        }
-      }
-      
-      // Update queue positions for other items in queue
-      aiRenameQueue.forEach(item => updateQueueStatusInUI(item.downloadKey));
-      
+
+      isProcessingAIQueue = true;
+      debugLog(`[AI Queue] ✅ Starting queue processing. Queue length: ${aiRenameQueue.length}`, {
+        queueItems: aiRenameQueue.map(item => ({
+          key: item.downloadKey,
+          path: item.download?.target?.path
+        }))
+      });
+
       try {
-        // Process the AI rename
-        const podElement = cardData.podElement;
-        if (podElement) {
-          podElement.classList.add('renaming-initiated');
+        while (aiRenameQueue.length > 0) {
+          const queueItem = aiRenameQueue.shift(); // Get first item (FIFO)
+          const { downloadKey, download, originalFilename } = queueItem;
+
+          currentlyProcessingKey = downloadKey;
+          debugLog(`[AI Queue] Processing ${downloadKey}. Remaining in queue: ${aiRenameQueue.length}`);
+
+          // Verify the download is still valid and eligible
+          const cardData = activeDownloadCards.get(downloadKey);
+          if (!cardData || !cardData.download) {
+            debugLog(`[AI Queue] Skipping ${downloadKey} - card data no longer exists`);
+            currentlyProcessingKey = null;
+            continue;
+          }
+
+          // Check if already renamed (path might have changed)
+          const currentPath = cardData.download.target?.path;
+          if (renamedFiles.has(currentPath)) {
+            debugLog(`[AI Queue] Skipping ${downloadKey} - already renamed`);
+            currentlyProcessingKey = null;
+            continue;
+          }
+
+          // Check if download still succeeded (might have been retried/canceled)
+          if (!cardData.download.succeeded) {
+            debugLog(`[AI Queue] Skipping ${downloadKey} - no longer in succeeded state`);
+            currentlyProcessingKey = null;
+            continue;
+          }
+
+          // Update UI to show "processing" for this download if it's focused
+          if (focusedDownloadKey === downloadKey && masterTooltipDOMElement) {
+            const statusEl = masterTooltipDOMElement.querySelector(".card-status");
+            if (statusEl) {
+              statusEl.textContent = "Analyzing for rename...";
+              statusEl.style.color = "#54a0ff";
+            }
+          }
+
+          // Update queue positions for other items in queue
+          aiRenameQueue.forEach(item => updateQueueStatusInUI(item.downloadKey));
+
+          try {
+            // Process the AI rename
+            const podElement = cardData.podElement;
+            if (podElement) {
+              podElement.classList.add('renaming-initiated');
+            }
+
+            await processDownloadForAIRenaming(cardData.download, originalFilename, downloadKey);
+            debugLog(`[AI Queue] Successfully processed ${downloadKey}`);
+
+          } catch (error) {
+            if (error.name === 'AbortError') {
+              debugLog(`[AI Queue] Processing of ${downloadKey} was aborted`);
+            } else {
+              debugLog(`[AI Queue] Error processing ${downloadKey}:`, error);
+            }
+
+            // Clean up on error
+            const cardData = activeDownloadCards.get(downloadKey);
+            if (cardData?.podElement) {
+              cardData.podElement.classList.remove('renaming-initiated', 'renaming-active');
+            }
+          }
+
+          currentlyProcessingKey = null;
+
+          // Small delay between processing to avoid API rate limiting
+          if (aiRenameQueue.length > 0) {
+            debugLog(`[AI Queue] Waiting before next item. Remaining: ${aiRenameQueue.length}`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
         }
-        
-        await processDownloadForAIRenaming(cardData.download, originalFilename, downloadKey);
-        debugLog(`[AI Queue] Successfully processed ${downloadKey}`);
-        
       } catch (error) {
-        if (error.name === 'AbortError') {
-          debugLog(`[AI Queue] Processing of ${downloadKey} was aborted`);
-        } else {
-          debugLog(`[AI Queue] Error processing ${downloadKey}:`, error);
+        console.error("[AI Queue] Error in queue processor:", error);
+        debugLog(`[AI Queue] Queue processor error:`, error);
+      } finally {
+        isProcessingAIQueue = false;
+        currentlyProcessingKey = null;
+        debugLog("[AI Queue] Queue processing complete (flag reset)");
+      }
+    }
+
+    // Setup compact mode observer to handle visibility changes
+    function setupCompactModeObserver() {
+      const mainWindow = document.getElementById('main-window');
+      const zenMainAppWrapper = document.getElementById('zen-main-app-wrapper');
+
+      if (!mainWindow && !zenMainAppWrapper) {
+        debugLog("[CompactModeObserver] Target elements not found, cannot set up observer");
+        return;
+      }
+
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'attributes') {
+            const attributeName = mutation.attributeName;
+            if (attributeName === 'zen-compact-mode' || attributeName === 'zen-sidebar-expanded') {
+              debugLog(`[CompactModeObserver] ${attributeName} changed, updating download cards visibility`);
+              updateDownloadCardsVisibility();
+            }
+          }
         }
-        
-        // Clean up on error
+      });
+
+      // Observe main-window for zen-compact-mode (if it exists)
+      if (mainWindow) {
+        observer.observe(mainWindow, {
+          attributes: true,
+          attributeFilter: ['zen-compact-mode']
+        });
+        debugLog("[CompactModeObserver] Observing main-window for zen-compact-mode");
+      }
+
+      // Also observe documentElement for zen-compact-mode and zen-sidebar-expanded
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['zen-compact-mode', 'zen-sidebar-expanded']
+      });
+      debugLog("[CompactModeObserver] Observing documentElement for zen-compact-mode and zen-sidebar-expanded");
+
+      debugLog("[CompactModeObserver] Set up observer for compact mode changes");
+
+      // Initial check with a small delay to ensure DOM is ready
+      setTimeout(() => {
+        updateDownloadCardsVisibility();
+      }, 100);
+    }
+
+    // Update download cards container visibility based on compact mode
+    function updateDownloadCardsVisibility() {
+      if (!downloadCardsContainer) return;
+
+      // Check compact mode on documentElement (same as zen-stuff)
+      const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
+      const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
+
+      debugLog(`[CompactModeObserver] Checking visibility: isCompactMode=${isCompactMode}, isSidebarExpanded=${isSidebarExpanded}, hasPods=${orderedPodKeys.length > 0}`);
+
+      if (isCompactMode && !isSidebarExpanded) {
+        // In compact mode with collapsed sidebar, ALWAYS hide the download cards (like media controls)
+        debugLog("[CompactModeObserver] Compact mode with collapsed sidebar - FORCING hide of download cards");
+        downloadCardsContainer.style.display = 'none';
+        downloadCardsContainer.style.opacity = '0';
+        downloadCardsContainer.style.visibility = 'hidden';
+        downloadCardsContainer.style.pointerEvents = 'none';
+        // Also hide tooltip and pods explicitly
+        if (masterTooltipDOMElement) {
+          masterTooltipDOMElement.style.display = 'none';
+          masterTooltipDOMElement.style.opacity = '0';
+          masterTooltipDOMElement.style.visibility = 'hidden';
+          masterTooltipDOMElement.style.pointerEvents = 'none';
+        }
+        if (podsRowContainerElement) {
+          podsRowContainerElement.style.display = 'none';
+          podsRowContainerElement.style.opacity = '0';
+          podsRowContainerElement.style.visibility = 'hidden';
+          podsRowContainerElement.style.pointerEvents = 'none';
+        }
+      } else if (orderedPodKeys.length > 0) {
+        // Show if we have pods and not in collapsed compact mode
+        debugLog("[CompactModeObserver] Showing download cards (not in collapsed compact mode)");
+        downloadCardsContainer.style.display = 'flex';
+        downloadCardsContainer.style.opacity = '1';
+        downloadCardsContainer.style.visibility = 'visible';
+        downloadCardsContainer.style.pointerEvents = 'auto';
+        // Tooltip and pods visibility will be managed by their own logic
+      } else {
+        // No pods, hide container
+        debugLog("[CompactModeObserver] No pods, hiding download cards");
+        downloadCardsContainer.style.display = 'none';
+        downloadCardsContainer.style.opacity = '0';
+        downloadCardsContainer.style.visibility = 'hidden';
+        downloadCardsContainer.style.pointerEvents = 'none';
+      }
+    }
+
+    // Function to cancel AI process for a specific download
+    async function cancelAIProcessForDownload(downloadKey) {
+      // Also remove from queue if waiting
+      const wasInQueue = removeFromAIRenameQueue(downloadKey);
+      if (wasInQueue) {
+        debugLog(`[AI Cancel] Removed ${downloadKey} from AI rename queue`);
+      }
+
+      const aiProcess = activeAIProcesses.get(downloadKey);
+      if (!aiProcess) {
+        debugLog(`[AI Cancel] No active AI process found for ${downloadKey}`);
+        return wasInQueue; // Return true if we at least removed from queue
+      }
+
+      debugLog(`[AI Cancel] Canceling AI process for ${downloadKey}`, {
+        phase: aiProcess.processState.phase,
+        duration: Date.now() - aiProcess.startTime
+      });
+
+      try {
+        // Abort the process
+        aiProcess.abortController.abort();
+
+        // Clean up the process tracking
+        activeAIProcesses.delete(downloadKey);
+
+        // Clean up UI state
         const cardData = activeDownloadCards.get(downloadKey);
         if (cardData?.podElement) {
-          cardData.podElement.classList.remove('renaming-initiated', 'renaming-active');
+          cardData.podElement.classList.remove("renaming-active");
+          cardData.podElement.classList.remove("renaming-initiated");
         }
-      }
-      
-      currentlyProcessingKey = null;
-      
-      // Small delay between processing to avoid API rate limiting
-      if (aiRenameQueue.length > 0) {
-        debugLog(`[AI Queue] Waiting before next item. Remaining: ${aiRenameQueue.length}`);
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    }
-    } catch (error) {
-      console.error("[AI Queue] Error in queue processor:", error);
-      debugLog(`[AI Queue] Queue processor error:`, error);
-    } finally {
-      isProcessingAIQueue = false;
-      currentlyProcessingKey = null;
-      debugLog("[AI Queue] Queue processing complete (flag reset)");
-    }
-  }
 
-  // Setup compact mode observer to handle visibility changes
-  function setupCompactModeObserver() {
-    const mainWindow = document.getElementById('main-window');
-    const zenMainAppWrapper = document.getElementById('zen-main-app-wrapper');
-    
-    if (!mainWindow && !zenMainAppWrapper) {
-      debugLog("[CompactModeObserver] Target elements not found, cannot set up observer");
-      return;
-    }
-    
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === 'attributes') {
-          const attributeName = mutation.attributeName;
-          if (attributeName === 'zen-compact-mode' || attributeName === 'zen-sidebar-expanded') {
-            debugLog(`[CompactModeObserver] ${attributeName} changed, updating download cards visibility`);
-            updateDownloadCardsVisibility();
+        // Update status if this is the focused download
+        if (downloadKey === focusedDownloadKey && masterTooltipDOMElement) {
+          const statusEl = masterTooltipDOMElement.querySelector(".card-status");
+          if (statusEl && (statusEl.textContent.includes("Analyzing") || statusEl.textContent.includes("Generating"))) {
+            // Restore appropriate status based on download state
+            const download = cardData?.download;
+            if (download?.succeeded) {
+              statusEl.textContent = "Download completed";
+              statusEl.style.color = "#1dd1a1";
+            } else if (download?.error) {
+              statusEl.textContent = `Error: ${download.error.message || "Download failed"}`;
+              statusEl.style.color = "#ff6b6b";
+            }
           }
         }
+
+        debugLog(`[AI Cancel] Successfully canceled AI process for ${downloadKey}`);
+        return true;
+
+      } catch (error) {
+        debugLog(`[AI Cancel] Error canceling AI process for ${downloadKey}:`, error);
+        // Still clean up tracking even if abort failed
+        activeAIProcesses.delete(downloadKey);
+        return false;
       }
-    });
-    
-    // Observe main-window for zen-compact-mode (if it exists)
-    if (mainWindow) {
-      observer.observe(mainWindow, {
-        attributes: true,
-        attributeFilter: ['zen-compact-mode']
-      });
-      debugLog("[CompactModeObserver] Observing main-window for zen-compact-mode");
     }
-    
-    // Also observe documentElement for zen-compact-mode and zen-sidebar-expanded
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['zen-compact-mode', 'zen-sidebar-expanded']
-    });
-    debugLog("[CompactModeObserver] Observing documentElement for zen-compact-mode and zen-sidebar-expanded");
-    
-    debugLog("[CompactModeObserver] Set up observer for compact mode changes");
-    
-    // Initial check with a small delay to ensure DOM is ready
-    setTimeout(() => {
-      updateDownloadCardsVisibility();
-    }, 100);
-  }
-  
-  // Update download cards container visibility based on compact mode
-  function updateDownloadCardsVisibility() {
-    if (!downloadCardsContainer) return;
-    
-    // Check compact mode on documentElement (same as zen-stuff)
-    const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
-    const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
-    
-    debugLog(`[CompactModeObserver] Checking visibility: isCompactMode=${isCompactMode}, isSidebarExpanded=${isSidebarExpanded}, hasPods=${orderedPodKeys.length > 0}`);
-    
-    if (isCompactMode && !isSidebarExpanded) {
-      // In compact mode with collapsed sidebar, ALWAYS hide the download cards (like media controls)
-      debugLog("[CompactModeObserver] Compact mode with collapsed sidebar - FORCING hide of download cards");
-      downloadCardsContainer.style.display = 'none';
-      downloadCardsContainer.style.opacity = '0';
-      downloadCardsContainer.style.visibility = 'hidden';
-      downloadCardsContainer.style.pointerEvents = 'none';
-      // Also hide tooltip and pods explicitly
-      if (masterTooltipDOMElement) {
-        masterTooltipDOMElement.style.display = 'none';
-        masterTooltipDOMElement.style.opacity = '0';
-        masterTooltipDOMElement.style.visibility = 'hidden';
-        masterTooltipDOMElement.style.pointerEvents = 'none';
+
+    console.log("=== DOWNLOAD PREVIEW SCRIPT LOADED SUCCESSFULLY ===");
+
+    // --- Function to Undo AI Rename ---
+    async function undoRename(keyOfAIRenamedFile) {
+      debugLog("[UndoRename] Attempting to undo rename for key:", keyOfAIRenamedFile);
+      const cardData = activeDownloadCards.get(keyOfAIRenamedFile);
+
+      if (!cardData || !cardData.download) {
+        debugLog("[UndoRename] No cardData or download object found for key:", keyOfAIRenamedFile);
+        return false;
       }
-      if (podsRowContainerElement) {
-        podsRowContainerElement.style.display = 'none';
-        podsRowContainerElement.style.opacity = '0';
-        podsRowContainerElement.style.visibility = 'hidden';
-        podsRowContainerElement.style.pointerEvents = 'none';
-      }
-    } else if (orderedPodKeys.length > 0) {
-      // Show if we have pods and not in collapsed compact mode
-      debugLog("[CompactModeObserver] Showing download cards (not in collapsed compact mode)");
-      downloadCardsContainer.style.display = 'flex';
-      downloadCardsContainer.style.opacity = '1';
-      downloadCardsContainer.style.visibility = 'visible';
-      downloadCardsContainer.style.pointerEvents = 'auto';
-      // Tooltip and pods visibility will be managed by their own logic
-    } else {
-      // No pods, hide container
-      debugLog("[CompactModeObserver] No pods, hiding download cards");
-      downloadCardsContainer.style.display = 'none';
-      downloadCardsContainer.style.opacity = '0';
-      downloadCardsContainer.style.visibility = 'hidden';
-      downloadCardsContainer.style.pointerEvents = 'none';
-    }
-  }
 
-  // Function to cancel AI process for a specific download
-  async function cancelAIProcessForDownload(downloadKey) {
-    // Also remove from queue if waiting
-    const wasInQueue = removeFromAIRenameQueue(downloadKey);
-    if (wasInQueue) {
-      debugLog(`[AI Cancel] Removed ${downloadKey} from AI rename queue`);
-    }
-    
-    const aiProcess = activeAIProcesses.get(downloadKey);
-    if (!aiProcess) {
-      debugLog(`[AI Cancel] No active AI process found for ${downloadKey}`);
-      return wasInQueue; // Return true if we at least removed from queue
-    }
-    
-    debugLog(`[AI Cancel] Canceling AI process for ${downloadKey}`, {
-      phase: aiProcess.processState.phase,
-      duration: Date.now() - aiProcess.startTime
-    });
-    
-    try {
-      // Abort the process
-      aiProcess.abortController.abort();
-      
-      // Clean up the process tracking
-      activeAIProcesses.delete(downloadKey);
-      
-      // Clean up UI state
-      const cardData = activeDownloadCards.get(downloadKey);
-      if (cardData?.podElement) {
-        cardData.podElement.classList.remove("renaming-active");
-        cardData.podElement.classList.remove("renaming-initiated");
-      }
-      
-      // Update status if this is the focused download
-      if (downloadKey === focusedDownloadKey && masterTooltipDOMElement) {
-        const statusEl = masterTooltipDOMElement.querySelector(".card-status");
-        if (statusEl && (statusEl.textContent.includes("Analyzing") || statusEl.textContent.includes("Generating"))) {
-          // Restore appropriate status based on download state
-          const download = cardData?.download;
-          if (download?.succeeded) {
-            statusEl.textContent = "Download completed";
-            statusEl.style.color = "#1dd1a1";
-          } else if (download?.error) {
-            statusEl.textContent = `Error: ${download.error.message || "Download failed"}`;
-            statusEl.style.color = "#ff6b6b";
-          }
-        }
-      }
-      
-      debugLog(`[AI Cancel] Successfully canceled AI process for ${downloadKey}`);
-      return true;
-      
-    } catch (error) {
-      debugLog(`[AI Cancel] Error canceling AI process for ${downloadKey}:`, error);
-      // Still clean up tracking even if abort failed
-      activeAIProcesses.delete(downloadKey);
-      return false;
-    }
-  }
+      const currentAIRenamedPath = cardData.download.target.path; // Current path (after AI rename)
+      const originalSimpleName = cardData.trueOriginalSimpleNameBeforeAIRename;
+      const originalFullPath = cardData.trueOriginalPathBeforeAIRename; // The full path before AI rename
 
-  console.log("=== DOWNLOAD PREVIEW SCRIPT LOADED SUCCESSFULLY ===");
-
-// --- Function to Undo AI Rename ---
-async function undoRename(keyOfAIRenamedFile) {
-  debugLog("[UndoRename] Attempting to undo rename for key:", keyOfAIRenamedFile);
-  const cardData = activeDownloadCards.get(keyOfAIRenamedFile);
-
-  if (!cardData || !cardData.download) {
-      debugLog("[UndoRename] No cardData or download object found for key:", keyOfAIRenamedFile);
-      return false;
-  }
-
-  const currentAIRenamedPath = cardData.download.target.path; // Current path (after AI rename)
-  const originalSimpleName = cardData.trueOriginalSimpleNameBeforeAIRename;
-  const originalFullPath = cardData.trueOriginalPathBeforeAIRename; // The full path before AI rename
-
-  if (!currentAIRenamedPath || !originalSimpleName || !originalFullPath) {
-      debugLog("[UndoRename] Missing path/name information for undo:", 
+      if (!currentAIRenamedPath || !originalSimpleName || !originalFullPath) {
+        debugLog("[UndoRename] Missing path/name information for undo:",
           { currentAIRenamedPath, originalSimpleName, originalFullPath });
-      // Maybe update status to indicate error?
-      return false;
-  }
-  
-  // Ensure originalSimpleName is what we expect if originalFullPath is the key to the past state
-  // For safety, we reconstruct the target directory from the *current* path if the original was just a simple name.
-  const targetDirectory = currentAIRenamedPath.substring(0, currentAIRenamedPath.lastIndexOf(PATH_SEPARATOR));
-  const targetOriginalPath = targetDirectory + PATH_SEPARATOR + originalSimpleName;
-
-  debugLog("[UndoRename] Details:", {
-      currentPath: currentAIRenamedPath,
-      originalSimple: originalSimpleName,
-      originalFullPathStored: originalFullPath, // The key to what it *was*
-      targetOriginalPathForRename: targetOriginalPath // The path we want to rename *to*
-  });
-
-  /**
-   * Undo AI rename operation - restore original filename
-   * Uses a modified version of rename logic
-   */
-  try {
-      // SECURITY: Validate path before file operations (non-strict for undo operations)
-      const undoPathValidation = SecurityUtils.validateFilePath(currentAIRenamedPath, { strict: false });
-      if (!undoPathValidation.valid) {
-        debugLog("[UndoRename] Path validation warning", {
-          path: currentAIRenamedPath,
-          error: undoPathValidation.error,
-          code: undoPathValidation.code
-        });
-        // Continue anyway - user-initiated undo operation
+        // Maybe update status to indicate error?
+        return false;
       }
-      
-      const fileToUndo = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-      fileToUndo.initWithPath(currentAIRenamedPath);
 
-      if (!fileToUndo.exists()) {
+      // Ensure originalSimpleName is what we expect if originalFullPath is the key to the past state
+      // For safety, we reconstruct the target directory from the *current* path if the original was just a simple name.
+      const targetDirectory = currentAIRenamedPath.substring(0, currentAIRenamedPath.lastIndexOf(PATH_SEPARATOR));
+      const targetOriginalPath = targetDirectory + PATH_SEPARATOR + originalSimpleName;
+
+      debugLog("[UndoRename] Details:", {
+        currentPath: currentAIRenamedPath,
+        originalSimple: originalSimpleName,
+        originalFullPathStored: originalFullPath, // The key to what it *was*
+        targetOriginalPathForRename: targetOriginalPath // The path we want to rename *to*
+      });
+
+      /**
+       * Undo AI rename operation - restore original filename
+       * Uses a modified version of rename logic
+       */
+      try {
+        // SECURITY: Validate path before file operations (non-strict for undo operations)
+        const undoPathValidation = SecurityUtils.validateFilePath(currentAIRenamedPath, { strict: false });
+        if (!undoPathValidation.valid) {
+          debugLog("[UndoRename] Path validation warning", {
+            path: currentAIRenamedPath,
+            error: undoPathValidation.error,
+            code: undoPathValidation.code
+          });
+          // Continue anyway - user-initiated undo operation
+        }
+
+        const fileToUndo = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+        fileToUndo.initWithPath(currentAIRenamedPath);
+
+        if (!fileToUndo.exists()) {
           debugLog("[UndoRename] File to undo does not exist at current path:", currentAIRenamedPath);
           // Perhaps it was moved or deleted by the user? Clean up UI.
           if (masterTooltipDOMElement) {
-              const undoBtn = masterTooltipDOMElement.querySelector(".card-undo-button");
-              if (undoBtn) undoBtn.style.display = "none";
+            const undoBtn = masterTooltipDOMElement.querySelector(".card-undo-button");
+            if (undoBtn) undoBtn.style.display = "none";
           }
           // Consider removing the card or updating status more drastically.
           return false;
-      }
+        }
 
-      // Perform the rename back to originalSimpleName in the current directory
-      fileToUndo.moveTo(null, originalSimpleName); 
-      debugLog(`[UndoRename] File moved from ${currentAIRenamedPath} to ${targetOriginalPath} (using simple name ${originalSimpleName})`);
+        // Perform the rename back to originalSimpleName in the current directory
+        fileToUndo.moveTo(null, originalSimpleName);
+        debugLog(`[UndoRename] File moved from ${currentAIRenamedPath} to ${targetOriginalPath} (using simple name ${originalSimpleName})`);
 
-      // Update download object and cardData
-      cardData.download.target.path = targetOriginalPath;
-      cardData.download.aiName = null; // Clear the AI name
-      // cardData.originalFilename should revert to originalSimpleName (or be updated by next UI refresh)
-      cardData.originalFilename = originalSimpleName; 
+        // Update download object and cardData
+        cardData.download.target.path = targetOriginalPath;
+        cardData.download.aiName = null; // Clear the AI name
+        // cardData.originalFilename should revert to originalSimpleName (or be updated by next UI refresh)
+        cardData.originalFilename = originalSimpleName;
 
-      // Update the key in activeDownloadCards map
-      if (keyOfAIRenamedFile !== targetOriginalPath) {
+        // Update the key in activeDownloadCards map
+        if (keyOfAIRenamedFile !== targetOriginalPath) {
           activeDownloadCards.delete(keyOfAIRenamedFile);
           activeDownloadCards.set(targetOriginalPath, cardData);
           cardData.key = targetOriginalPath;
           if (cardData.podElement) cardData.podElement.dataset.downloadKey = targetOriginalPath;
-          
+
           // Update orderedPodKeys
           const oldKeyIndex = orderedPodKeys.indexOf(keyOfAIRenamedFile);
           if (oldKeyIndex > -1) {
-              orderedPodKeys.splice(oldKeyIndex, 1, targetOriginalPath);
+            orderedPodKeys.splice(oldKeyIndex, 1, targetOriginalPath);
           }
 
           // If this was the focused key, update focusedDownloadKey
           if (focusedDownloadKey === keyOfAIRenamedFile) {
-              focusedDownloadKey = targetOriginalPath;
+            focusedDownloadKey = targetOriginalPath;
           }
           debugLog(`[UndoRename] Updated activeDownloadCards map key from ${keyOfAIRenamedFile} to ${targetOriginalPath}`);
-      }
-      
-      renamedFiles.delete(originalFullPath); // Allow AI re-rename if user downloads it again or wants to retry
-      renamedFiles.delete(currentAIRenamedPath); // Remove the AI-renamed path from the set too
+        }
 
-      // Update UI immediately for the focused item
-      if (focusedDownloadKey === targetOriginalPath && masterTooltipDOMElement) {
+        renamedFiles.delete(originalFullPath); // Allow AI re-rename if user downloads it again or wants to retry
+        renamedFiles.delete(currentAIRenamedPath); // Remove the AI-renamed path from the set too
+
+        // Update UI immediately for the focused item
+        if (focusedDownloadKey === targetOriginalPath && masterTooltipDOMElement) {
           const titleEl = masterTooltipDOMElement.querySelector(".card-title");
           const statusEl = masterTooltipDOMElement.querySelector(".card-status");
           const originalFilenameEl = masterTooltipDOMElement.querySelector(".card-original-filename");
@@ -4901,62 +4889,62 @@ async function undoRename(keyOfAIRenamedFile) {
 
           if (titleEl) titleEl.textContent = originalSimpleName;
           if (statusEl) {
-              statusEl.textContent = "Download completed"; // Or original status if stored
-              statusEl.style.color = "#1dd1a1";
+            statusEl.textContent = "Download completed"; // Or original status if stored
+            statusEl.style.color = "#1dd1a1";
           }
           if (originalFilenameEl) originalFilenameEl.style.display = "none";
           if (progressEl) progressEl.style.display = "block"; // Show progress/size again
           if (undoBtn) undoBtn.style.display = "none";
-      }
+        }
 
-      // Trigger a full UI update
-      updateUIForFocusedDownload(focusedDownloadKey || targetOriginalPath, true); 
+        // Trigger a full UI update
+        updateUIForFocusedDownload(focusedDownloadKey || targetOriginalPath, true);
 
-      // 4. Ensure autohide is scheduled/rescheduled
-      // We need to clear the old timeout associated with the OLD key (keyOfAIRenamedFile) 
-      // and start a new one for the NEW key (targetOriginalPath).
-      
-      // Try to find the cardData that was moved to the new key
-      const revertedCardData = activeDownloadCards.get(targetOriginalPath);
-      
-      if (revertedCardData) {
-         // Reset timeout ID just in case it carried over but wasn't cleared
-         if (revertedCardData.autohideTimeoutId) {
-             clearTimeout(revertedCardData.autohideTimeoutId);
-             revertedCardData.autohideTimeoutId = null;
-         }
-      }
+        // 4. Ensure autohide is scheduled/rescheduled
+        // We need to clear the old timeout associated with the OLD key (keyOfAIRenamedFile) 
+        // and start a new one for the NEW key (targetOriginalPath).
 
-      // Schedule removal with a short delay (e.g. 2000ms) to allow user to see the change
-      const originalDelay = getPref("extensions.downloads.autohide_delay_ms", 20000);
-      const shortDelay = 2000;
-      
-      // Temporarily override the delay pref (or just manually call setTimeout/performAutohide)
-      // Since scheduleCardRemoval reads the pref, we'll implement a custom one-off removal here
-      // or just trust scheduleCardRemoval if we want standard behavior.
-      // But user asked for "dismiss automatically" which usually implies "soon".
-      
-      debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
-      revertedCardData.autohideTimeoutId = setTimeout(() => {
+        // Try to find the cardData that was moved to the new key
+        const revertedCardData = activeDownloadCards.get(targetOriginalPath);
+
+        if (revertedCardData) {
+          // Reset timeout ID just in case it carried over but wasn't cleared
+          if (revertedCardData.autohideTimeoutId) {
+            clearTimeout(revertedCardData.autohideTimeoutId);
+            revertedCardData.autohideTimeoutId = null;
+          }
+        }
+
+        // Schedule removal with a short delay (e.g. 2000ms) to allow user to see the change
+        const originalDelay = getPref("extensions.downloads.autohide_delay_ms", 20000);
+        const shortDelay = 2000;
+
+        // Temporarily override the delay pref (or just manually call setTimeout/performAutohide)
+        // Since scheduleCardRemoval reads the pref, we'll implement a custom one-off removal here
+        // or just trust scheduleCardRemoval if we want standard behavior.
+        // But user asked for "dismiss automatically" which usually implies "soon".
+
+        debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
+        revertedCardData.autohideTimeoutId = setTimeout(() => {
           performAutohideSequence(targetOriginalPath);
-      }, shortDelay);
+        }, shortDelay);
 
-      debugLog("[UndoRename] Rename undone successfully.");
-      return true;
+        debugLog("[UndoRename] Rename undone successfully.");
+        return true;
 
-  } catch (e) {
-      debugLog("[UndoRename] Error during undo rename process:", e);
-      // Update status to show error?
-      if (masterTooltipDOMElement && focusedDownloadKey === keyOfAIRenamedFile) {
-           const statusEl = masterTooltipDOMElement.querySelector(".card-status");
-           if (statusEl) {
-              statusEl.textContent = "Undo rename failed";
-              statusEl.style.color = "#ff6b6b";
-           }
+      } catch (e) {
+        debugLog("[UndoRename] Error during undo rename process:", e);
+        // Update status to show error?
+        if (masterTooltipDOMElement && focusedDownloadKey === keyOfAIRenamedFile) {
+          const statusEl = masterTooltipDOMElement.querySelector(".card-status");
+          if (statusEl) {
+            statusEl.textContent = "Undo rename failed";
+            statusEl.style.color = "#ff6b6b";
+          }
+        }
+        return false;
       }
-      return false;
-  }
-}
+    }
 
   } // Close initializeMainScript function
 

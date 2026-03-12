@@ -740,25 +740,19 @@
   // Find the Firefox downloads button with better error handling and retry for custom buttons
   async function findDownloadButton() {
     try {
-      const useLibraryButton = getUseLibraryButton();
-      console.log(`[Zen Stuff] useLibraryButton preference: ${useLibraryButton}`);
-      
-      if (useLibraryButton) {
-        // Try zen-library-button with retry mechanism since it's custom and takes time to initialize
-        console.log(`[Zen Stuff] Waiting for zen-library-button to initialize...`);
-        const libraryButton = await waitForElement('zen-library-button', 5000); // Wait up to 5 seconds
-        
-        if (libraryButton) {
-          console.log("[Zen Stuff] ✅ Found zen-library-button for hover detection (after wait)");
-          debugLog("Found zen-library-button for hover detection");
-          state.downloadButton = libraryButton;
-          return;
-        }
-        console.log("[Zen Stuff] ❌ zen-library-button not found after waiting, falling back to downloads button");
-        debugLog("zen-library-button not found after waiting, falling back to downloads button");
-      } else {
-        console.log("[Zen Stuff] Using downloads button (library button disabled)");
+      // Always try zen-library-button first (auto-detect), regardless of preference.
+      // This ensures hover works correctly when zen-library-button replaces the downloads button.
+      console.log(`[Zen Stuff] Auto-detecting download button (trying zen-library-button first)...`);
+      const libraryButton = await waitForElement('zen-library-button', 2000);
+
+      if (libraryButton) {
+        console.log("[Zen Stuff] ✅ Found zen-library-button for hover detection (auto-detected)");
+        debugLog("Found zen-library-button for hover detection (auto-detected)");
+        state.downloadButton = libraryButton;
+        return;
       }
+      console.log("[Zen Stuff] zen-library-button not found, trying downloads button...");
+      debugLog("zen-library-button not found, falling back to downloads button");
       
       // Optimized selector order - most common first
       const selectors = [
