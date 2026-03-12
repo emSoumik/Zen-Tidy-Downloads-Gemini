@@ -198,7 +198,8 @@
     let orderedPodKeys = []; // Newest will be at the end
     let lastRotationDirection = null; // Track rotation direction: 'forward', 'backward', or null
     const dismissedDownloads = new Set(); // Track downloads that have been manually dismissed or auto-hidden
-    const permanentlyDeletedPaths = new Set(); // Normalized paths cleared by permanent delete - allow re-download to show
+    const permanentlyDeletedPaths = new Set(); // Normalized paths cleared by permanent delete
+    const permanentlyDeletedMeta = new Map();  // pathNorm -> { startTime }
     const MAX_PERMANENTLY_DELETED_PATHS = 50;
 
     // AI Process Management
@@ -318,6 +319,13 @@
         }
         for (const norm of pathsToAllow) {
           if (!norm) continue;
+          // Record deletion time for this path so we can distinguish old history entries from future re-downloads
+          try {
+            const deletedTime = podData?.startTime ? new Date(podData.startTime).getTime() : Date.now();
+            permanentlyDeletedMeta.set(norm, { startTime: deletedTime });
+          } catch (e) {
+            debugLog("[PermanentDelete] Failed to record deletion time meta", { error: e, norm });
+          }
           for (const dk of [...dismissedDownloads]) {
             if (normalizePath(dk) === norm) dismissedDownloads.delete(dk);
           }
@@ -325,6 +333,10 @@
           if (permanentlyDeletedPaths.size > MAX_PERMANENTLY_DELETED_PATHS) {
             const first = permanentlyDeletedPaths.values().next().value;
             if (first) permanentlyDeletedPaths.delete(first);
+          }
+          if (permanentlyDeletedMeta.size > MAX_PERMANENTLY_DELETED_PATHS) {
+            const firstMeta = permanentlyDeletedMeta.keys().next().value;
+            if (firstMeta) permanentlyDeletedMeta.delete(firstMeta);
           }
         }
         
@@ -938,14 +950,39 @@
 
       // Skip dismissed downloads only if they're not currently in our active cards.
       // Exceptions:
-      //   1. Path was explicitly "removed from pile" via permanentlyDeletedPaths.
+      //   1. Path was explicitly "removed from pile" via permanentlyDeletedPaths AND this is a fresh re-download
+      //      whose startTime is newer than the deletion time we recorded.
       //   2. This download has a newer startTime than the dismissed one — it's a fresh re-download.
       const normPath = (p) => (typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "");
       const pathNorm = download.target?.path ? normPath(download.target.path) : "";
       if (pathNorm && permanentlyDeletedPaths.has(pathNorm)) {
+        const meta = permanentlyDeletedMeta.get(pathNorm);
+        const deletedTimeMs = meta?.startTime || 0;
+        const currentTimeMs = download.startTime ? new Date(download.startTime).getTime() : 0;
+
+        // If we don't have a reliable startTime or it's not newer than the deletion time,
+        // treat this as the same old history entry (e.g. "File missing or deleted") and skip it.
+        if (!download.startTime || !meta || currentTimeMs <= deletedTimeMs) {
+          debugLog("[CreatePod] Skipping permanently-deleted history entry", {
+            key,
+            pathNorm,
+            deletedTimeMs,
+            currentTimeMs,
+            hasError: !!download.error
+          });
+          return null;
+        }
+
+        // Fresh re-download after permanent delete: clear flags and allow through.
         permanentlyDeletedPaths.delete(pathNorm);
+        permanentlyDeletedMeta.delete(pathNorm);
         dismissedDownloads.delete(key);
-        debugLog(`[CreatePod] Bypassing skip - path was permanently deleted, allowing re-download: ${key}`);
+        debugLog("[CreatePod] Allowing re-download for permanently deleted path", {
+          key,
+          pathNorm,
+          deletedTimeMs,
+          currentTimeMs
+        });
       } else if (dismissedDownloads.has(key) && !activeDownloadCards.has(key)) {
         // Check whether this is a genuinely new download of the same file path
         const dismissedData = dismissedPodsData.get(key);
