@@ -103,8 +103,14 @@
       IMAGE_EXTENSIONS,
       PATH_SEPARATOR,
       sanitizeFilename,
-      waitForElement
+      waitForElement,
+      formatBytes
     } = Utils;
+
+    // Toast notifications from modules/toasts.uc.js
+    const Toasts = window.zenTidyDownloadsToasts;
+    const showSimpleToast = Toasts?.showSimpleToast || (() => {});
+    const showRenameToast = Toasts?.showRenameToast || (() => null);
 
     // CRITICAL: Patch downloads indicator methods immediately to prevent errors
     // This must happen before any downloads can trigger the indicator
@@ -201,6 +207,32 @@
     const permanentlyDeletedPaths = new Set(); // Normalized paths cleared by permanent delete
     const permanentlyDeletedMeta = new Map();  // pathNorm -> { startTime }
     const MAX_PERMANENTLY_DELETED_PATHS = 50;
+
+    // Preview module (icons, file preview, color extraction)
+    const previewApi = window.zenTidyDownloadsPreview?.init({
+      IMAGE_EXTENSIONS,
+      debugLog,
+      getPref,
+      getFocusedKey: () => focusedDownloadKey
+    }) || {
+      setGenericIcon: (el, ct) => {
+        if (!el) return;
+        let icon = "📄";
+        if (typeof ct === "string") {
+          if (ct.includes("image/")) icon = "🖼️";
+          else if (ct.includes("video/")) icon = "🎬";
+          else if (ct.includes("audio/")) icon = "🎵";
+        }
+        el.innerHTML = `<span style="font-size: 24px;">${icon}</span>`;
+        el.style.display = "flex";
+        el.style.alignItems = "center";
+        el.style.justifyContent = "center";
+      },
+      setCompletedFilePreview: async (el, d) => {
+        if (el && d) previewApi.setGenericIcon(el, d?.contentType);
+      },
+      updatePodGlowColor: () => {}
+    };
 
     // AI Process Management
     const activeAIProcesses = new Map(); // downloadKey -> { abortController, processState, startTime }
@@ -1025,31 +1057,9 @@
           </div>
         `;
 
-        // Add event listeners to the pod itself (e.g., for hover to focus, click to open)
-        // Commenting out the mouseenter listener to disable hover-to-focus
-        /*
-        podElement.addEventListener('mouseenter', () => {
-          const keyFromPodHover = podElement.dataset.downloadKey; // Get key from dataset
-          debugLog(`[PodHover] Mouseenter on pod. Key: ${keyFromPodHover}, Current Focused: ${focusedDownloadKey}`);
-          
-          const previewContainer = podElement.querySelector('.card-preview-container');
-          if (previewContainer && previewContainer.style.pointerEvents === 'none') {
-              debugLog(`[PodHover] Pointer events none on preview for ${keyFromPodHover}, not changing focus.`);
-              return; 
-          }
-          
-          if (focusedDownloadKey !== keyFromPodHover) {
-              debugLog(`[PodHover] Focus will change from ${focusedDownloadKey} to ${keyFromPodHover}. Calling updateUIForFocusedDownload.`);
-              updateUIForFocusedDownload(keyFromPodHover, false); // isNewOrSignificantUpdate is false for hover
-          } else {
-              debugLog(`[PodHover] Pod ${keyFromPodHover} is already focused. No UI update call needed from hover.`);
-          }
-        });
-        */
-
         const previewContainer = podElement.querySelector(".card-preview-container");
         if (previewContainer) {
-          setGenericIcon(previewContainer, download.contentType || "application/octet-stream");
+          previewApi.setGenericIcon(previewContainer, download.contentType || "application/octet-stream");
           previewContainer.title = "Click to open file";
 
           previewContainer.addEventListener("click", (e) => {
@@ -1246,11 +1256,11 @@
         if (download.succeeded) {
           // Always try to set preview for completed downloads (in case it failed before)
           debugLog(`[Preview] Setting completed file preview for: ${key}`);
-          setCompletedFilePreview(previewElement, download)
+          previewApi.setCompletedFilePreview(previewElement, download)
             .catch(e => debugLog("Error setting completed file preview (async) for pod", { error: e, download }));
         } else if (download.error) {
           // Potentially set a different icon for error/cancel state on the pod itself
-          setGenericIcon(previewElement, "application/octet-stream"); // Default or error specific icon
+          previewApi.setGenericIcon(previewElement, "application/octet-stream"); // Default or error specific icon
         } else {
           // In-progress, could have a spinner or animated icon on the pod
           // For now, generic icon remains until completion, set at creation.
@@ -1409,7 +1419,7 @@
             const previewElement = podElement.querySelector(".card-preview-container");
             if (previewElement) {
               debugLog(`[UIUPDATE] Setting completed file preview for: ${focusedDownloadKey}`);
-              setCompletedFilePreview(previewElement, download)
+              previewApi.setCompletedFilePreview(previewElement, download)
                 .catch(e => debugLog("Error setting completed file preview during UI update", { error: e, download }));
             }
           }
@@ -1555,7 +1565,7 @@
             // Use dominant color if available, otherwise default blue
             const dominantColor = cd.podElement.dataset.dominantColor;
             if (dominantColor) {
-              updatePodGlowColor(cd.podElement, dominantColor);
+              previewApi.updatePodGlowColor(cd.podElement, dominantColor);
             }
           } else {
             cd.podElement.classList.remove('focused-pod');
@@ -2734,652 +2744,7 @@
 
 
 
-    // Set generic icon for file type
-    function setGenericIcon(previewElement, contentType) {
-      if (!previewElement) return;
-      try {
-        let icon = "📄";
-        if (typeof contentType === "string") {
-          if (contentType.includes("image/")) icon = "🖼️";
-          else if (contentType.includes("video/")) icon = "🎬";
-          else if (contentType.includes("audio/")) icon = "🎵";
-          else if (contentType.includes("text/")) icon = "📝";
-          else if (contentType.includes("application/pdf")) icon = "📕";
-          else if (contentType.includes("application/zip") || contentType.includes("application/x-rar")) icon = "🗜️";
-          else if (contentType.includes("application/")) icon = "📦";
-        }
-        previewElement.innerHTML = `<span style="font-size: 24px;">${icon}</span>`;
-        previewElement.style.display = "flex";
-        previewElement.style.alignItems = "center";
-        previewElement.style.justifyContent = "center";
-      } catch (e) {
-        debugLog("Error setting generic icon:", e);
-        previewElement.innerHTML = `<span style="font-size: 24px;">📄</span>`;
-      }
-    }
-
-    // Extract dominant color from an image element
-    function extractDominantColor(imgElement) {
-      try {
-        // Create a canvas to analyze the image
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-
-        // Set canvas size (smaller for performance)
-        canvas.width = 50;
-        canvas.height = 50;
-
-        // Draw the image onto the canvas
-        ctx.drawImage(imgElement, 0, 0, 50, 50);
-
-        // Get image data
-        const imageData = ctx.getImageData(0, 0, 50, 50);
-        const data = imageData.data;
-
-        // Color frequency map
-        const colorMap = {};
-
-        // Sample every 4th pixel for performance
-        for (let i = 0; i < data.length; i += 16) { // RGBA = 4 bytes, so i += 16 samples every 4th pixel
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-          const a = data[i + 3];
-
-          // Skip transparent or very dark/light pixels
-          if (a < 128 || (r + g + b) < 50 || (r + g + b) > 650) continue;
-
-          // Group similar colors (reduce precision)
-          const rGroup = Math.floor(r / 32) * 32;
-          const gGroup = Math.floor(g / 32) * 32;
-          const bGroup = Math.floor(b / 32) * 32;
-
-          const colorKey = `${rGroup},${gGroup},${bGroup}`;
-          colorMap[colorKey] = (colorMap[colorKey] || 0) + 1;
-        }
-
-        // Find the most frequent color
-        let dominantColor = null;
-        let maxCount = 0;
-
-        for (const [color, count] of Object.entries(colorMap)) {
-          if (count > maxCount) {
-            maxCount = count;
-            dominantColor = color;
-          }
-        }
-
-        if (dominantColor) {
-          const [r, g, b] = dominantColor.split(',').map(Number);
-
-          // Enhance saturation and brightness for glow effect
-          const enhancedColor = enhanceColorForGlow(r, g, b);
-
-          debugLog("[ColorExtraction] Extracted dominant color", {
-            original: `rgb(${r}, ${g}, ${b})`,
-            enhanced: enhancedColor,
-            frequency: maxCount
-          });
-
-          return enhancedColor;
-        }
-
-        return null;
-      } catch (e) {
-        debugLog("[ColorExtraction] Error extracting color:", e);
-        return null;
-      }
-    }
-
-    // Enhance color for better glow visibility
-    function enhanceColorForGlow(r, g, b) {
-      // Convert to HSL for easier manipulation
-      const [h, s, l] = rgbToHsl(r, g, b);
-
-      // Increase saturation and adjust lightness for better glow
-      const newS = Math.min(1, s + 0.3); // Increase saturation
-      const newL = Math.max(0.4, Math.min(0.7, l + 0.2)); // Ensure good visibility
-
-      // Convert back to RGB
-      const [newR, newG, newB] = hslToRgb(h, newS, newL);
-
-      return `rgb(${Math.round(newR)}, ${Math.round(newG)}, ${Math.round(newB)})`;
-    }
-
-    // RGB to HSL conversion
-    function rgbToHsl(r, g, b) {
-      r /= 255;
-      g /= 255;
-      b /= 255;
-
-      const max = Math.max(r, g, b);
-      const min = Math.min(r, g, b);
-      let h, s, l = (max + min) / 2;
-
-      if (max === min) {
-        h = s = 0; // achromatic
-      } else {
-        const d = max - min;
-        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-
-        switch (max) {
-          case r: h = (g - b) / d + (g < b ? 6 : 0); break;
-          case g: h = (b - r) / d + 2; break;
-          case b: h = (r - g) / d + 4; break;
-        }
-        h /= 6;
-      }
-
-      return [h, s, l];
-    }
-
-    // HSL to RGB conversion
-    function hslToRgb(h, s, l) {
-      let r, g, b;
-
-      if (s === 0) {
-        r = g = b = l; // achromatic
-      } else {
-        const hue2rgb = (p, q, t) => {
-          if (t < 0) t += 1;
-          if (t > 1) t -= 1;
-          if (t < 1 / 6) return p + (q - p) * 6 * t;
-          if (t < 1 / 2) return q;
-          if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-          return p;
-        };
-
-        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-        const p = 2 * l - q;
-        r = hue2rgb(p, q, h + 1 / 3);
-        g = hue2rgb(p, q, h);
-        b = hue2rgb(p, q, h - 1 / 3);
-      }
-
-      return [r * 255, g * 255, b * 255];
-    }
-
-    // Read text file preview (first 500 chars)
-    async function readTextFilePreview(path) {
-      try {
-        // Try IOUtils first (modern FF)
-        if (typeof IOUtils !== 'undefined') {
-          const content = await IOUtils.readUTF8(path, { maxBytes: 500 });
-          return content;
-        }
-
-        // Fallback to legacy file stream
-        const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-        file.initWithPath(path);
-        if (!file.exists()) return null;
-
-        const fstream = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(Ci.nsIFileInputStream);
-        const cstream = Cc["@mozilla.org/intl/converter-input-stream;1"].createInstance(Ci.nsIConverterInputStream);
-
-        fstream.init(file, -1, 0, 0);
-        cstream.init(fstream, "UTF-8", 0, 0);
-
-        let str = {};
-        // Read up to 500 chars
-        cstream.readString(500, str);
-        cstream.close();
-        return str.value;
-      } catch (e) {
-        debugLog("Error reading text file preview:", e);
-        return null;
-      }
-    }
-
-    // Set preview for completed file - supports Images, Text, and System Icons
-    async function setCompletedFilePreview(previewElement, download) {
-      if (!previewElement) {
-        debugLog("[setCompletedFilePreview] No preview element provided");
-        return;
-      }
-
-      debugLog("[setCompletedFilePreview] Called", {
-        contentType: download?.contentType,
-        targetPath: download?.target?.path,
-        filename: download?.filename
-      });
-
-      // Extensions mapping
-      const SYSTEM_ICON_EXTS = new Set([
-        // Video
-        '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
-        // Audio
-        '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.wma',
-        // Documents
-        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-        // Executables
-        '.exe', '.msi', '.bat', '.cmd', '.scr',
-        // Archives
-        '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.iso'
-      ]);
-
-      const TEXT_EXTS = new Set([
-        '.txt', '.md', '.js', '.css', '.html', '.json', '.xml', '.log', '.ini', '.sh', '.py', '.java', '.c', '.cpp', '.h', '.ts', '.jsx', '.tsx'
-      ]);
-
-      try {
-        if (!download.target?.path) {
-          setGenericIcon(previewElement, null);
-          return;
-        }
-
-        const filePath = download.target.path;
-        const lowerPath = filePath.toLowerCase();
-
-        // 1. Check for Images (via ContentType OR Extension)
-        const isImageContentType = download?.contentType?.startsWith("image/");
-        let isImageExtension = false;
-        for (const ext of IMAGE_EXTENSIONS) {
-          if (lowerPath.endsWith(ext)) {
-            isImageExtension = true;
-            break;
-          }
-        }
-
-        if (isImageContentType || isImageExtension) {
-          debugLog("[setCompletedFilePreview] Rendering Image Preview");
-
-          const podElement = previewElement.closest('.download-pod');
-          if (podElement) {
-            podElement.classList.add("is-image-pod");
-          }
-
-          const img = document.createElement("img");
-          const imgSrc = `file:///${filePath.replace(/\\/g, '/')}`;
-          img.src = imgSrc;
-          img.style.width = "100%";
-          img.style.height = "100%";
-          img.style.objectFit = "cover";
-          img.style.transition = "all 0.3s ease";
-          img.style.opacity = "0";
-
-          img.onload = () => {
-            img.style.opacity = "1";
-
-            // Extract dominant color
-            setTimeout(() => {
-              const dominantColor = extractDominantColor(img);
-              if (dominantColor) {
-                const podElement = previewElement.closest('.download-pod');
-                if (podElement) {
-                  podElement.dataset.dominantColor = dominantColor;
-                  // If this pod is currently focused, update its glow immediately
-                  const downloadKey = podElement.dataset.downloadKey;
-                  if (downloadKey === focusedDownloadKey) {
-                    updatePodGlowColor(podElement, dominantColor);
-                  }
-                }
-              }
-            }, 100);
-          };
-          img.onerror = () => {
-            // Fallback to system icon if image fails
-            renderSystemIcon(previewElement, filePath);
-          };
-
-          previewElement.innerHTML = "";
-          previewElement.appendChild(img);
-          return;
-        }
-
-        // If we fall through to non-images, ensure the class is removed
-        const nonImagePodElement = previewElement.closest('.download-pod');
-        if (nonImagePodElement) {
-          nonImagePodElement.classList.remove("is-image-pod");
-        }
-
-        // 2. Check for Text Files (preview disabled by default - use generic icon)
-        let isTextExtension = false;
-        for (const ext of TEXT_EXTS) {
-          if (lowerPath.endsWith(ext)) {
-            isTextExtension = true;
-            break;
-          }
-        }
-
-        if (isTextExtension || download?.contentType?.startsWith("text/")) {
-          if (filePreviewEnabled) {
-            debugLog("[setCompletedFilePreview] Rendering Text Preview");
-            const textContent = await readTextFilePreview(filePath);
-            if (textContent) {
-              previewElement.innerHTML = "";
-              const textDiv = document.createElement("div");
-              textDiv.style.cssText = `
-                      width: 100%;
-                      height: 100%;
-                      padding: 6px;
-                      box-sizing: border-box;
-                      font-family: monospace;
-                      font-size: 6px; /* Tiny font for preview effect */
-                      line-height: 1.2;
-                      overflow: hidden;
-                      white-space: pre-wrap;
-                      color: rgba(255,255,255,0.8);
-                      background: transparent;
-                      text-align: left;
-                      word-break: break-all;
-                  `;
-              textDiv.textContent = textContent;
-              previewElement.appendChild(textDiv);
-              return;
-            }
-          }
-          debugLog("[setCompletedFilePreview] Text file, no preview - using System Icon (extension-based)");
-          const ext = lowerPath.includes(".") ? lowerPath.slice(lowerPath.lastIndexOf(".")) : ".txt";
-          renderSystemIconByExtension(previewElement, ext);
-          return;
-        }
-
-        // 3. Check for System Icon Types (Video, PDF, Exe, etc.)
-        let isSystemIconType = false;
-        for (const ext of SYSTEM_ICON_EXTS) {
-          if (lowerPath.endsWith(ext)) {
-            isSystemIconType = true;
-            break;
-          }
-        }
-
-        if (isSystemIconType || download?.contentType?.startsWith("video/") || download?.contentType?.startsWith("application/pdf")) {
-          debugLog("[setCompletedFilePreview] Rendering System Icon");
-          renderSystemIcon(previewElement, filePath);
-          return;
-        }
-
-        // 4. Default / Fallback
-        debugLog("[setCompletedFilePreview] Using Generic Icon");
-        setGenericIcon(previewElement, download?.contentType);
-
-      } catch (e) {
-        debugLog("Error setting file preview:", e);
-        previewElement.innerHTML = `<span style="font-size: 24px;">🚫</span>`;
-      }
-    }
-
-    // Helper to render system icon by file path
-    function renderSystemIcon(container, filePath) {
-      const fileUrl = "file:///" + filePath.replace(/\\/g, "/");
-      const iconUrl = `moz-icon://${fileUrl}?size=25`;
-      renderIconImg(container, iconUrl, () => setGenericIcon(container, null));
-    }
-
-    // Helper to render system icon by extension only (more reliable in download panel context)
-    function renderSystemIconByExtension(container, ext) {
-      const extSafe = ext && ext.startsWith(".") ? ext : "." + (ext || "txt");
-      const iconUrl = `moz-icon://${extSafe}?size=25`;
-      renderIconImg(container, iconUrl, () => setGenericIcon(container, null));
-    }
-
-    function renderIconImg(container, iconUrl, onError) {
-      const img = document.createElement("img");
-      img.src = iconUrl;
-      img.style.width = "25px";
-      img.style.height = "25px";
-      img.style.objectFit = "contain";
-      img.onerror = () => {
-        debugLog("[renderIconImg] Failed to load icon, falling back to generic", { url: iconUrl });
-        onError();
-      };
-      img.onload = () => {
-        if (img.naturalWidth === 0 || img.naturalHeight === 0) onError();
-      };
-      container.innerHTML = "";
-      container.style.display = "flex";
-      container.style.alignItems = "center";
-      container.style.justifyContent = "center";
-      container.style.background = "transparent";
-      container.appendChild(img);
-    }
-
-    // Update pod glow color based on dominant color
-    function updatePodGlowColor(podElement, color) {
-      if (!podElement) return;
-      try {
-        // Always use a subtle grey shadow, ignore color extraction
-        const subtleGreyShadow = '0 2px 8px rgba(60,60,60,0.18), 0 3px 10px rgba(0,0,0,0.10)';
-        podElement.style.boxShadow = subtleGreyShadow;
-        debugLog('[GlowUpdate] Applied subtle grey shadow under pod', {
-          podKey: podElement.dataset.downloadKey,
-          shadow: subtleGreyShadow
-        });
-      } catch (e) {
-        debugLog('[GlowUpdate] Error updating pod shadow:', e);
-        // Fallback to a basic grey shadow
-        podElement.style.boxShadow = '0 2px 8px rgba(60,60,60,0.18)';
-      }
-    }
-
-    // Simple Toast for generic messages
-    function showSimpleToast(message) {
-      const container = document.getElementById('zen-toast-container');
-      if (!container) return;
-
-      const wrapper = document.createXULElement('hbox');
-      wrapper.classList.add('zen-toast');
-      wrapper.style.alignItems = "center";
-      wrapper.style.padding = "10px 16px";
-
-      const label = document.createXULElement('label');
-      label.textContent = message;
-      label.style.margin = "0";
-      wrapper.appendChild(label);
-
-      container.removeAttribute('hidden');
-      container.appendChild(wrapper);
-
-      // Animation
-      if (!wrapper.style.transform) wrapper.style.transform = 'scale(0)';
-      if (window.gZenUIManager && window.gZenUIManager.motion) {
-        window.gZenUIManager.motion.animate(wrapper, { scale: 1 }, { type: 'spring', bounce: 0.2, duration: 0.5 });
-      } else {
-        wrapper.style.transform = 'scale(1)';
-      }
-
-      const remove = () => {
-        if (window.gZenUIManager && window.gZenUIManager.motion) {
-          window.gZenUIManager.motion.animate(wrapper, { opacity: [1, 0], scale: [1, 0.5] }, { duration: 0.2, bounce: 0 })
-            .then(() => {
-              wrapper.remove();
-              if (container.children.length === 0) container.setAttribute('hidden', true);
-            });
-        } else {
-          wrapper.remove();
-          if (container.children.length === 0) container.setAttribute('hidden', true);
-        }
-      };
-
-      setTimeout(remove, 3000);
-    }
-
-    // Custom Toast Notification Helper for AI Rename
-    function showRenameToast(newName, oldName, onUndo) {
-      const container = document.getElementById('zen-toast-container');
-      if (!container) return null;
-
-      const wrapper = document.createXULElement('hbox');
-      wrapper.style.position = "relative"; // For absolute positioning of undo button
-      wrapper.style.overflow = "visible"; // Allow undo button to hang out
-      wrapper.style.alignItems = "start"; // Align content to top
-      wrapper.style.height = "auto"; // Allow auto height
-      wrapper.style.minHeight = "fit-content"; // Ensure it fits content
-
-      const contentBox = document.createXULElement('vbox');
-      contentBox.style.padding = "4px";
-      // Ensure contentBox respects parent width for children truncation
-      contentBox.style.width = "100%";
-      contentBox.style.maxWidth = "100%";
-
-      // 1. "Download renamed !" (small font)
-      const titleLabel = document.createXULElement('label');
-      titleLabel.textContent = "Download renamed !";
-      titleLabel.style.fontSize = "0.85em";
-      titleLabel.style.opacity = "0.7";
-      titleLabel.style.marginBottom = "2px";
-
-      // 2. [NEW NAME]
-      const newNameLabel = document.createXULElement('label');
-      newNameLabel.textContent = newName;
-      newNameLabel.style.fontWeight = "bold";
-      newNameLabel.style.fontSize = "1.1em";
-      newNameLabel.style.marginBottom = "1px";
-      newNameLabel.style.whiteSpace = "nowrap"; // Keep on one line
-      newNameLabel.style.overflow = "hidden"; // Hide overflow
-      newNameLabel.style.textOverflow = "ellipsis"; // Add ellipsis
-      newNameLabel.style.width = "100%"; // Changed from maxWidth to width to force ellipsis constraint
-      newNameLabel.style.display = "block"; // Block display for width constraints
-
-      // 3. [OLD NAME] (crossed out)
-      const oldNameLabel = document.createXULElement('label');
-      oldNameLabel.textContent = oldName;
-      oldNameLabel.style.textDecoration = "line-through";
-      oldNameLabel.style.opacity = "0.6";
-      oldNameLabel.style.fontSize = "0.9em";
-      oldNameLabel.style.whiteSpace = "nowrap"; // Keep on one line
-      oldNameLabel.style.overflow = "hidden"; // Hide overflow
-      oldNameLabel.style.textOverflow = "ellipsis"; // Add ellipsis
-      oldNameLabel.style.width = "90%"; // Changed from maxWidth to width to force ellipsis constraint
-      oldNameLabel.style.display = "block"; // Block display for width constraints
-
-      contentBox.appendChild(titleLabel);
-      contentBox.appendChild(newNameLabel);
-      contentBox.appendChild(oldNameLabel);
-      wrapper.appendChild(contentBox);
-
-      let dismissToast = null;
-
-      if (onUndo) {
-        // Create pill-shaped undo container
-        const pill = document.createElement('div');
-        pill.style.cssText = `
-        position: absolute;
-        bottom: -28px;
-        right: 0;
-        background: var(--zen-primary-color, #0060df);
-        color: white;
-        border-radius: 9999px;
-        padding: 4px 12px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        cursor: pointer;
-        transition: transform 0.2s, filter 0.2s;
-        font-size: 12px;
-        font-weight: 600;
-      `;
-
-        // Small Undo Icon
-        const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-        icon.setAttribute("viewBox", "0 0 52 52");
-        icon.style.width = "14px";
-        icon.style.height = "14px";
-        icon.style.fill = "currentColor";
-
-        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        path.setAttribute("d", "M30.3,12.6c10.4,0,18.9,8.4,18.9,18.9s-8.5,18.9-18.9,18.9h-8.2c-0.8,0-1.3-0.6-1.3-1.4v-3.2c0-0.8,0.6-1.5,1.4-1.5h8.1c7.1,0,12.8-5.7,12.8-12.8s-5.7-12.8-12.8-12.8H16.4c0,0-0.8,0-1.1,0.1c-0.8,0.4-0.6,1,0.1,1.7l4.9,4.9c0.6,0.6,0.5,1.5-0.1,2.1L18,29.7c-0.6,0.6-1.3,0.6-1.9,0.1l-13-13c-0.5-0.5-0.5-1.3,0-1.8L16,2.1c0.6-0.6,1.6-0.6,2.1,0l2.1,2.1c0.6,0.6,0.6,1.6,0,2.1l-4.9,4.9c-0.6,0.6-0.6,1.3,0.4,1.3c0.3,0,0.7,0,0.7,0L30.3,12.6z");
-        icon.appendChild(path);
-
-        // "Undo" Text
-        const text = document.createElement('span');
-        text.textContent = "Undo";
-
-        pill.appendChild(icon);
-        pill.appendChild(text);
-
-        // Wrapper for XUL compatibility
-        const btnWrapper = document.createXULElement('box');
-        btnWrapper.appendChild(pill);
-
-        // Hover effects
-        pill.addEventListener('mouseover', () => {
-          pill.style.transform = "scale(1.05)";
-          pill.style.filter = "brightness(1.1)";
-        });
-        pill.addEventListener('mouseout', () => {
-          pill.style.transform = "scale(1)";
-          pill.style.filter = "brightness(1)";
-        });
-
-        pill.addEventListener('click', (e) => {
-          e.stopPropagation();
-          onUndo(dismissToast);
-        });
-
-        wrapper.appendChild(btnWrapper);
-      }
-
-      wrapper.classList.add('zen-toast');
-      // Ensure styles override class defaults if necessary for height
-      // Using cssText to ensure importance and override existing styles forcefully
-      wrapper.style.cssText = `
-        height: 85px !important;
-        max-height: none !important;
-        min-height: fit-content !important;
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: flex-start !important;
-        padding: 8px !important;
-        width: 300px !important; 
-        max-width: 300px !important;
-    `;
-
-      // Force container styles too
-      if (container) {
-        // We can't easily change the container's max-height if it's defined in CSS without !important
-        // But we can try setting inline style
-        container.style.height = "auto";
-        container.style.maxHeight = "none";
-      }
-      container.appendChild(wrapper);
-
-      // Initial state for animation
-      if (!wrapper.style.transform) {
-        wrapper.style.transform = 'scale(0)';
-      }
-
-      // Animate in
-      if (window.gZenUIManager && window.gZenUIManager.motion) {
-        window.gZenUIManager.motion.animate(wrapper, { scale: 1 }, { type: 'spring', bounce: 0.2, duration: 0.5 });
-      } else {
-        wrapper.style.transform = 'scale(1)';
-      }
-
-      const timeoutDuration = 5000; // Slightly longer for more reading time
-      let isDismissed = false;
-
-      dismissToast = () => {
-        if (isDismissed) return;
-        isDismissed = true;
-        if (timeoutId) clearTimeout(timeoutId);
-
-        if (window.gZenUIManager && window.gZenUIManager.motion) {
-          window.gZenUIManager.motion.animate(wrapper, { opacity: [1, 0], scale: [1, 0.5] }, { duration: 0.2, bounce: 0 })
-            .then(() => {
-              wrapper.remove();
-              if (container.children.length === 0) container.setAttribute('hidden', true);
-            });
-        } else {
-          wrapper.remove();
-          if (container.children.length === 0) container.setAttribute('hidden', true);
-        }
-      };
-
-      const autoRemove = () => {
-        dismissToast();
-      };
-
-      let timeoutId = setTimeout(autoRemove, timeoutDuration);
-
-      wrapper.addEventListener('mouseover', () => clearTimeout(timeoutId));
-      wrapper.addEventListener('mouseout', () => {
-        if (!isDismissed) timeoutId = setTimeout(autoRemove, timeoutDuration);
-      });
-
-      return { dismiss: dismissToast };
-    }
+    // Preview: setGenericIcon, setCompletedFilePreview, updatePodGlowColor - from tidy-downloads-preview.uc.js
 
     // Process download for AI renaming - with file size check
     async function processDownloadForAIRenaming(download, originalNameForUICard, keyOverride) {
@@ -4085,13 +3450,6 @@ Instructions:
         });
         return false;
       }
-    }
-
-    function formatBytes(b, d = 2) {
-      if (b === 0) return "0 B";
-      const sizes = ["B", "KB", "MB", "GB", "TB"];
-      const i = Math.floor(Math.log(b) / Math.log(1024));
-      return `${parseFloat((b / Math.pow(1024, i)).toFixed(d))} ${sizes[i]}`;
     }
 
     // Get content type from filename extension

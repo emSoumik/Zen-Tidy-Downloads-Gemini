@@ -21,17 +21,29 @@
       ],
       "loadOrder": 2
     },
-    "tidy-downloads.uc.js": {
+    "tidy-downloads-toasts.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 3
     },
+    "tidy-downloads-preview.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 4
+    },
+    "tidy-downloads.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 5
+    },
     "zen-stuff.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
-      "loadOrder": 3
+      "loadOrder": 6
     }
   },
   "preferences": "preferences.json",

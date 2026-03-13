@@ -322,6 +322,16 @@
   }
 
   // ============================================================================
+  // FORMAT UTILITIES
+  // ============================================================================
+  function formatBytes(b, d = 2) {
+    if (b === 0) return "0 B";
+    const sizes = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(b) / Math.log(1024));
+    return `${parseFloat((b / Math.pow(1024, i)).toFixed(d))} ${sizes[i]}`;
+  }
+
+  // ============================================================================
   // DOM UTILITIES
   // ============================================================================
   function waitForElement(elementId, timeout = 5000) {
@@ -375,6 +385,9 @@
 
     // Validation
     validatePodData,
+
+    // Format
+    formatBytes,
 
     // DOM
     waitForElement

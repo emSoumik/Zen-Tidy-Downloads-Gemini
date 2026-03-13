@@ -17,7 +17,7 @@
     console.error("[Zen Stuff] zenTidyDownloadsUtils not loaded - ensure tidy-downloads-utils.uc.js loads first (check @loadOrder in headers)");
     return;
   }
-  const { validateFilePathOrThrow, validatePodData } = Utils;
+  const { validateFilePathOrThrow, validatePodData, formatBytes, waitForElement } = Utils;
 
   // Configuration
   const CONFIG = {
@@ -708,33 +708,6 @@
     } catch (error) {
       console.error("[Dismissed Pile] Error updating pod keys in SessionStore:", error);
     }
-  }
-
-  // Helper function to wait for an element to appear in the DOM
-  function waitForElement(elementId, timeout = 5000) {
-    return new Promise((resolve) => {
-      const startTime = Date.now();
-      
-      const checkForElement = () => {
-        const element = document.getElementById(elementId);
-        if (element) {
-          console.log(`[Zen Stuff] Element ${elementId} found after ${Date.now() - startTime}ms`);
-          resolve(element);
-          return;
-        }
-        
-        if (Date.now() - startTime >= timeout) {
-          console.log(`[Zen Stuff] Timeout waiting for element ${elementId} after ${timeout}ms`);
-          resolve(null);
-          return;
-        }
-        
-        // Check again in 100ms
-        setTimeout(checkForElement, 100);
-      };
-      
-      checkForElement();
-    });
   }
 
   // Find the Firefox downloads button with better error handling and retry for custom buttons
@@ -1476,14 +1449,6 @@
     if (contentType.includes("application/")) return "📦";
 
     return "📄";
-  }
-
-  // Format bytes to human-readable size
-  function formatBytes(b, d = 2) {
-    if (b === 0) return "0 B";
-    const sizes = ["B", "KB", "MB", "GB", "TB"];
-    const i = Math.floor(Math.log(b) / Math.log(1024));
-    return `${parseFloat((b / Math.pow(1024, i)).toFixed(d))} ${sizes[i]}`;
   }
 
   // Generate random pile position for a pod
@@ -2322,60 +2287,6 @@
   }
   // --- End Pile Container Width Synchronization Logic ---
 
-  // Helper function to capture pod data for dismissal
-  function capturePodDataForDismissal(downloadKey) {
-    const cardData = activeDownloadCards.get(downloadKey);
-    if (!cardData || !cardData.download) {
-      debugLog(`[Dismiss] No card data found for capturing: ${downloadKey}`);
-      return null;
-    }
-
-    const download = cardData.download;
-    const podElement = cardData.podElement;
-
-    // Capture essential data for pile reconstruction
-    const dismissedData = {
-      key: downloadKey,
-      filename: download.aiName || cardData.originalFilename || getSafeFilename(download),
-      originalFilename: cardData.originalFilename,
-      fileSize: download.currentBytes || download.totalBytes || 0,
-      contentType: download.contentType,
-      targetPath: download.target?.path,
-      sourceUrl: download.source?.url,
-      startTime: download.startTime,
-      endTime: download.endTime,
-      dismissTime: Date.now(),
-      wasRenamed: !!download.aiName,
-      // Capture preview data
-      previewData: null,
-      dominantColor: podElement?.dataset?.dominantColor || null
-    };
-
-    // Try to capture preview image data
-    if (podElement) {
-      const previewContainer = podElement.querySelector('.card-preview-container');
-      if (previewContainer) {
-        const img = previewContainer.querySelector('img');
-        if (img && img.src) {
-          dismissedData.previewData = {
-            type: 'image',
-            src: img.src
-          };
-        } else {
-          // SECURITY FIX: Don't store raw HTML, just mark as icon type
-          // The icon will be regenerated safely from contentType when restored
-          dismissedData.previewData = {
-            type: 'icon'
-            // No html field - will use contentType to regenerate icon safely
-          };
-        }
-      }
-    }
-
-    debugLog(`[Dismiss] Captured pod data for pile:`, dismissedData);
-    return dismissedData;
-  }
-
   // Update downloads button visibility - now handled by hover events
   function updateDownloadsButtonVisibility() {
     // Buttons are now controlled by hover events in showPileBackground/hidePileBackground
@@ -2489,6 +2400,33 @@
     }
   }
 
+  // Parse RGB/RGBA from CSS color string - returns { r, g, b, a } or null
+  function parseRGB(colorStr) {
+    if (!colorStr || typeof colorStr !== 'string') return null;
+    if (colorStr.startsWith('rgba(')) {
+      const match = colorStr.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
+      if (match) {
+        return {
+          r: parseInt(match[1]),
+          g: parseInt(match[2]),
+          b: parseInt(match[3]),
+          a: parseFloat(match[4])
+        };
+      }
+    } else if (colorStr.startsWith('rgb(')) {
+      const match = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (match) {
+        return {
+          r: parseInt(match[1]),
+          g: parseInt(match[2]),
+          b: parseInt(match[3]),
+          a: 1
+        };
+      }
+    }
+    return null;
+  }
+
   // Compute the blended background color that matches Zen's lightening effect
   function computeBlendedBackgroundColor() {
     // Check if we're in compact mode - use toolbar background color directly
@@ -2568,32 +2506,6 @@
       return 'var(--zen-main-browser-background)';
     }
 
-    // Parse RGB values
-    function parseRGB(colorStr) {
-      if (colorStr.startsWith('rgba(')) {
-        const match = colorStr.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
-        if (match) {
-          return {
-            r: parseInt(match[1]),
-            g: parseInt(match[2]),
-            b: parseInt(match[3]),
-            a: parseFloat(match[4])
-          };
-        }
-      } else if (colorStr.startsWith('rgb(')) {
-        const match = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-        if (match) {
-          return {
-            r: parseInt(match[1]),
-            g: parseInt(match[2]),
-            b: parseInt(match[3]),
-            a: 1
-          };
-        }
-      }
-      return null;
-    }
-
     const baseRGB = parseRGB(baseColor);
     const wrapperRGB = parseRGB(wrapperColor);
 
@@ -2621,23 +2533,8 @@
 
   // Calculate text color based on background color (using Zen's luminance/contrast logic)
   function calculateTextColorForBackground(backgroundColor) {
-    // Parse RGB from color string
-    function parseRGB(colorStr) {
-      if (colorStr.startsWith('rgba(')) {
-        const match = colorStr.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
-        if (match) {
-          return [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])];
-        }
-      } else if (colorStr.startsWith('rgb(')) {
-        const match = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-        if (match) {
-          return [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])];
-        }
-      }
-      return null;
-    }
-
-    const bgRGB = parseRGB(backgroundColor);
+    const parsed = parseRGB(backgroundColor);
+    const bgRGB = parsed ? [parsed.r, parsed.g, parsed.b] : null;
     if (!bgRGB) {
       // Fallback to CSS variable if we can't parse
       return 'var(--zen-text-color, #e0e0e0)';
