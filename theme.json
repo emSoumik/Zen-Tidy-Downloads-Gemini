@@ -9,53 +9,59 @@
     "chrome": "chrome.css"
   },
   "scripts": {
-    "tidy-downloads-utils.uc.js": {
+    "modules/tidy-downloads-utils.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 1
     },
-    "tidy-downloads-sync.uc.js": {
+    "modules/tidy-downloads-sync.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 2
     },
-    "tidy-downloads-toasts.uc.js": {
+    "modules/tidy-downloads-toasts.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 3
     },
-    "tidy-downloads-preview.uc.js": {
+    "modules/tidy-downloads-preview.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 4
     },
-    "tidy-downloads-fileops.uc.js": {
+    "modules/tidy-downloads-fileops.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 5
     },
-    "tidy-downloads-animation.uc.js": {
+    "modules/tidy-downloads-animation.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 6
     },
-    "tidy-downloads.uc.js": {
+    "modules/tidy-downloads-ai-rename.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 7
     },
-    "zen-stuff.uc.js": {
+    "tidy-downloads.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 8
+    },
+    "zen-stuff.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 9
     }
   },
   "preferences": "preferences.json",
