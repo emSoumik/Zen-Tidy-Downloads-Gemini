@@ -959,6 +959,14 @@
       debugLog("[PileSync] Could not register listener for actual download removals - API not found on main script.");
     }
 
+    // Sticky pod hover: expand pile when user hovers over a sticky pod
+    document.addEventListener('request-pile-expand', () => {
+      if (state.dismissedPods.size > 0) {
+        showPile();
+        showPileBackground();
+      }
+    });
+
     // Context menu click-outside handler
     document.addEventListener('click', (e) => {
       if (window.zenPileContextMenu &&
@@ -1531,7 +1539,8 @@
   }
 
   // Apply position to a pod (simple single column, no rotation)
-  function applyGridPosition(podKey, delay = 0, shouldAnimate = false) {
+  // preserveTransition: when true, don't overwrite transition (caller set transition-delay for stagger)
+  function applyGridPosition(podKey, delay = 0, shouldAnimate = false, preserveTransition = false) {
     const podElement = state.podElements.get(podKey);
     const position = state.gridPositions.get(podKey);
     if (!podElement || !position) {
@@ -1543,8 +1552,8 @@
     }
 
     const update = () => {
-      // Set transition if animation is needed
-      if (shouldAnimate) {
+      // Set transition if animation is needed (skip when caller uses transition-delay for stagger)
+      if (shouldAnimate && !preserveTransition) {
         podElement.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
       }
       // Use bottom positioning for bottom-up layout
@@ -1564,7 +1573,10 @@
       podElement.style.opacity = '1';
     };
 
-    if (delay > 0) {
+    if (preserveTransition) {
+      // Caller batches updates in single frame; apply immediately
+      update();
+    } else if (delay > 0) {
       setTimeout(() => requestAnimationFrame(update), delay);
     } else {
       requestAnimationFrame(update);
@@ -2099,10 +2111,10 @@
     hideWorkspaceScrollboxAfter();
 
     // Update positions for all pods (show only 4 most recent)
-    // Reset pods to hidden state before staggering in (only if not already visible)
     const recentPods = Array.from(state.dismissedPods.keys()).slice(-4);
 
     if (!wasVisible) {
+      // Reset pods to hidden state
       recentPods.forEach(podKey => {
         const el = state.podElements.get(podKey);
         if (el) {
@@ -2112,22 +2124,31 @@
         }
       });
 
-      // Force reflow
+      // Force reflow so reset state is applied before we set transitions
       if (state.dynamicSizer) state.dynamicSizer.offsetHeight;
-    }
 
-    // Trigger staggered entrance (or just update position if already visible)
-    recentPods.forEach((podKey, index) => {
-      const el = state.podElements.get(podKey);
-      if (!wasVisible && el) {
-        // Restore transition
-        el.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
-      }
-      generateGridPosition(podKey);
-      // Staggers bottom-up (first valid pod is index 0) if animating
-      const delay = wasVisible ? 0 : index * CONFIG.gridAnimationDelay;
-      applyGridPosition(podKey, delay);
-    });
+      // Use CSS transition-delay for stagger (all transitions start same frame, predictable order)
+      // Order: oldest (index 0) first, newest (index 3) last
+      recentPods.forEach((podKey, index) => {
+        const el = state.podElements.get(podKey);
+        if (el) {
+          const delayMs = index * CONFIG.gridAnimationDelay;
+          el.style.transition = `opacity ${CONFIG.animationDuration}ms ease ${delayMs}ms, transform ${CONFIG.animationDuration}ms ease ${delayMs}ms`;
+        }
+      });
+
+      // Batch all position updates in single frame for consistent animation start
+      recentPods.forEach(podKey => generateGridPosition(podKey));
+      requestAnimationFrame(() => {
+        recentPods.forEach(podKey => applyGridPosition(podKey, 0, false, true));
+      });
+    } else {
+      // Already visible: update positions without stagger
+      recentPods.forEach((podKey) => {
+        generateGridPosition(podKey);
+        applyGridPosition(podKey, 0);
+      });
+    }
 
     // Ensure hover events are properly set up for the current mode
     // This is important after the pile was hidden and is being shown again

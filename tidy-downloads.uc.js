@@ -1554,7 +1554,7 @@
     const podNominalWidth = 56; 
       const podOverlapAmount = 50;
     const baseZIndex = 10;
-    const maxVisiblePodsInPile = Math.floor((tooltipWidth - podNominalWidth) / (podNominalWidth - podOverlapAmount)) + 1; 
+    const maxVisiblePodsInPile = Math.min(4, Math.floor((tooltipWidth - podNominalWidth) / (podNominalWidth - podOverlapAmount)) + 1); 
 
     if (orderedPodKeys.length === 0) {
         // Hide the entire container when no pods exist
@@ -2119,8 +2119,11 @@
     dismissedDownloads.add(downloadKey);
     if (cardData.podElement) {
       cardData.podElement.classList.add('zen-tidy-sticky-pod');
-      cardData.podElement.style.pointerEvents = 'none';
-      cardData.podElement.style.cursor = 'default';
+      cardData.podElement.style.pointerEvents = 'auto';
+      cardData.podElement.style.cursor = 'pointer';
+      cardData.podElement.addEventListener('mouseenter', () => {
+        document.dispatchEvent(new CustomEvent('request-pile-expand', { bubbles: true }));
+      });
     }
     // Make the entire pods row pass-through so the bridge/pile receive hover (avoids pile hiding
     // when the cursor moves to where the sticky pod was, or when the sticky pod is removed).
