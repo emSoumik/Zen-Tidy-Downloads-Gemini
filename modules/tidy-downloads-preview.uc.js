@@ -198,7 +198,11 @@
       function renderSystemIcon(container, filePath) {
         const fileUrl = "file:///" + filePath.replace(/\\/g, "/");
         const iconUrl = `moz-icon://${fileUrl}?size=25`;
-        renderIconImg(container, iconUrl, () => setGenericIcon(container, null));
+        const onPathFail = () => {
+          const ext = filePath && filePath.includes(".") ? filePath.slice(filePath.lastIndexOf(".")) : "";
+          renderSystemIconByExtension(container, ext || "");
+        };
+        renderIconImg(container, iconUrl, onPathFail);
       }
 
       function renderSystemIconByExtension(container, ext) {
@@ -343,7 +347,11 @@
           setGenericIcon(previewElement, download?.contentType);
         } catch (e) {
           debugLog("Error setting file preview:", e);
-          previewElement.innerHTML = `<span style="font-size: 24px;">🚫</span>`;
+          if (download?.target?.path) {
+            renderSystemIcon(previewElement, download.target.path);
+          } else {
+            setGenericIcon(previewElement, download?.contentType);
+          }
         }
       }
 

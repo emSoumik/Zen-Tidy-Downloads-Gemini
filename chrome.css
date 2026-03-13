@@ -78,11 +78,16 @@
   text-decoration: line-through;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   display: none;
   margin-bottom: 2px;
-  padding-right: 40px;
+  padding-right: 50px;
   box-sizing: border-box;
+  mask-image: linear-gradient(to right, black 80%, transparent 100%);
+  mask-size: 100% 100%;
+  mask-position: left;
+  mask-repeat: no-repeat;
+  mask-origin: content-box;
+  mask-clip: content-box;
 }
 
 .card-progress {
@@ -167,7 +172,7 @@
   width: 25px !important;
   height: 25px !important;
   border-radius: 6px;
-  background-color: rgba(0, 0, 0, 0.9);
+  background-color: transparent;
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
   display: flex;
   align-items: center;
