@@ -1491,10 +1491,11 @@
       return;
     }
 
-    // Single column layout - newest at bottom (index 0), older stack upward
-    // All pods are in column 0, positioned vertically from bottom using bottom CSS property
-    const x = 0; // All pods start at left edge (full width)
-    const rowIndex = index; // Index in the recent 4 (0 = newest at bottom)
+    // Single column layout - newest at bottom (row 0), older pods stack upward.
+    // Invert the index: newest (last in recentPods array) gets row 0 (bottom),
+    // oldest (first in recentPods array) gets the highest row.
+    const x = 0;
+    const rowIndex = (recentPods.length - 1) - index; // 0 = bottom (newest)
 
     state.gridPositions.set(podKey, { x, y: 0, row: rowIndex, col: 0 });
 
@@ -2135,6 +2136,9 @@
       debugLog("[ShowPile] Hover events re-setup after pile shown");
     }, 50); // Small delay to ensure DOM is updated
 
+    // Notify tidy-downloads that the pile is showing so it can remove sticky pods from the pods row
+    document.dispatchEvent(new CustomEvent('pile-shown', { bubbles: true }));
+
     debugLog("Showing pile with single column layout", {
       totalPods,
       podsToShow,
@@ -2382,13 +2386,14 @@
   // Check if main download script has active pods to disable hover
   function shouldDisableHover() {
     try {
-      // Check for visible download pods within the dedicated container
+      // Check for visible download pods within the dedicated container.
+      // Sticky pods (.zen-tidy-sticky-pod) are already in the pile and should NOT disable hover -
+      // we want the pile to open so the sticky pod can animate out.
       const podsRowContainer = document.getElementById('userchrome-pods-row-container');
       if (podsRowContainer) {
-        // Check if there are any child elements that are download pods
-        const activePods = podsRowContainer.querySelectorAll('.download-pod');
+        const activePods = podsRowContainer.querySelectorAll('.download-pod:not(.zen-tidy-sticky-pod)');
         if (activePods.length > 0) {
-          debugLog(`[HoverCheck] Found ${activePods.length} active pods in #userchrome-pods-row-container - disabling pile hover`);
+          debugLog(`[HoverCheck] Found ${activePods.length} active (non-sticky) pods - disabling pile hover`);
           return true;
         }
       }
@@ -2672,13 +2677,19 @@
   }
 
   // Hover bridge leave - same logic as dynamicSizer leave
+  // Use a short delay so pile's mouseenter can fire first when moving bridge→pile (avoids premature hide)
   function handleHoverBridgeLeave(event) {
     debugLog("[HoverBridge] Left");
     if (event?.relatedTarget && (state.pileContainer?.contains(event.relatedTarget) || state.dynamicSizer?.contains(event.relatedTarget))) {
       debugLog("[HoverBridge] Moving into pile - not scheduling hide");
       return;
     }
-    handleDynamicSizerLeave(event);
+    // Delay before delegating so pile's mouseenter has time to fire when moving upward
+    const bridgeLeaveGraceMs = 120;
+    setTimeout(() => {
+      if (isHoveringPileArea() || state.downloadButton?.matches(':hover')) return;
+      handleDynamicSizerLeave(event);
+    }, bridgeLeaveGraceMs);
   }
 
   // Setup hover events for background/buttons (simplified - always single column mode)
