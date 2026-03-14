@@ -1126,6 +1126,7 @@
 
       // Add to ordered list (newest at the end)
       if (!orderedPodKeys.includes(key)) {
+        if (stickyPods.size > 0) clearStickyPodsOnly();
         orderedPodKeys.push(key);
         
         // Show the container when we add the first pod (respects compact mode)
@@ -2185,6 +2186,15 @@
       downloadCardsContainer.style.visibility = 'hidden';
     }
     keys.forEach(clearStickyPod);
+  }
+
+  // Remove sticky pods from DOM and state but keep containers visible (for new download replacing stickies).
+  function clearStickyPodsOnly() {
+    const keys = Array.from(stickyPods);
+    if (keys.length === 0) return;
+    debugLog(`[Sticky] Clearing ${keys.length} sticky pod(s) only (new download), keeping containers visible`);
+    keys.forEach(clearStickyPod);
+    if (podsRowContainerElement) podsRowContainerElement.style.pointerEvents = '';
   }
 
   // SecurityUtils, getPref, sanitizeFilename, waitForElement: see tidy-downloads-utils.uc.js
