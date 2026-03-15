@@ -2973,8 +2973,12 @@
       // Remove from Stuff
       podContextMenu.querySelector("#zenPilePodRemove").addEventListener("command", async () => {
         if (podContextMenuPodData) {
-          // Ask for confirmation before removing
-          const confirmed = confirm(`Are you sure you want to remove "${podContextMenuPodData.filename}" from Stuff?\n\nThis will remove it from the pile but won't delete the file.`);
+          // Ask for confirmation (use Services.prompt with window so it works from context menu)
+          const confirmed = Services.prompt.confirm(
+            window,
+            'Remove from Stuff',
+            `Are you sure you want to remove "${podContextMenuPodData.filename}" from Stuff?\n\nThis will remove it from the pile but won't delete the file.`
+          );
           if (!confirmed) {
             return; // User cancelled
           }
@@ -3477,9 +3481,9 @@
         throw new Error('No file path available');
       }
 
-      // Confirm deletion with user
+      // Confirm deletion with user (pass window so prompt is available from context menu)
       const confirmed = Services.prompt.confirm(
-        null,
+        window,
         'Delete File',
         `Are you sure you want to permanently delete "${podData.filename}"?\n\nThis action cannot be undone.`
       );
