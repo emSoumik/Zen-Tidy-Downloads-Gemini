@@ -729,7 +729,18 @@
 
           // When the pile expands (zen-stuff fires pile-shown), remove sticky pods from the pods row
           document.addEventListener('pile-shown', clearAllStickyPods);
-          
+
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+              if (orderedPodKeys.length > 0) hideMediaControlsToolbar();
+              else showMediaControlsToolbar();
+            }
+          });
+          window.addEventListener('focus', () => {
+            if (orderedPodKeys.length > 0) hideMediaControlsToolbar();
+            else showMediaControlsToolbar();
+          }, { passive: true });
+
           // Add close handler for the master tooltip's close button AFTER creating podsRowContainerElement
           const masterCloseBtn = masterTooltipDOMElement.querySelector(".card-close-button");
           if (masterCloseBtn) {
@@ -2336,31 +2347,45 @@
     }
   }
 
-  // Helper functions to hide/show media controls toolbar
+  // Media controls toolbar: remove from DOM when we have pods; restore same node when no pods and user not hovering
+  let mediaControlsToolbarRemovedNode = null;
+  let mediaControlsToolbarRestoreParent = null;
+  let mediaControlsToolbarRestoreNextSibling = null;
+
   function hideMediaControlsToolbar() {
-    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-    if (mediaControlsToolbar) {
-      mediaControlsToolbar.style.opacity = '0';
-      mediaControlsToolbar.style.pointerEvents = 'none';
-      debugLog('[MediaControls] Hid media controls toolbar');
-    }
+    const el = document.getElementById('zen-media-controls-toolbar');
+    if (!el || !el.parentNode) return;
+    mediaControlsToolbarRestoreParent = el.parentNode;
+    mediaControlsToolbarRestoreNextSibling = el.nextSibling;
+    mediaControlsToolbarRemovedNode = el;
+    el.remove();
+    debugLog('[MediaControls] Removed media controls toolbar from DOM');
   }
 
   function showMediaControlsToolbar() {
-    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-    if (mediaControlsToolbar) {
-      // Check if context menu is visible
-      const contextMenu = document.getElementById('zen-pile-pod-context-menu');
-      const isContextMenuVisible = contextMenu && typeof contextMenu.state === 'string' && contextMenu.state === 'open';
-      
-      // Only show if no download pods are visible and context menu is not visible
-      if (orderedPodKeys.length === 0 && !isContextMenuVisible) {
-        mediaControlsToolbar.style.opacity = '1';
-        mediaControlsToolbar.style.pointerEvents = 'auto';
-        debugLog('[MediaControls] Showed media controls toolbar');
-      }
+    if (orderedPodKeys.length > 0) return;
+    const contextMenu = document.getElementById('zen-pile-pod-context-menu');
+    if (contextMenu && typeof contextMenu.state === 'string' && contextMenu.state === 'open') return;
+    if (typeof window.zenTidyDownloadsShouldHideMediaToolbar === 'function' && window.zenTidyDownloadsShouldHideMediaToolbar()) return;
+    const el = document.getElementById('zen-media-controls-toolbar');
+    if (el) {
+      el.style.opacity = '1';
+      el.style.pointerEvents = 'auto';
+      debugLog('[MediaControls] Made media controls toolbar visible (already in DOM)');
+      return;
     }
+    if (!mediaControlsToolbarRestoreParent || !mediaControlsToolbarRemovedNode) return;
+    mediaControlsToolbarRestoreParent.insertBefore(mediaControlsToolbarRemovedNode, mediaControlsToolbarRestoreNextSibling);
+    mediaControlsToolbarRemovedNode = null;
+    mediaControlsToolbarRestoreParent = null;
+    mediaControlsToolbarRestoreNextSibling = null;
+    debugLog('[MediaControls] Restored media controls toolbar to DOM');
   }
+
+  window.zenTidyDownloadsSyncMediaToolbar = function () {
+    if (orderedPodKeys.length > 0) hideMediaControlsToolbar();
+    else showMediaControlsToolbar();
+  };
 
     // Initialize AI Rename module (uses renameDownloadFileAndUpdateRecord as callback)
     (function initAIRenameModule() {
