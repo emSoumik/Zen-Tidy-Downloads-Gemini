@@ -3499,7 +3499,6 @@
         // File doesn't exist, but still remove from pile
         debugLog(`[DeleteFile] File does not exist, removing from pile only: ${podData.filename}`);
         removePodFromPile(podData.key);
-        showUserNotification(`File "${podData.filename}" was already deleted. Removed from pile.`);
         return;
       }
 
@@ -3531,8 +3530,6 @@
           debugLog(`[DeleteFile] Could not remove from main script dismissed pods:`, error);
         }
       }
-
-      showUserNotification(`File "${podData.filename}" has been deleted.`);
     } catch (error) {
       ErrorHandler.handleError(error, 'deletePodFile');
       throw error;
