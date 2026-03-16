@@ -130,7 +130,7 @@
     // extensions.downloads.debug_ai_only - Only log AI-related messages (default: true)
     // extensions.downloads.enable_ai_renaming - Enable AI-powered file renaming (default: true)
     // extensions.downloads.disable_autohide - Disable automatic hiding of completed downloads (default: false)
-    // extensions.downloads.autohide_delay_ms - Delay before auto-hiding completed downloads (default: 20000)
+    // extensions.downloads.autohide_delay_ms - Delay before auto-hiding completed downloads (default: 10000)
     // extensions.downloads.interaction_grace_period_ms - Grace period after user interaction (default: 5000)
     // extensions.downloads.max_filename_length - Maximum length for AI-generated filenames (default: 70)
     // extensions.downloads.max_file_size_for_ai - Maximum file size for AI processing in bytes (default: 52428800 = 50MB)
@@ -1132,9 +1132,6 @@
         // Show the container when we add the first pod (respects compact mode)
         if (orderedPodKeys.length === 1) {
           updateDownloadCardsVisibility();
-          if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
-            hideMediaControlsToolbar(); // Hide media controls when showing download pods
-          }
         }
         
         // Focus behavior based on stable_focus_mode preference
@@ -1323,10 +1320,6 @@
       masterTooltipDOMElement.style.opacity = "0";
       masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
       masterTooltipDOMElement.style.pointerEvents = "none";
-      // Show media controls if no pods are visible
-      if (orderedPodKeys.length === 0) {
-        showMediaControlsToolbar();
-      }
     } else {
       // cardDataToFocus and podElement are valid, proceed with UI updates for tooltip and AI.
       masterTooltipDOMElement.style.display = "flex"; 
@@ -1574,7 +1567,6 @@
                 if (masterTooltipDOMElement.style.opacity === "0") masterTooltipDOMElement.style.display = "none";
             }, 300);
         }
-        showMediaControlsToolbar(); // Show media controls when no pods exist
         debugLog(`[LayoutManager] Exiting: No OrderedPodKeys.`);
         podsRowContainerElement.style.gap = '0px'; // Reset gap just in case
         return;
@@ -1582,9 +1574,6 @@
 
     // Show the container when we have pods (respects compact mode via updateDownloadCardsVisibility)
     updateDownloadCardsVisibility();
-    if (downloadCardsContainer && downloadCardsContainer.style.display !== 'none') {
-        hideMediaControlsToolbar(); // Hide media controls when showing download pods
-    }
 
     if (tooltipWidth === 0 && orderedPodKeys.length > 0) {
         debugLog("[LayoutManager] Master tooltip width is 0. Cannot manage pod layout yet.");
@@ -1767,7 +1756,6 @@
                     masterTooltipDOMElement.style.opacity = "1";
                     masterTooltipDOMElement.style.transform = "scaleY(1) translateY(0)";
                     masterTooltipDOMElement.style.pointerEvents = "auto"; // Enable interactions when visible
-                    hideMediaControlsToolbar(); // Hide media controls when tooltip is shown
                 }, 100); 
             }
         } else {
@@ -2034,7 +2022,6 @@
           downloadCardsContainer.style.display = "none";
           downloadCardsContainer.style.opacity = "0";
           downloadCardsContainer.style.visibility = "hidden";
-          showMediaControlsToolbar(); // Show media controls when all pods are dismissed
         }
 
       }, 300); // Corresponds to pod animation duration
@@ -2067,9 +2054,9 @@
       cardData.autohideTimeoutId = setTimeout(() => {
         debugLog(`scheduleCardRemoval: Timeout fired for key: ${downloadKey}`);
         performAutohideSequence(downloadKey);
-      }, getPref("extensions.downloads.autohide_delay_ms", 20000));
+      }, getPref("extensions.downloads.autohide_delay_ms", 10000));
       
-      debugLog(`scheduleCardRemoval: Scheduled removal for key: ${downloadKey} in ${getPref("extensions.downloads.autohide_delay_ms", 20000)}ms`, null, 'autohide');
+      debugLog(`scheduleCardRemoval: Scheduled removal for key: ${downloadKey} in ${getPref("extensions.downloads.autohide_delay_ms", 10000)}ms`, null, 'autohide');
     } catch (e) {
       console.error("Error scheduling card removal:", e);
     }
@@ -2141,6 +2128,12 @@
       masterTooltipDOMElement.style.opacity = "0";
       masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
       masterTooltipDOMElement.style.pointerEvents = "none";
+      // Set display: none after animation (same as manual close)
+      setTimeout(() => {
+        if (masterTooltipDOMElement.style.opacity === "0") {
+          masterTooltipDOMElement.style.display = "none";
+        }
+      }, 300);
       focusedDownloadKey = null;
       if (orderedPodKeys.length > 0) {
         focusedDownloadKey = orderedPodKeys[orderedPodKeys.length - 1];
@@ -2333,32 +2326,6 @@
         newName: errorInfo.newName
       });
       return false;
-    }
-  }
-
-  // Helper functions to hide/show media controls toolbar
-  function hideMediaControlsToolbar() {
-    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-    if (mediaControlsToolbar) {
-      mediaControlsToolbar.style.opacity = '0';
-      mediaControlsToolbar.style.pointerEvents = 'none';
-      debugLog('[MediaControls] Hid media controls toolbar');
-    }
-  }
-
-  function showMediaControlsToolbar() {
-    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-    if (mediaControlsToolbar) {
-      // Check if context menu is visible
-      const contextMenu = document.getElementById('zen-pile-pod-context-menu');
-      const isContextMenuVisible = contextMenu && typeof contextMenu.state === 'string' && contextMenu.state === 'open';
-      
-      // Only show if no download pods are visible and context menu is not visible
-      if (orderedPodKeys.length === 0 && !isContextMenuVisible) {
-        mediaControlsToolbar.style.opacity = '1';
-        mediaControlsToolbar.style.pointerEvents = 'auto';
-        debugLog('[MediaControls] Showed media controls toolbar');
-      }
     }
   }
 
@@ -2639,7 +2606,7 @@ async function undoRename(keyOfAIRenamedFile) {
       }
 
       // Schedule removal with a short delay (e.g. 2000ms) to allow user to see the change
-      const originalDelay = getPref("extensions.downloads.autohide_delay_ms", 20000);
+      const originalDelay = getPref("extensions.downloads.autohide_delay_ms", 10000);
       const shortDelay = 2000;
       
       // Temporarily override the delay pref (or just manually call setTimeout/performAutohide)
