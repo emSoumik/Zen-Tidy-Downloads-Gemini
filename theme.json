@@ -66,7 +66,7 @@
   },
   "preferences": "preferences.json",
   "author": "Vertex",
-  "version": "3.3.1",
+  "version": "3.3.2",
   "tags": [
     "sine",
     "fx-autoconfig",
@@ -74,7 +74,7 @@
     "Tidy Pack"
   ],
   "createdAt": "2025-05-24",
-  "updatedAt": "2026-03-14",
+  "updatedAt": "2026-03-16",
   "ai": "yes",
   "fork": ["zen"]
 }
