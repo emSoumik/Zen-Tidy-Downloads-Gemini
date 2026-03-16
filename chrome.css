@@ -15,7 +15,7 @@
   box-sizing: border-box;
   -moz-window-dragging: no-drag;
   min-width: 0;
-  width: calc(100% - 2px);
+  width: 100%;
   overflow: hidden;
   contain: inline-size;
 }
