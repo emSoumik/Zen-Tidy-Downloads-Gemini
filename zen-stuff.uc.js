@@ -78,6 +78,8 @@
       this.isEditing = false;
       // --- add recentlyRemoved flag to prevent pile from hiding immediately after removal ---
       this.recentlyRemoved = false;
+      // --- add mediaToolbarMaskRemovalTimeout for delayed mask removal on pile collapse ---
+      this.mediaToolbarMaskRemovalTimeout = null;
     }
 
     // Safe getters with validation
@@ -2154,7 +2156,9 @@
     // Remove mask from media controls toolbar when pile collapses
     const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
     if (mediaControlsToolbar) {
-      mediaControlsToolbar.classList.remove('zen-pile-expanded');
+      setTimeout(() => {
+        mediaControlsToolbar.classList.remove('zen-pile-expanded');
+      }, CONFIG.containerAnimationDuration);
     }
 
     // Restore workspace-arrowscrollbox::after when pile is hidden
@@ -2162,12 +2166,6 @@
 
     debugLog("Hiding dismissed downloads pile by collapsing sizer");
   }
-
-  // No longer needed - removed transition to grid mode
-
-  // Removed renderGridWindow - no longer needed with simplified single column layout
-
-  // No longer needed - removed transition to pile mode
 
   // Recalculate layout on window resize
   function recalculateLayout() {
