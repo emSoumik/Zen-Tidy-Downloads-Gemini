@@ -945,13 +945,6 @@
     // Window resize handler
     window.addEventListener('resize', debounce(recalculateLayout, 250));
 
-    // Let tidy-downloads know when to not restore the media toolbar (user hovering download button, pile, or sticky pod)
-    window.zenTidyDownloadsShouldHideMediaToolbar = function () {
-      return !!(state.downloadButton?.matches(':hover') ||
-        isHoveringPileArea() ||
-        document.querySelector('.zen-tidy-sticky-pod:hover'));
-    };
-
     // Listen for actual download removals from Firefox list (via main script)
     if (window.zenTidyDownloads && typeof window.zenTidyDownloads.onActualDownloadRemoved === 'function') {
       window.zenTidyDownloads.onActualDownloadRemoved((removedKey) => {
@@ -1832,22 +1825,20 @@
         clearTimeout(state.mediaControlsToolbarTimeout);
         const delay = CONFIG.hoverDebounceMs + CONFIG.containerAnimationDuration + 50;
 
-          state.mediaControlsToolbarTimeout = setTimeout(() => {
+        state.mediaControlsToolbarTimeout = setTimeout(() => {
+          const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+          if (mediaControlsToolbar) {
+            // Double-check we're still not hovering
             const stillNotHovering = !state.downloadButton?.matches(':hover') && !isHoveringPileArea();
             const pileHidden = !state.dynamicSizer || state.dynamicSizer.style.height === '0px';
+
             if (stillNotHovering && !isContextMenuVisible() && pileHidden) {
-              if (typeof window.zenTidyDownloadsSyncMediaToolbar === 'function') {
-                window.zenTidyDownloadsSyncMediaToolbar();
-              } else {
-                const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-                if (mediaControlsToolbar) {
-                  mediaControlsToolbar.style.opacity = '1';
-                  mediaControlsToolbar.style.pointerEvents = 'auto';
-                }
-              }
-              debugLog("[DownloadHover] Synced media controls toolbar");
+              mediaControlsToolbar.style.opacity = '1';
+              mediaControlsToolbar.style.pointerEvents = 'auto';
+              debugLog("[DownloadHover] Showed media controls toolbar");
             }
-          }, delay);
+          }
+        }, delay);
       }
     }, CONFIG.hoverDebounceMs);
   }
@@ -1929,19 +1920,17 @@
           const delay = CONFIG.hoverDebounceMs + CONFIG.containerAnimationDuration + 50;
 
           state.mediaControlsToolbarTimeout = setTimeout(() => {
-            const stillNotHovering = !state.downloadButton?.matches(':hover') && !isHoveringPileArea();
-            const pileHidden = !state.dynamicSizer || state.dynamicSizer.style.height === '0px';
-            if (stillNotHovering && !isContextMenuVisible() && pileHidden) {
-              if (typeof window.zenTidyDownloadsSyncMediaToolbar === 'function') {
-                window.zenTidyDownloadsSyncMediaToolbar();
-              } else {
-                const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-                if (mediaControlsToolbar) {
-                  mediaControlsToolbar.style.opacity = '1';
-                  mediaControlsToolbar.style.pointerEvents = 'auto';
-                }
+            const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+            if (mediaControlsToolbar) {
+              // Double-check we're still not hovering
+              const stillNotHovering = !state.downloadButton?.matches(':hover') && !isHoveringPileArea();
+              const pileHidden = !state.dynamicSizer || state.dynamicSizer.style.height === '0px';
+
+              if (stillNotHovering && !isContextMenuVisible() && pileHidden) {
+                mediaControlsToolbar.style.opacity = '1';
+                mediaControlsToolbar.style.pointerEvents = 'auto';
+                debugLog("[SizerHover] Showed media controls toolbar");
               }
-              debugLog("[SizerHover] Synced media controls toolbar");
             }
           }, delay);
         }
@@ -2016,19 +2005,17 @@
           const delay = CONFIG.hoverDebounceMs + CONFIG.containerAnimationDuration + 50;
 
           state.mediaControlsToolbarTimeout = setTimeout(() => {
-            const stillNotHovering = !state.downloadButton?.matches(':hover') && !isHoveringPileArea();
-            const pileHidden = !state.dynamicSizer || state.dynamicSizer.style.height === '0px';
-            if (stillNotHovering && !isContextMenuVisible() && pileHidden) {
-              if (typeof window.zenTidyDownloadsSyncMediaToolbar === 'function') {
-                window.zenTidyDownloadsSyncMediaToolbar();
-              } else {
-                const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-                if (mediaControlsToolbar) {
-                  mediaControlsToolbar.style.opacity = '1';
-                  mediaControlsToolbar.style.pointerEvents = 'auto';
-                }
+            const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+            if (mediaControlsToolbar) {
+              // Double-check we're still not hovering
+              const stillNotHovering = !state.downloadButton?.matches(':hover') && !isHoveringPileArea();
+              const pileHidden = !state.dynamicSizer || state.dynamicSizer.style.height === '0px';
+
+              if (stillNotHovering && !isContextMenuVisible() && pileHidden) {
+                mediaControlsToolbar.style.opacity = '1';
+                mediaControlsToolbar.style.pointerEvents = 'auto';
+                debugLog("[PileHover] Showed media controls toolbar");
               }
-              debugLog("[PileHover] Synced media controls toolbar");
             }
           }, delay);
         }
@@ -3065,22 +3052,19 @@
             const delay = isPileVisible ? CONFIG.hoverDebounceMs + CONFIG.containerAnimationDuration + 50 : CONFIG.hoverDebounceMs;
 
             state.mediaControlsToolbarTimeout = setTimeout(() => {
-              const stillNotHovering = !state.downloadButton?.matches(':hover') && !isHoveringPileArea();
-              const pileStillHidden = !state.dynamicSizer ||
-                state.dynamicSizer.style.height === '0px' ||
-                state.dynamicSizer.style.display === 'none';
+              const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+              if (mediaControlsToolbar) {
+                // Check again if we're still not hovering and pile is hidden
+                const stillNotHovering = !state.downloadButton?.matches(':hover') && !isHoveringPileArea();
+                const pileStillHidden = !state.dynamicSizer ||
+                  state.dynamicSizer.style.height === '0px' ||
+                  state.dynamicSizer.style.display === 'none';
 
-              if (stillNotHovering && (state.dismissedPods.size === 0 || pileStillHidden)) {
-                if (typeof window.zenTidyDownloadsSyncMediaToolbar === 'function') {
-                  window.zenTidyDownloadsSyncMediaToolbar();
-                } else {
-                  const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
-                  if (mediaControlsToolbar) {
-                    mediaControlsToolbar.style.opacity = '1';
-                    mediaControlsToolbar.style.pointerEvents = 'auto';
-                  }
+                if (stillNotHovering && (state.dismissedPods.size === 0 || pileStillHidden)) {
+                  mediaControlsToolbar.style.opacity = '1';
+                  mediaControlsToolbar.style.pointerEvents = 'auto';
+                  debugLog("[ContextMenu] Showed media controls toolbar after menu dismissal");
                 }
-                debugLog("[ContextMenu] Synced media controls toolbar after menu dismissal");
               }
             }, delay);
           } else {
