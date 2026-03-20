@@ -12,7 +12,7 @@
   {
     "property": "extensions.downloads.disable_autohide",
     "type": "checkbox",
-    "label": "Disable automatic card hiding after 20 seconds",
+    "label": "Disable automatic card hiding after 10 seconds",
     "defaultValue": false
   },
   {
