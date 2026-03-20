@@ -77,7 +77,8 @@
       const utilsReady = window.zenTidyDownloadsUtils;
       const storeReady = window.zenTidyDownloadsStore?.createStore;
       const dlAdapterReady = window.zenTidyDownloadsDownloadsAdapter;
-      if (utilsReady && storeReady && dlAdapterReady) {
+      const podsReady = window.zenTidyDownloadsPods?.init;
+      if (utilsReady && storeReady && dlAdapterReady && podsReady) {
         initializeMainScript();
         return;
       }
@@ -86,7 +87,7 @@
         return;
       }
       console.error(
-        "[Tidy Downloads] Missing modules after 2s. Need zenTidyDownloadsUtils, zenTidyDownloadsStore, zenTidyDownloadsDownloadsAdapter (utils, store, downloads-adapter .uc.js in theme.json)."
+        "[Tidy Downloads] Missing modules after 2s. Need utils, store, downloads-adapter, and pods (.uc.js in theme.json / mods.json)."
       );
     })(0);
   }, 100); // Small delay to ensure DOM elements are loaded
@@ -212,6 +213,7 @@
     let isInQueue = () => false;
     let getQueuePosition = () => -1;
     let updateQueueStatusInUI = () => {};
+    let throttledCreateOrUpdateCard = function () {};
 
     // Global API for dismissed pods pile feature
     window.zenTidyDownloads = {
@@ -865,7 +867,36 @@
               });
           }
 
+        } else if (downloadCardsContainer) {
+          if (!podsRowContainerElement) {
+            podsRowContainerElement = document.getElementById("userchrome-pods-row-container");
+          }
+          if (!masterTooltipDOMElement) {
+            masterTooltipDOMElement = downloadCardsContainer.querySelector(".master-tooltip");
+          }
         }
+
+        const podsApi = window.zenTidyDownloadsPods.init({
+          store,
+          getPref,
+          debugLog,
+          getDownloadKey,
+          getSafeFilename,
+          previewApi,
+          openDownloadedFile,
+          getContentTypeFromFilename,
+          SecurityUtils,
+          Cc,
+          Ci,
+          getAddToAIRenameQueue: () => addToAIRenameQueue,
+          getAiRenamingPossible: () => aiRenamingPossible,
+          scheduleCardRemoval,
+          clearStickyPodsOnly,
+          updateDownloadCardsVisibility,
+          updateUIForFocusedDownload,
+          getPodsRowContainer: () => podsRowContainerElement
+        });
+        throttledCreateOrUpdateCard = podsApi.throttledCreateOrUpdateCard;
 
         const downloadListener = DownloadsAdapter.createDownloadViewListener({
           onCompletedState: (dl) => throttledCreateOrUpdateCard(dl),
@@ -921,389 +952,6 @@
       }
     }
 
-    // Throttled update - only receives completed downloads (succeeded/error; canceled excluded)
-    function throttledCreateOrUpdateCard(download, isNewCardOnInit = false) {
-      const key = getDownloadKey(download);
-      const now = Date.now();
-      const lastUpdate = cardUpdateThrottle.get(key) || 0;
-      const throttleDelay = 200; // Debounce rapid completion events for same download
-
-      if (now - lastUpdate < throttleDelay && !isNewCardOnInit) {
-        debugLog(`[Throttle] Skipping throttled update for download: ${key} (delay: ${throttleDelay}ms)`);
-        return;
-      }
-      
-      cardUpdateThrottle.set(key, now);
-      debugLog(`[Throttle] Calling createOrUpdatePodElement for key: ${key}, isNewOnInit: ${isNewCardOnInit}, error: ${!!download.error}, succeeded: ${!!download.succeeded}, canceled: ${!!download.canceled}`);
-      const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
-      if (podElement) {
-        debugLog(`[Throttle] Pod element created/updated for ${key}.`);
-        const shouldRequestUIUpdate = isNewCardOnInit || key === focusedKeyRef.current;
-        if (shouldRequestUIUpdate) {
-          updateUIForFocusedDownload(focusedKeyRef.current || key, isNewCardOnInit || true);
-        }
-      } else {
-        debugLog(`[Throttle] No pod element returned for ${key}. Download state:`, { 
-          succeeded: download.succeeded, 
-          error: !!download.error, 
-          canceled: download.canceled,
-          hasKey: !!key 
-        });
-      }
-    }
-
-    // Function to create or update a download POD element
-    function createOrUpdatePodElement(download, isNewCardOnInit = false) {
-      
-      const key = getDownloadKey(download);
-      if (!key) {
-        debugLog("Skipping download object without usable key", download);
-        return null;
-      }
-
-      // Skip dismissed downloads only if they're not currently in our active cards.
-      // Exceptions:
-      //   1. Path was explicitly "removed from pile" via permanentlyDeletedPaths AND this is a fresh re-download
-      //      whose startTime is newer than the deletion time we recorded.
-      //   2. This download has a newer startTime than the dismissed one — it's a fresh re-download.
-      const normPath = (p) => (typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "");
-      const pathNorm = download.target?.path ? normPath(download.target.path) : "";
-      if (pathNorm && permanentlyDeletedPaths.has(pathNorm)) {
-        const meta = permanentlyDeletedMeta.get(pathNorm);
-        const deletedTimeMs = meta?.startTime || 0;
-        const currentTimeMs = download.startTime ? new Date(download.startTime).getTime() : 0;
-
-        // If we don't have a reliable startTime or it's not newer than the deletion time,
-        // treat this as the same old history entry (e.g. "File missing or deleted") and skip it.
-        if (!download.startTime || !meta || currentTimeMs <= deletedTimeMs) {
-          debugLog("[CreatePod] Skipping permanently-deleted history entry", {
-            key,
-            pathNorm,
-            deletedTimeMs,
-            currentTimeMs,
-            hasError: !!download.error
-          });
-          return null;
-        }
-
-        // Fresh re-download after permanent delete: clear flags and allow through.
-        permanentlyDeletedPaths.delete(pathNorm);
-        permanentlyDeletedMeta.delete(pathNorm);
-        dismissedDownloads.delete(key);
-        debugLog("[CreatePod] Allowing re-download for permanently deleted path", {
-          key,
-          pathNorm,
-          deletedTimeMs,
-          currentTimeMs
-        });
-      } else if (dismissedDownloads.has(key) && !activeDownloadCards.has(key)) {
-        // Check whether this is a genuinely new download of the same file path
-        const dismissedData = dismissedPodsData.get(key);
-        const dismissedTime = dismissedData?.startTime ? new Date(dismissedData.startTime).getTime() : 0;
-        const currentTime = download.startTime ? new Date(download.startTime).getTime() : 0;
-        // Allow through if: no dismissed record, or current download started after the dismissed one
-        const isNewerDownload = !dismissedData || !dismissedData.startTime || !download.startTime ||
-          currentTime > dismissedTime;
-        if (isNewerDownload) {
-          dismissedDownloads.delete(key);
-          debugLog(`[CreatePod] Allowing newer re-download to bypass dismissed check (dismissed: ${dismissedTime}, current: ${currentTime}): ${key}`);
-        } else {
-          debugLog(`[CreatePod] Skipping dismissed download that's not currently active: ${key}`);
-          return null;
-        }
-      }
-
-    debugLog("[PodFUNC] createOrUpdatePodElement called", { 
-      key, 
-      state: download.state, 
-      currentBytes: download.currentBytes,
-      succeeded: download.succeeded,
-      error: !!download.error,
-      errorMessage: download.error?.message,
-      canceled: download.canceled,
-      hasTargetPath: !!download?.target?.path,
-      hasId: !!download?.id,
-      isNewCardOnInit
-    });
-
-    let cardData = activeDownloadCards.get(key);
-    const safeFilename = getSafeFilename(download);
-    // const displayName = download.aiName || safeFilename; // Display name will be handled by master tooltip
-
-    let podElement;
-    let isNewPod = false;
-
-    if (!cardData) {
-      isNewPod = true;
-      podElement = document.createElement("div");
-      podElement.className = "download-pod"; 
-      podElement.id = `download-pod-${key.replace(/[^a-zA-Z0-9_]/g, '-')}`;
-      podElement.dataset.downloadKey = key;
-
-      // Basic styles are now in CSS file, only dynamic positioning/animation styles remain inline
-
-      podElement.innerHTML = `
-        <div class="card-preview-container">
-          <!-- Preview content (image, text snippet, or icon) will go here -->
-          </div>
-        `;
-
-      const previewContainer = podElement.querySelector(".card-preview-container");
-      if (previewContainer) {
-          previewApi.setGenericIcon(previewContainer, download.contentType || "application/octet-stream");
-        previewContainer.title = "Click to open file";
-        
-        previewContainer.addEventListener("click", (e) => {
-          e.stopPropagation(); 
-          const currentCardData = activeDownloadCards.get(podElement.dataset.downloadKey);
-          if (currentCardData && currentCardData.download) {
-            openDownloadedFile(currentCardData.download);
-            } else {
-            debugLog("openDownloadedFile: Card data not found for pod, attempting with initial download object", { key: podElement.dataset.downloadKey });
-            openDownloadedFile(download); 
-            }
-          });
-        }
-
-        // Add drag-and-drop support for dragging to web pages
-        podElement.setAttribute('draggable', 'true');
-        podElement.addEventListener('dragstart', async (e) => {
-          // Only allow drag if we have a file path and file exists
-          if (!download.target?.path) {
-            e.preventDefault();
-            return;
-          }
-
-          try {
-            // SECURITY: Validate path before file operations
-            const pathValidation = SecurityUtils.validateFilePath(download.target.path, { strict: false });
-            if (!pathValidation.valid) {
-              debugLog('[DragDrop] Path validation failed:', pathValidation.error);
-              e.preventDefault();
-              return;
-            }
-
-            const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
-            file.initWithPath(download.target.path);
-            
-            if (!file.exists()) {
-              e.preventDefault();
-              return;
-            }
-
-            // Set the native file flavor for Firefox - use try/catch to handle potential DOMException
-            try {
-              if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === 'function') {
-                e.dataTransfer.mozSetDataAt('application/x-moz-file', file, 0);
-              }
-            } catch (mozError) {
-              debugLog('[DragDrop] mozSetDataAt failed, continuing with other formats:', mozError);
-              // Continue with other data formats even if mozSetDataAt fails
-            }
-
-            // Set URI flavors for web pages
-            const fileUrl = file.path.startsWith('\\') ? 
-              'file:' + file.path.replace(/\\/g, '/') : 
-              'file:///' + file.path.replace(/\\/g, '/');
-            
-            if (fileUrl) {
-              e.dataTransfer.setData('text/uri-list', fileUrl);
-              e.dataTransfer.setData('text/plain', fileUrl);
-            }
-
-            // Optionally, set a download URL for HTML5 drop targets
-            if (download.source?.url) {
-              const contentType = download.contentType || getContentTypeFromFilename(safeFilename);
-              e.dataTransfer.setData('DownloadURL', `${contentType}:${safeFilename}:${download.source.url}`);
-            }
-
-            // Use the pod element as drag image
-            e.dataTransfer.setDragImage(podElement, 28, 28);
-            debugLog('[DragDrop] Started drag for:', safeFilename);
-          } catch (err) {
-            debugLog('[DragDrop] Error during dragstart:', err);
-            e.preventDefault();
-          }
-        });
-
-        cardData = {
-        podElement, // Renamed from cardElement
-          download,
-          complete: false,
-          key: key,
-          originalFilename: safeFilename, // This is the filename as of pod creation/update
-          trueOriginalPathBeforeAIRename: null, // Will store the full path before AI rename
-          trueOriginalSimpleNameBeforeAIRename: null, // Will store just the simple filename before AI rename
-        lastInteractionTime: Date.now(),
-        isVisible: false, // Will be set by layout manager
-        isWaitingForZenAnimation: false, // Default, will be set true if new and Zen sync is active
-        domAppended: false, // New flag: has this pod been added to podsRowContainerElement?
-        intendedTargetTransform: null, // For stable animation triggering
-        intendedTargetOpacity: null,   // For stable animation triggering
-        isBeingRemoved: false          // To prevent layout conflicts during removal
-        };
-        activeDownloadCards.set(key, cardData);
-
-      // Add to ordered list (newest at the end)
-      if (!orderedPodKeys.includes(key)) {
-        if (stickyPods.size > 0) clearStickyPodsOnly();
-        orderedPodKeys.push(key);
-        
-        // Show the container when we add the first pod (respects compact mode)
-        if (orderedPodKeys.length === 1) {
-          updateDownloadCardsVisibility();
-        }
-        
-        // Focus behavior based on stable_focus_mode preference
-        const stableFocusMode = getPref("extensions.downloads.stable_focus_mode", true);
-        const currentFocusedData = focusedKeyRef.current ? activeDownloadCards.get(focusedKeyRef.current) : null;
-        const currentFocusedDownload = currentFocusedData?.download;
-        
-        if (!focusedKeyRef.current) {
-          // Always focus if no current focus
-          focusedKeyRef.current = key;
-          debugLog(`[PodFUNC] New pod created, setting as focused (no current focus): ${key}. Total pods: ${orderedPodKeys.length}`);
-        } else if (!stableFocusMode) {
-          // In non-stable mode, always switch to newest
-          focusedKeyRef.current = key;
-          debugLog(`[PodFUNC] New pod created, setting as focused (non-stable mode): ${key}. Total pods: ${orderedPodKeys.length}`);
-        } else if (download.succeeded) {
-          // Completed downloads always take focus
-          focusedKeyRef.current = key;
-          debugLog(`[PodFUNC] New pod created, setting as focused (completed download): ${key}. Total pods: ${orderedPodKeys.length}`);
-        } else if (currentFocusedDownload && (currentFocusedDownload.succeeded || currentFocusedDownload.error)) {
-          // If current focus is on a finished download, switch to the new active one
-          focusedKeyRef.current = key;
-          debugLog(`[PodFUNC] New pod created, setting as focused (current focus was finished): ${key}. Previous: ${focusedKeyRef.current}`);
-        } else {
-          // In stable mode, keep current focus for in-progress downloads when current is also in-progress
-          debugLog(`[PodFUNC] New pod created but keeping current focus on: ${focusedKeyRef.current}. New pod: ${key} (stable focus mode - both in progress)`);
-        }
-      } else {
-        debugLog(`[PodFUNC] Pod ${key} already exists in orderedPodKeys. Current focus: ${focusedKeyRef.current}`);
-      }
-
-      // Pods only appear on completion; Zen arc animation runs before download starts, so no sync needed.
-      // Append to the horizontal row container immediately.
-      if (podsRowContainerElement && !podElement.parentNode) {
-        podsRowContainerElement.appendChild(podElement);
-        cardData.domAppended = true;
-        debugLog(`[PodFUNC] New pod ${key} appended to DOM (completed download).`);
-      }
-
-    } else {
-      // Update existing pod data
-      podElement = cardData.podElement;
-      cardData.download = download; 
-      cardData.lastInteractionTime = Date.now(); // Update interaction time on any change event
-      if (safeFilename !== cardData.originalFilename && !download.aiName) {
-         cardData.originalFilename = safeFilename; // Update if original name changes (e.g. server sent a different name later)
-      }
-      
-      // Update completion status for existing pods
-      if (download.succeeded && !cardData.complete) {
-        cardData.complete = true;
-        cardData.userCanceled = false; // Clear user-canceled flag on successful completion
-        podElement.classList.add("completed"); // For potential styling
-        debugLog(`[PodFUNC] Existing pod marked as complete: ${key}`);
-        
-        // Add to AI rename queue for existing completed pods
-        const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
-        debugLog(`[PodFUNC] Checking AI rename eligibility for ${key}:`, {
-          aiRenamingEnabled,
-          aiRenamingPossible,
-          hasPath: !!download.target?.path,
-          path: download.target?.path,
-          alreadyRenamed: renamedFiles.has(download.target?.path)
-        });
-        
-        if (aiRenamingEnabled && aiRenamingPossible && download.target?.path && 
-            !renamedFiles.has(download.target.path)) {
-          // Small delay to ensure download is fully settled before queuing
-          // Use cardData.download to ensure we have the latest download object
-          setTimeout(() => {
-            const currentCardData = activeDownloadCards.get(key);
-            if (currentCardData && currentCardData.download) {
-              debugLog(`[PodFUNC] Adding ${key} to AI rename queue after delay`);
-              addToAIRenameQueue(key, currentCardData.download, currentCardData.originalFilename);
-            } else {
-              debugLog(`[PodFUNC] Cannot add ${key} to queue - cardData missing after delay`);
-            }
-          }, 1000);
-        } else {
-          debugLog(`[PodFUNC] Not adding ${key} to AI rename queue - conditions not met`);
-        }
-        
-        // Schedule autohide after configured delay for completed downloads
-        scheduleCardRemoval(key);
-      }
-    }
-
-    // Update pod preview content based on download state (icon, image, text snippet)
-    const previewElement = podElement.querySelector(".card-preview-container");
-    if (previewElement) {
-        if (download.succeeded) {
-            // Always try to set preview for completed downloads (in case it failed before)
-            debugLog(`[Preview] Setting completed file preview for: ${key}`);
-          previewApi.setCompletedFilePreview(previewElement, download)
-            .catch(e => debugLog("Error setting completed file preview (async) for pod", { error: e, download }));
-        } else if (download.error) {
-            // Potentially set a different icon for error/cancel state on the pod itself
-          previewApi.setGenericIcon(previewElement, "application/octet-stream"); // Default or error specific icon
-        } else {
-            // In-progress, could have a spinner or animated icon on the pod
-            // For now, generic icon remains until completion, set at creation.
-        }
-    }
-    
-    // Mark as complete internally
-    if (download.succeeded && !cardData.complete) {
-      cardData.complete = true;
-      cardData.userCanceled = false; // Clear user-canceled flag on successful completion
-      podElement.classList.add("completed"); // For potential styling
-      debugLog(`[PodFUNC] Download marked as complete: ${key}`);
-      
-      // Add to AI rename queue for ALL completed downloads (not just focused)
-      // This ensures proper FIFO processing regardless of focus state
-      const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
-      debugLog(`[PodFUNC] Checking AI rename eligibility for ${key} (new pod):`, {
-        aiRenamingEnabled,
-        aiRenamingPossible,
-        hasPath: !!download.target?.path,
-        path: download.target?.path,
-        alreadyRenamed: renamedFiles.has(download.target?.path)
-      });
-      
-      if (aiRenamingEnabled && aiRenamingPossible && download.target?.path && 
-          !renamedFiles.has(download.target.path)) {
-        // Small delay to ensure download is fully settled before queuing
-        // Use cardData.download to ensure we have the latest download object
-        setTimeout(() => {
-          const currentCardData = activeDownloadCards.get(key);
-          if (currentCardData && currentCardData.download) {
-            debugLog(`[PodFUNC] Adding ${key} to AI rename queue after delay (new pod)`);
-            addToAIRenameQueue(key, currentCardData.download, currentCardData.originalFilename);
-          } else {
-            debugLog(`[PodFUNC] Cannot add ${key} to queue - cardData missing after delay (new pod)`);
-          }
-        }, 1000);
-      } else {
-        debugLog(`[PodFUNC] Not adding ${key} to AI rename queue - conditions not met (new pod)`);
-      }
-      
-      // Schedule autohide after configured delay for completed downloads
-      scheduleCardRemoval(key);
-    }
-    if (download.error) {
-      podElement.classList.add("error");
-      // Schedule autohide for error downloads
-      scheduleCardRemoval(key);
-    }
-
-    return podElement;
-  }
-
-  // This will be a new, complex function. For now, a placeholder.
   function updateUIForFocusedDownload(keyToFocus, isNewOrSignificantUpdate = false) {
     const now = Date.now();
     const isFinalStateUpdateCandidate = (() => {
@@ -1520,7 +1168,7 @@
         // Use 100% width - container already has padding
         masterTooltipDOMElement.style.width = '100%';
 
-        // 5. Handle AI Renaming UI status - queue addition is handled in createOrUpdatePodElement
+        // 5. Handle AI Renaming UI status - queue addition is handled in tidy-downloads-pods
         //    Here we just update the UI to reflect queue status
           const inQueueOrProcessing = isInQueue(keyToFocus);
         
@@ -1557,7 +1205,7 @@
             }
         }
     });
-          }
+  }
 
   // Placeholder for the layout manager function
   function managePodVisibilityAndAnimations() {
