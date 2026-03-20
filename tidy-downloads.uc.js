@@ -79,7 +79,8 @@
       const dlAdapterReady = window.zenTidyDownloadsDownloadsAdapter;
       const podsReady = window.zenTidyDownloadsPods?.init;
       const tooltipLayoutReady = window.zenTidyDownloadsTooltipLayout?.init;
-      if (utilsReady && storeReady && dlAdapterReady && podsReady && tooltipLayoutReady) {
+      const publicApiReady = window.zenTidyDownloadsPublicApi?.createPublicApi;
+      if (utilsReady && storeReady && dlAdapterReady && podsReady && tooltipLayoutReady && publicApiReady) {
         initializeMainScript();
         return;
       }
@@ -88,7 +89,7 @@
         return;
       }
       console.error(
-        "[Tidy Downloads] Missing modules after 2s. Need utils, store, downloads-adapter, pods, and tooltip-layout (.uc.js in theme.json / mods.json)."
+        "[Tidy Downloads] Missing modules after 2s. Need utils, store, downloads-adapter, pods, tooltip-layout, and public-api (.uc.js in theme.json / mods.json)."
       );
     })(0);
   }, 100); // Small delay to ensure DOM elements are loaded
@@ -232,251 +233,6 @@
       tooltipLayoutRef.handlePodScrollFocus(event);
     }
 
-    // Global API for dismissed pods pile feature
-    window.zenTidyDownloads = {
-      // Event system
-      onPodDismissed: (callback) => {
-        if (typeof callback === 'function') {
-          dismissEventListeners.add(callback);
-          debugLog('[API] Registered pod dismiss listener');
-        }
-      },
-      
-      offPodDismissed: (callback) => {
-        dismissEventListeners.delete(callback);
-        debugLog('[API] Unregistered pod dismiss listener');
-      },
-      
-      // Dismissed pods access
-      dismissedPods: {
-        getAll: () => new Map(dismissedPodsData), // Return copy to prevent external modification
-        get: (key) => dismissedPodsData.get(key),
-        count: () => dismissedPodsData.size,
-        clear: () => {
-          dismissedPodsData.clear();
-          debugLog('[API] Cleared all dismissed pods data');
-        }
-      },
-      
-      // Active downloads access (for pile script to check if hover should be disabled)
-      get activeDownloadCards() {
-        return activeDownloadCards;
-      },
-
-      // Sticky pods (auto-dismissed but still visible in the pods row)
-      get stickyPods() {
-        return stickyPods;
-      },
-
-      // Event for when a download is actually removed from Firefox's list
-      onActualDownloadRemoved: (callback) => {
-        if (typeof callback === 'function') {
-          actualDownloadRemovedEventListeners.add(callback);
-          debugLog('[API] Registered actual download removed listener');
-        }
-      },
-
-      offActualDownloadRemoved: (callback) => {
-        actualDownloadRemovedEventListeners.delete(callback);
-        debugLog('[API] Unregistered actual download removed listener');
-      },
-      
-      // Pod restoration
-      restorePod: async (podKey) => {
-        debugLog(`[API] Restore pod requested: ${podKey}`);
-        const dismissedData = dismissedPodsData.get(podKey);
-        if (!dismissedData) {
-          debugLog(`[API] Cannot restore pod - no dismissed data found: ${podKey}`);
-          return false;
-        }
-        
-        try {
-          // Remove from dismissed sets
-          dismissedDownloads.delete(podKey);
-          dismissedPodsData.delete(podKey);
-          
-          // If the download still exists in Firefox, recreate the pod
-          const list = await DownloadsAdapter.getAllDownloadsList();
-          if (!list) {
-            debugLog(`[API] Downloads list unavailable for restoration: ${podKey}`);
-            return false;
-          }
-          const downloads = await list.getAll();
-          const download = downloads.find(dl => getDownloadKey(dl) === podKey);
-          
-          if (download) {
-            debugLog(`[API] Found download for restoration: ${podKey}`);
-            // Recreate the pod by calling our existing function
-            throttledCreateOrUpdateCard(download, true);
-            
-            // Fire restore event
-            fireCustomEvent('pod-restored-from-pile', { podKey, download });
-            return true;
-          } else {
-            debugLog(`[API] Download no longer exists in Firefox for restoration: ${podKey}`);
-            return false;
-          }
-        } catch (error) {
-          debugLog(`[API] Error restoring pod ${podKey}:`, error);
-          return false;
-        }
-      },
-      
-      // Permanent deletion
-      permanentDelete: (podKey) => {
-        debugLog(`[API] Permanent delete requested: ${podKey}`);
-        const podData = dismissedPodsData.get(podKey); // Get before delete
-        const wasPresent = dismissedPodsData.delete(podKey);
-        
-        // Remove from dismissedDownloads so future downloads of the same file can show.
-        // Clear the exact key and any path-based keys that refer to the same file
-        // (handles path format differences: backslash vs forward slash, case sensitivity).
-        const normalizePath = (p) => (typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "");
-        dismissedDownloads.delete(podKey);
-        const pathsToAllow = new Set();
-        if (podData?.targetPath) {
-          pathsToAllow.add(normalizePath(podData.targetPath));
-        }
-        // Also treat podKey as path if it looks like a file path (covers path-based keys)
-        if (podKey && !podKey.startsWith("temp_") && (podKey.includes("/") || podKey.includes("\\"))) {
-          pathsToAllow.add(normalizePath(podKey));
-        }
-        for (const norm of pathsToAllow) {
-          if (!norm) continue;
-          // Record deletion time for this path so we can distinguish old history entries from future re-downloads
-          try {
-            const deletedTime = podData?.startTime ? new Date(podData.startTime).getTime() : Date.now();
-            permanentlyDeletedMeta.set(norm, { startTime: deletedTime });
-          } catch (e) {
-            debugLog("[PermanentDelete] Failed to record deletion time meta", { error: e, norm });
-          }
-          for (const dk of [...dismissedDownloads]) {
-            if (normalizePath(dk) === norm) dismissedDownloads.delete(dk);
-          }
-          permanentlyDeletedPaths.add(norm);
-          if (permanentlyDeletedPaths.size > MAX_PERMANENTLY_DELETED_PATHS) {
-            const first = permanentlyDeletedPaths.values().next().value;
-            if (first) permanentlyDeletedPaths.delete(first);
-          }
-          if (permanentlyDeletedMeta.size > MAX_PERMANENTLY_DELETED_PATHS) {
-            const firstMeta = permanentlyDeletedMeta.keys().next().value;
-            if (firstMeta) permanentlyDeletedMeta.delete(firstMeta);
-          }
-        }
-        
-        if (wasPresent) {
-          fireCustomEvent('pod-permanently-deleted', { podKey });
-        }
-        
-        return wasPresent;
-      },
-      
-      /**
-       * Add external file to Zen Stuff with comprehensive validation
-       * @param {Object} podData - Pod data object with file information
-       * @returns {boolean} True if file was added successfully
-       * @throws {Error} If validation fails or file doesn't exist
-       */
-      addExternalFile: async (podData) => {
-        debugLog(`[API] Add external file requested: ${podData?.filename}`);
-        
-        try {
-          // Validate the pod data structure
-          if (!podData || typeof podData !== 'object') {
-            throw new Error('Invalid pod data: must be an object');
-          }
-          
-          const requiredFields = ['key', 'filename', 'targetPath'];
-          const missingFields = requiredFields.filter(field => !podData[field]);
-          if (missingFields.length > 0) {
-            throw new Error(`Invalid pod data: missing required fields: ${missingFields.join(', ')}`);
-          }
-          
-          // SECURITY: Validate field types
-          if (typeof podData.key !== 'string' || podData.key.length === 0) {
-            throw new Error('Invalid pod data: key must be a non-empty string');
-          }
-          if (typeof podData.filename !== 'string' || podData.filename.length === 0) {
-            throw new Error('Invalid pod data: filename must be a non-empty string');
-          }
-          if (typeof podData.targetPath !== 'string' || podData.targetPath.length === 0) {
-            throw new Error('Invalid pod data: targetPath must be a non-empty string');
-          }
-          
-          // SECURITY: Comprehensive path validation (strict mode for external files)
-          const pathValidation = SecurityUtils.validateFilePath(podData.targetPath, { strict: true });
-          if (!pathValidation.valid) {
-            throw new Error(`Invalid file path: ${pathValidation.error} (code: ${pathValidation.code})`);
-          }
-          
-          // SECURITY: Restrict to common download directories (optional but recommended)
-          // Allow user to configure allowed directories if needed
-          const allowedDirs = [
-            'Downloads', 'Desktop', 'Documents', 'Pictures', 'Videos', 'Music'
-          ];
-          const pathLower = podData.targetPath.toLowerCase();
-          const isInAllowedDir = allowedDirs.some(dir => pathLower.includes(dir.toLowerCase()));
-          if (!isInAllowedDir) {
-            debugLog(`[API] Warning: File path is outside common directories: ${podData.targetPath}`);
-            // Don't block, but log for security monitoring
-          }
-          
-          // Verify the file exists
-          const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
-          file.initWithPath(podData.targetPath);
-          
-          if (!file.exists()) {
-            throw new Error('File does not exist at the specified path');
-          }
-          
-          // SECURITY: Validate file is actually a file (not a directory)
-          if (file.isDirectory()) {
-            throw new Error('Path points to a directory, not a file');
-          }
-          
-          // Update file size if not provided
-          if (!podData.fileSize || podData.fileSize <= 0) {
-            podData.fileSize = file.fileSize;
-          }
-          
-          // SECURITY: Validate file size is reasonable (prevent DoS)
-          const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024; // 10GB
-          if (podData.fileSize > MAX_FILE_SIZE) {
-            throw new Error(`File size exceeds maximum allowed: ${podData.fileSize} bytes`);
-          }
-          
-          // Store the pod data
-          dismissedPodsData.set(podData.key, podData);
-          
-          // Fire dismiss event to notify the pile system
-          dismissEventListeners.forEach(callback => {
-            try {
-              callback(podData);
-            } catch (error) {
-              debugLog(`[API] Error in dismiss event listener:`, error);
-            }
-          });
-          
-          // Fire custom event
-          fireCustomEvent('external-file-added-to-stuff', { podData });
-          
-          debugLog(`[API] Successfully added external file: ${podData.filename}`);
-          return true;
-          
-        } catch (error) {
-          const errorInfo = {
-            error: error.message || error.toString(),
-            name: error.name || 'Error',
-            filename: podData?.filename,
-            path: podData?.targetPath
-          };
-          debugLog(`[API] Error adding external file:`, errorInfo);
-          throw error;
-        }
-      }
-    };
-    
-    // Helper function to fire custom events
     function fireCustomEvent(eventName, detail) {
       try {
         const event = new CustomEvent(eventName, { 
@@ -490,7 +246,19 @@
         debugLog(`[Events] Error firing custom event ${eventName}:`, error);
       }
     }
-    
+
+    window.zenTidyDownloads = window.zenTidyDownloadsPublicApi.createPublicApi({
+      store,
+      debugLog,
+      SecurityUtils,
+      DownloadsAdapter,
+      getDownloadKey,
+      getThrottledCreateOrUpdateCard: () => throttledCreateOrUpdateCard,
+      fireCustomEvent,
+      Cc,
+      Ci
+    });
+
     // Helper function to capture pod data for dismissal
     function capturePodDataForDismissal(downloadKey) {
       const cardData = activeDownloadCards.get(downloadKey);

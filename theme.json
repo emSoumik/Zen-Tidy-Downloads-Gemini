@@ -75,17 +75,23 @@
       ],
       "loadOrder": 11
     },
-    "tidy-downloads.uc.js": {
+    "modules/tidy-downloads-public-api.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 12
     },
-    "zen-stuff.uc.js": {
+    "tidy-downloads.uc.js": {
       "include": [
         "chrome://browser/content/browser.xhtml"
       ],
       "loadOrder": 13
+    },
+    "zen-stuff.uc.js": {
+      "include": [
+        "chrome://browser/content/browser.xhtml"
+      ],
+      "loadOrder": 14
     }
   },
   "preferences": "preferences.json",
