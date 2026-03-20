@@ -775,12 +775,19 @@
   async function createPileContainer() {
     if (!state.downloadButton) throw new Error("Download button not available");
 
-    // Check for existing elements
+    // Check for existing elements (sizer and hover bridge are siblings — removing sizer alone orphans the bridge)
     let existingSizer = document.getElementById("zen-dismissed-pile-dynamic-sizer");
     if (existingSizer) {
       debugLog("Found existing dynamic sizer, removing it first");
       existingSizer.remove();
     }
+    let existingBridge = document.getElementById("zen-dismissed-pile-hover-bridge");
+    while (existingBridge) {
+      debugLog("Found existing hover bridge, removing it first");
+      existingBridge.remove();
+      existingBridge = document.getElementById("zen-dismissed-pile-hover-bridge");
+    }
+    state.hoverBridge = null;
 
     // Create the dynamic sizer element
     state.dynamicSizer = document.createElement("div");
@@ -3032,10 +3039,15 @@
         state.prefObserver = null;
       }
 
-      // Remove DOM elements
+      // Remove DOM elements (bridge is not inside dynamicSizer — remove both)
+      if (state.hoverBridge && state.hoverBridge.parentNode) {
+        state.hoverBridge.parentNode.removeChild(state.hoverBridge);
+      }
+      state.hoverBridge = null;
       if (state.dynamicSizer && state.dynamicSizer.parentNode) {
         state.dynamicSizer.parentNode.removeChild(state.dynamicSizer);
       }
+      state.dynamicSizer = null;
 
       // Clear all state
       state.clearAll();
