@@ -10,8 +10,6 @@
 
   if (location.href !== "chrome://browser/content/browser.xhtml") return;
 
-  const { classes: Cc, interfaces: Ci } = Components;
-
   window.zenTidyDownloadsPreview = {
     /**
      * Initialize preview module. Called by tidy-downloads.uc.js with context.
@@ -24,6 +22,12 @@
      */
     init(ctx) {
       const { IMAGE_EXTENSIONS, debugLog, getPref, focusedKeyRef } = ctx;
+
+      const UtilsRef = window.zenTidyDownloadsUtils;
+      const TEXT_EXTS = UtilsRef?.TEXT_EXTENSIONS ?? new Set();
+      const SYSTEM_ICON_EXTS = UtilsRef?.SYSTEM_ICON_EXTENSIONS ?? new Set();
+      const readTextFilePreviewFromUtils = (path) =>
+        (UtilsRef?.readTextFilePreview ? UtilsRef.readTextFilePreview(path, UtilsRef.DEFAULT_TEXT_PREVIEW_MAX_BYTES) : Promise.resolve(null));
 
       const filePreviewEnabled = typeof getPref === "function"
         ? getPref("extensions.downloads.enable_file_preview", false)
@@ -151,29 +155,6 @@
         }
       }
 
-      async function readTextFilePreview(path) {
-        try {
-          if (typeof IOUtils !== 'undefined') {
-            const content = await IOUtils.readUTF8(path, { maxBytes: 500 });
-            return content;
-          }
-          const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-          file.initWithPath(path);
-          if (!file.exists()) return null;
-          const fstream = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(Ci.nsIFileInputStream);
-          const cstream = Cc["@mozilla.org/intl/converter-input-stream;1"].createInstance(Ci.nsIConverterInputStream);
-          fstream.init(file, -1, 0, 0);
-          cstream.init(fstream, "UTF-8", 0, 0);
-          let str = {};
-          cstream.readString(500, str);
-          cstream.close();
-          return str.value;
-        } catch (e) {
-          debugLog("Error reading text file preview:", e);
-          return null;
-        }
-      }
-
       function renderIconImg(container, iconUrl, onError) {
         const img = document.createElement("img");
         img.src = iconUrl;
@@ -225,18 +206,6 @@
           podElement.style.boxShadow = '0 2px 8px rgba(60,60,60,0.18)';
         }
       }
-
-      const SYSTEM_ICON_EXTS = new Set([
-        '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
-        '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.wma',
-        '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-        '.exe', '.msi', '.bat', '.cmd', '.scr',
-        '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.iso'
-      ]);
-
-      const TEXT_EXTS = new Set([
-        '.txt', '.md', '.js', '.css', '.html', '.json', '.xml', '.log', '.ini', '.sh', '.py', '.java', '.c', '.cpp', '.h', '.ts', '.jsx', '.tsx'
-      ]);
 
       async function setCompletedFilePreview(previewElement, download) {
         if (!previewElement) {
@@ -313,7 +282,7 @@
           if (isTextExtension || download?.contentType?.startsWith("text/")) {
             if (filePreviewEnabled) {
               debugLog("[setCompletedFilePreview] Rendering Text Preview");
-              const textContent = await readTextFilePreview(filePath);
+              const textContent = await readTextFilePreviewFromUtils(filePath);
               if (textContent) {
                 previewElement.innerHTML = "";
                 const textDiv = document.createElement("div");

@@ -17,7 +17,17 @@
     console.error("[Zen Stuff] zenTidyDownloadsUtils not loaded - ensure tidy-downloads-utils.uc.js loads first (check @loadOrder in headers)");
     return;
   }
-  const { validateFilePathOrThrow, validatePodData, formatBytes, waitForElement } = Utils;
+  const {
+    validateFilePathOrThrow,
+    validatePodData,
+    formatBytes,
+    waitForElement,
+    IMAGE_EXTENSIONS,
+    TEXT_EXTENSIONS,
+    SYSTEM_ICON_EXTENSIONS,
+    readTextFilePreview,
+    filenameEndsWithExtensionFromSet
+  } = Utils;
 
   // Configuration
   const CONFIG = {
@@ -1131,68 +1141,19 @@
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     `;
 
-    // Helper to check for extensions
-    const checkExtension = (filename, extensions) => {
-        if (!filename) return false;
-        const lower = filename.toLowerCase();
-        return extensions.some(ext => lower.endsWith(ext));
-    };
+    const isImageFile = (filename, contentType) =>
+      !!(contentType && contentType.startsWith("image/")) ||
+      filenameEndsWithExtensionFromSet(filename, IMAGE_EXTENSIONS);
 
-    // Helper to check for image extensions
-    const isImageFile = (filename, contentType) => {
-        const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.ico', '.avif'];
-        if (contentType && contentType.startsWith('image/')) return true;
-        return checkExtension(filename, IMAGE_EXTENSIONS);
-    };
-    
-    // Helper to check for text extensions
-    const isTextFile = (filename, contentType) => {
-        const TEXT_EXTS = ['.txt', '.md', '.js', '.css', '.html', '.json', '.xml', '.log', '.ini', '.sh', '.py', '.java', '.c', '.cpp', '.h', '.ts', '.jsx', '.tsx'];
-        if (contentType && contentType.startsWith('text/')) return true;
-        return checkExtension(filename, TEXT_EXTS);
-    };
+    const isTextFile = (filename, contentType) =>
+      !!(contentType && contentType.startsWith("text/")) ||
+      filenameEndsWithExtensionFromSet(filename, TEXT_EXTENSIONS);
 
-    // Helper to read text file preview (first 500 chars)
-    // DUPLICATED from tidy-downloads for now as zen-stuff is separate scope
-    const readTextFilePreview = async (path) => {
-        try {
-            if (typeof IOUtils !== 'undefined') {
-                const content = await IOUtils.readUTF8(path, { maxBytes: 500 });
-                return content;
-            }
-            const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-            file.initWithPath(path);
-            if (!file.exists()) return null;
-            const fstream = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(Ci.nsIFileInputStream);
-            const cstream = Cc["@mozilla.org/intl/converter-input-stream;1"].createInstance(Ci.nsIConverterInputStream);
-            fstream.init(file, -1, 0, 0);
-            cstream.init(fstream, "UTF-8", 0, 0);
-            let str = {};
-            cstream.readString(500, str);
-            cstream.close();
-            return str.value;
-        } catch (e) {
-            return null;
-        }
-    };
-
-    // Helper to check for system icon extensions
     const isSystemIconFile = (filename, contentType) => {
-        const SYSTEM_ICON_EXTS = [
-            // Video
-            '.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv', '.m4v',
-            // Audio
-            '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.wma',
-            // Documents
-            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
-            // Executables
-            '.exe', '.msi', '.bat', '.cmd', '.scr',
-            // Archives
-            '.zip', '.rar', '.7z', '.tar', '.gz', '.bz2', '.iso'
-        ];
-        // Also check content types if needed, but extension is usually sufficient for system icons
-        if (contentType && (contentType.startsWith('video/') || contentType.startsWith('audio/') || contentType.includes('pdf'))) return true;
-        return checkExtension(filename, SYSTEM_ICON_EXTS);
+      if (contentType && (contentType.startsWith("video/") || contentType.startsWith("audio/") || contentType.includes("pdf"))) {
+        return true;
+      }
+      return filenameEndsWithExtensionFromSet(filename, SYSTEM_ICON_EXTENSIONS);
     };
 
     // Set preview content

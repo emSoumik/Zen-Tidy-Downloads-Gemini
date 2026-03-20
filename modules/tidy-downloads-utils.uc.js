@@ -25,7 +25,21 @@
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif",
     ".ico", ".tif", ".tiff", ".jfif"
   ]);
+  /** @type {Set<string>} */
+  const TEXT_EXTENSIONS = new Set([
+    ".txt", ".md", ".js", ".css", ".html", ".json", ".xml", ".log", ".ini", ".sh", ".py",
+    ".java", ".c", ".cpp", ".h", ".ts", ".jsx", ".tsx"
+  ]);
+  /** @type {Set<string>} */
+  const SYSTEM_ICON_EXTENSIONS = new Set([
+    ".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv", ".wmv", ".m4v",
+    ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma",
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".exe", ".msi", ".bat", ".cmd", ".scr",
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".iso"
+  ]);
   const PATH_SEPARATOR = navigator.platform.includes("Win") ? "\\" : "/";
+  const DEFAULT_TEXT_PREVIEW_MAX_BYTES = 500;
 
   // ============================================================================
   // PREFERENCES
@@ -331,6 +345,48 @@
     return `${parseFloat((b / Math.pow(1024, i)).toFixed(d))} ${sizes[i]}`;
   }
 
+  /**
+   * @param {string} [filename]
+   * @param {Set<string>} extSet - extensions with leading dot (e.g. ".png")
+   * @returns {boolean}
+   */
+  function filenameEndsWithExtensionFromSet(filename, extSet) {
+    if (!filename || !extSet || extSet.size === 0) return false;
+    const lower = filename.toLowerCase();
+    for (const ext of extSet) {
+      if (lower.endsWith(ext)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Read the start of a UTF-8 text file (IOUtils when available).
+   * @param {string} path
+   * @param {number} [maxBytes=500]
+   * @returns {Promise<string|null>}
+   */
+  async function readTextFilePreview(path, maxBytes = DEFAULT_TEXT_PREVIEW_MAX_BYTES) {
+    try {
+      if (typeof path !== "string" || !path) return null;
+      if (typeof IOUtils !== "undefined") {
+        return await IOUtils.readUTF8(path, { maxBytes });
+      }
+      const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+      file.initWithPath(path);
+      if (!file.exists()) return null;
+      const fstream = Cc["@mozilla.org/network/file-input-stream;1"].createInstance(Ci.nsIFileInputStream);
+      const cstream = Cc["@mozilla.org/intl/converter-input-stream;1"].createInstance(Ci.nsIConverterInputStream);
+      fstream.init(file, -1, 0, 0);
+      cstream.init(fstream, "UTF-8", 0, 0);
+      const str = {};
+      cstream.readString(maxBytes, str);
+      cstream.close();
+      return str.value;
+    } catch (e) {
+      return null;
+    }
+  }
+
   // ============================================================================
   // DOM UTILITIES
   // ============================================================================
@@ -366,7 +422,10 @@
     TEMP_LOADER_ICON,
     RENAMED_SUCCESS_ICON,
     IMAGE_EXTENSIONS,
+    TEXT_EXTENSIONS,
+    SYSTEM_ICON_EXTENSIONS,
     PATH_SEPARATOR,
+    DEFAULT_TEXT_PREVIEW_MAX_BYTES,
 
     // Preferences
     getPref,
@@ -388,6 +447,10 @@
 
     // Format
     formatBytes,
+
+    // File / extension helpers (shared with preview + zen-stuff pile)
+    readTextFilePreview,
+    filenameEndsWithExtensionFromSet,
 
     // DOM
     waitForElement
