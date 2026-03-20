@@ -80,6 +80,8 @@
       this.recentlyRemoved = false;
       // --- add mediaToolbarMaskRemovalTimeout for delayed mask removal on pile collapse ---
       this.mediaToolbarMaskRemovalTimeout = null;
+      // --- true from row contextmenu until popuphidden (covers gap before menupopup.state === 'open') ---
+      this.pileContextMenuActive = false;
     }
 
     // Safe getters with validation
@@ -1387,6 +1389,7 @@
     // Add right-click handler - use native menupopup
     row.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      state.pileContextMenuActive = true;
       ensurePodContextMenu();
       podContextMenuPodData = podData;
       // Open at mouse position
@@ -1815,6 +1818,12 @@
       return; // Don't process leave events if hover is disabled
     }
 
+    if (isContextMenuVisible()) {
+      debugLog("[DownloadHover] Context menu visible - deferring pile close");
+      state.pendingPileClose = true;
+      return;
+    }
+
     clearTimeout(state.hoverTimeout);
     state.hoverTimeout = setTimeout(() => {
       const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
@@ -1827,8 +1836,13 @@
 
       // Only hide if cursor is not over download button AND not over pile/bridge
       if (!isHoveringDownloadArea && !isHoveringPileArea()) {
-        debugLog("[DownloadHover] Calling hidePile()");
-        hidePile();
+        if (isContextMenuVisible()) {
+          debugLog("[DownloadHover] Context menu visible at timeout - deferring pile close");
+          state.pendingPileClose = true;
+        } else {
+          debugLog("[DownloadHover] Calling hidePile()");
+          hidePile();
+        }
       }
     }, CONFIG.hoverDebounceMs);
   }
@@ -2123,6 +2137,13 @@
     // Don't hide pile if a pod was recently removed (give user time to see the result)
     if (state.recentlyRemoved) {
       debugLog("[HidePile] Pile kept visible - recent removal in progress");
+      return;
+    }
+
+    // Don't hide while pile row context menu is open (or opening); matches sizer/pile leave behavior
+    if (isContextMenuVisible()) {
+      debugLog("[HidePile] Pile kept visible - context menu active");
+      state.pendingPileClose = true;
       return;
     }
 
@@ -2966,6 +2987,7 @@
 
       // Add the popuphidden event listener here, after podContextMenu is created
       podContextMenu.addEventListener("popuphidden", () => {
+        state.pileContextMenuActive = false;
         setTimeout(() => {
           const isHoveringPile = isHoveringPileArea();
           const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
@@ -3457,10 +3479,11 @@
     }
   }
 
-  // Utility to check if the pod context menu is visible
+  // Utility to check if the pod context menu is visible (or opening)
   function isContextMenuVisible() {
+    if (state.pileContextMenuActive) return true;
     const menu = document.getElementById('zen-pile-pod-context-menu');
-    return menu && typeof menu.state === 'string' && menu.state === 'open';
+    return Boolean(menu && typeof menu.state === 'string' && menu.state === 'open');
   }
 
   /* Add CSS for flyout/flyin animations */
