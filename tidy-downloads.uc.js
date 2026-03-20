@@ -74,7 +74,10 @@
     // === MAIN SCRIPT INITIALIZATION CONTINUES HERE ===
     // Wait for utils (handles load-order races; utils must be in theme.json scripts)
     (function tryInit(attempt) {
-      if (window.zenTidyDownloadsUtils) {
+      const utilsReady = window.zenTidyDownloadsUtils;
+      const storeReady = window.zenTidyDownloadsStore?.createStore;
+      const dlAdapterReady = window.zenTidyDownloadsDownloadsAdapter;
+      if (utilsReady && storeReady && dlAdapterReady) {
         initializeMainScript();
         return;
       }
@@ -82,7 +85,9 @@
         setTimeout(() => tryInit(attempt + 1), 50);
         return;
       }
-      console.error("[Tidy Downloads] zenTidyDownloadsUtils not loaded after 2s. Ensure tidy-downloads-utils.uc.js exists in the mod folder and is listed in theme.json scripts.");
+      console.error(
+        "[Tidy Downloads] Missing modules after 2s. Need zenTidyDownloadsUtils, zenTidyDownloadsStore, zenTidyDownloadsDownloadsAdapter (utils, store, downloads-adapter .uc.js in theme.json)."
+      );
     })(0);
   }, 100); // Small delay to ensure DOM elements are loaded
 
@@ -140,38 +145,31 @@
     // extensions.downloads.show_old_downloads_hours - How many hours back to show old completed downloads on startup (default: 2)
     // zen.tidy-downloads.use-library-button - Use zen-library-button instead of downloads-button for hover detection (default: false)
 
-    // Global state variables
+    const DownloadsAdapter = window.zenTidyDownloadsDownloadsAdapter;
+    const store = window.zenTidyDownloadsStore.createStore({ getPref });
+    const {
+      activeDownloadCards,
+      renamedFiles,
+      cardUpdateThrottle,
+      sidebarWidthRef,
+      focusedKeyRef,
+      orderedPodKeys,
+      dismissedDownloads,
+      stickyPods,
+      permanentlyDeletedPaths,
+      permanentlyDeletedMeta,
+      MAX_PERMANENTLY_DELETED_PATHS,
+      actualDownloadRemovedEventListeners,
+      dismissedPodsData,
+      dismissEventListeners
+    } = store;
+
+    // DOM + session (not on store)
     let downloadCardsContainer;
-    const activeDownloadCards = new Map();
-    let renamedFiles = new Set();
     let aiRenamingPossible = false;
-    let cardUpdateThrottle = new Map(); // Prevent rapid updates (for completion events)
-    // Global UI update throttle to avoid layout storms
-    let lastUIUpdateTime = 0;
-    let MIN_UI_UPDATE_INTERVAL_MS = 150;
-    // Text-file preview toggle (disabled by default). Images always get previews.
-    let filePreviewEnabled = false;
-    try {
-      if (typeof getPref === "function") {
-        MIN_UI_UPDATE_INTERVAL_MS = getPref("extensions.downloads.ui_update_min_interval_ms", 150);
-        // Opt-in for text-file previews; images always show regardless.
-        filePreviewEnabled = getPref("extensions.downloads.enable_file_preview", false);
-      }
-    } catch (e) {
-      // Fallback to defaults if prefs are unavailable
-    }
-    const sidebarWidthRef = { value: "" };
-    let podsRowContainerElement = null; // Renamed back from podsStackContainerElement
+    let podsRowContainerElement = null;
     let masterTooltipDOMElement = null;
     let initSidebarWidthSyncFn = () => { };
-    let focusedDownloadKey = null;
-    let orderedPodKeys = []; // Newest will be at the end
-    let lastRotationDirection = null; // Track rotation direction: 'forward', 'backward', or null
-    const dismissedDownloads = new Set(); // Track downloads that have been manually dismissed or auto-hidden
-    const stickyPods = new Set(); // Keys of pods kept visible in the pods row after auto-dismiss
-    const permanentlyDeletedPaths = new Set(); // Normalized paths cleared by permanent delete
-    const permanentlyDeletedMeta = new Map();  // pathNorm -> { startTime }
-    const MAX_PERMANENTLY_DELETED_PATHS = 50;
 
     // File operations module (open, erase from history, content-type)
     const fileOpsApi = window.zenTidyDownloadsFileOps?.init({ SecurityUtils, debugLog }) || {
@@ -186,7 +184,7 @@
       IMAGE_EXTENSIONS,
       debugLog,
       getPref,
-      getFocusedKey: () => focusedDownloadKey
+      focusedKeyRef
     }) || {
       setGenericIcon: (el, ct) => {
         if (!el) return;
@@ -207,7 +205,7 @@
       updatePodGlowColor: () => {}
     };
 
-    // AI Rename module - initialized after renameDownloadFileAndUpdateRecord is defined
+    // AI Rename module (wired after createRenameHandlers, before init())
     let addToAIRenameQueue = () => false;
     let removeFromAIRenameQueue = () => false;
     let cancelAIProcessForDownload = async () => false;
@@ -215,13 +213,6 @@
     let getQueuePosition = () => -1;
     let updateQueueStatusInUI = () => {};
 
-    // Event listeners for external scripts
-    const actualDownloadRemovedEventListeners = new Set();
-
-    // --- Dismissed Pods Management System ---
-    const dismissedPodsData = new Map(); // Store dismissed pod data for pile feature
-    const dismissEventListeners = new Set(); // Callbacks for pod dismiss events
-    
     // Global API for dismissed pods pile feature
     window.zenTidyDownloads = {
       // Event system
@@ -286,7 +277,11 @@
           dismissedPodsData.delete(podKey);
           
           // If the download still exists in Firefox, recreate the pod
-          const list = await window.Downloads.getList(window.Downloads.ALL);
+          const list = await DownloadsAdapter.getAllDownloadsList();
+          if (!list) {
+            debugLog(`[API] Downloads list unavailable for restoration: ${podKey}`);
+            return false;
+          }
           const downloads = await list.getAll();
           const download = downloads.find(dl => getDownloadKey(dl) === podKey);
           
@@ -572,16 +567,65 @@
       return "Untitled";
     }
 
+    const tidyDeps = {
+      SecurityUtils,
+      debugLog,
+      sanitizeFilename,
+      PATH_SEPARATOR,
+      Cc,
+      Ci,
+      scheduleCardRemoval,
+      performAutohideSequence,
+      updateUIForFocusedDownload,
+      getMasterTooltip: () => masterTooltipDOMElement
+    };
+
+    const { renameDownloadFileAndUpdateRecord, undoRename } = window.zenTidyDownloadsFileOps.createRenameHandlers({
+      store,
+      deps: tidyDeps
+    });
+
+    const aiDeps = {
+      ...tidyDeps,
+      renameDownloadFileAndUpdateRecord,
+      getPref,
+      RateLimiter,
+      redactSensitiveData,
+      formatBytes,
+      getContentTypeFromFilename,
+      MISTRAL_API_KEY_PREF,
+      IMAGE_EXTENSIONS,
+      previewApi,
+      showRenameToast,
+      showSimpleToast,
+      getDownloadKey
+    };
+
+    (function initAIRenameModule() {
+      const api = window.zenTidyDownloadsAIRename?.init({
+        store,
+        deps: aiDeps
+      });
+      if (api) {
+        addToAIRenameQueue = api.addToAIRenameQueue;
+        removeFromAIRenameQueue = api.removeFromAIRenameQueue;
+        cancelAIProcessForDownload = api.cancelAIProcessForDownload;
+        isInQueue = api.isInQueue;
+        getQueuePosition = api.getQueuePosition;
+        updateQueueStatusInUI = api.updateQueueStatusInUI;
+      }
+    })();
+
     async function init() {
       console.log("=== DOWNLOAD PREVIEW SCRIPT STARTING ===");
       debugLog("Starting initialization");
-      if (!window.Downloads?.getList) {
+      if (!DownloadsAdapter.isAvailable()) {
         console.error("Download Preview Mistral AI: Downloads API not available");
         aiRenamingPossible = false;
         return;
       }
       try {
-        window.Downloads.getList(window.Downloads.ALL)
+        DownloadsAdapter.getAllDownloadsList()
           .then(async (list) => {
             if (list) {
               debugLog("Downloads API verified");
@@ -716,7 +760,7 @@
             getMasterTooltip: () => masterTooltipDOMElement,
             getPodsContainer: () => podsRowContainerElement,
             getActiveCards: () => activeDownloadCards,
-            getFocusedKey: () => focusedDownloadKey,
+            focusedKeyRef,
             updateUI: (k, b) => updateUIForFocusedDownload(k, b),
             sidebarWidthRef,
             debugLog
@@ -736,10 +780,10 @@
             const masterCloseHandler = (e) => {
               e.preventDefault();
               e.stopPropagation();
-              debugLog(`[MasterClose] Master close button clicked. FocusedDownloadKey: ${focusedDownloadKey}`);
+              debugLog(`[MasterClose] Master close button clicked. FocusedDownloadKey: ${focusedKeyRef.current}`);
               
-              if (focusedDownloadKey) {
-                const keyToRemove = focusedDownloadKey; // Capture the key
+              if (focusedKeyRef.current) {
+                const keyToRemove = focusedKeyRef.current; // Capture the key
                 const cardData = activeDownloadCards.get(keyToRemove);
 
                 // Start tooltip hide animation immediately
@@ -792,7 +836,7 @@
             };
             masterCloseBtn.addEventListener("click", masterCloseHandler);
             masterCloseBtn.addEventListener("keydown", (e) => {
-              if ((e.key === "Enter" || e.key === " ") && focusedDownloadKey) {
+              if ((e.key === "Enter" || e.key === " ") && focusedKeyRef.current) {
                 e.preventDefault();
                 masterCloseHandler(e);
               }
@@ -805,16 +849,16 @@
               const masterUndoHandler = async (e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  debugLog(`[MasterUndo] Master undo/resume button clicked. FocusedDownloadKey: ${focusedDownloadKey}`);
+                  debugLog(`[MasterUndo] Master undo/resume button clicked. FocusedDownloadKey: ${focusedKeyRef.current}`);
                   
-                  if (focusedDownloadKey) {
-                      await undoRename(focusedDownloadKey);
+                  if (focusedKeyRef.current) {
+                      await undoRename(focusedKeyRef.current);
                       // UI update is handled within undoRename via updateUIForFocusedDownload
                   }
               };
               masterUndoBtn.addEventListener("click", masterUndoHandler);
               masterUndoBtn.addEventListener("keydown", async (e) => {
-                  if ((e.key === "Enter" || e.key === " ") && focusedDownloadKey) {
+                  if ((e.key === "Enter" || e.key === " ") && focusedKeyRef.current) {
                       e.preventDefault();
                       await masterUndoHandler(e); // Make sure to await if handler is async
                   }
@@ -823,30 +867,20 @@
 
         }
 
-        // Attach listeners - only show pod/tooltip after completion (no progress display)
-        let downloadListener = {
-          onDownloadAdded: (dl) => {
-            if (dl.succeeded || dl.error) throttledCreateOrUpdateCard(dl);
-          },
-          onDownloadChanged: (dl) => {
-            if (dl.succeeded || dl.error) throttledCreateOrUpdateCard(dl);
-          },
-          onDownloadRemoved: async (dl) => {
+        const downloadListener = DownloadsAdapter.createDownloadViewListener({
+          onCompletedState: (dl) => throttledCreateOrUpdateCard(dl),
+          onRemoved: async (dl) => {
             const key = getDownloadKey(dl);
-            await cancelAIProcessForDownload(key); // Cancel any AI process first
-            
-            // If the close handler is manually cleaning this download (erasing errored downloads
-            // from history), skip removeCard and actual-download-removed here. The close handler
-            // will call removeCard(force=true) after erasing, which correctly sends it to the pile.
+            await cancelAIProcessForDownload(key);
+
             const cardData = activeDownloadCards.get(key);
             if (cardData?.isManuallyCleaning) {
               debugLog(`[OnDownloadRemoved] Skipping removeCard/actual-download-removed for manually cleaned download: ${key}`);
               return;
             }
-            
+
             await removeCard(key, false);
-            
-            // Notify listeners that a download was actually removed from Firefox's list
+
             actualDownloadRemovedEventListeners.forEach(callback => {
               try {
                 callback(key);
@@ -856,39 +890,25 @@
             });
             fireCustomEvent('actual-download-removed', { podKey: key });
             debugLog(`[API Event] Fired actual-download-removed for key: ${key}`);
-          },
-        };
+          }
+        });
 
-        window.Downloads.getList(window.Downloads.ALL)
+        DownloadsAdapter.getAllDownloadsList()
           .then((list) => {
+            if (!list) {
+              console.error("DL Preview Mistral AI: No download list");
+              return;
+            }
             list.addView(downloadListener);
             list.getAll().then((all) => {
-              // Filter out old completed downloads to prevent them from reappearing
-              const recentDownloads = all.filter(dl => {
-                // Only show completed downloads (succeeded or error) - no in-progress, no canceled
-                if (!dl.succeeded && !dl.error) return false;
-
-                const key = getDownloadKey(dl);
-                
-                // Skip dismissed downloads only if they're completed AND not currently in our active cards
-                if (dismissedDownloads.has(key) && !activeDownloadCards.has(key)) {
-                  debugLog(`[CreatePod] Skipping dismissed completed download: ${key}`);
-                  return false;
-                }
-                
-                // Only show recent completed downloads within the time window
-                const downloadTime = new Date(dl.startTime || 0);
-                const hoursSinceDownload = (Date.now() - downloadTime.getTime()) / (1000 * 60 * 60);
-                const showOldDownloadsHours = getPref("extensions.downloads.show_old_downloads_hours", 2);
-                if (hoursSinceDownload > showOldDownloadsHours) {
-                  debugLog(`[Init] Skipping old completed download: ${key} (${hoursSinceDownload.toFixed(1)}h old)`);
-                  dismissedDownloads.add(key); // Mark as dismissed to prevent future reappearance
-                  return false;
-                }
-                
-                return true;
+              const recentDownloads = DownloadsAdapter.filterInitialCompletedDownloads(all, {
+                getDownloadKey,
+                getPref,
+                dismissedDownloads,
+                activeDownloadCards,
+                debugLog
               });
-              
+
               debugLog(`[Init] Processing ${recentDownloads.length} recent downloads out of ${all.length} total`);
               recentDownloads.forEach((dl) => {
                 throttledCreateOrUpdateCard(dl, true);
@@ -918,9 +938,9 @@
       const podElement = createOrUpdatePodElement(download, isNewCardOnInit);
       if (podElement) {
         debugLog(`[Throttle] Pod element created/updated for ${key}.`);
-        const shouldRequestUIUpdate = isNewCardOnInit || key === focusedDownloadKey;
+        const shouldRequestUIUpdate = isNewCardOnInit || key === focusedKeyRef.current;
         if (shouldRequestUIUpdate) {
-          updateUIForFocusedDownload(focusedDownloadKey || key, isNewCardOnInit || true);
+          updateUIForFocusedDownload(focusedKeyRef.current || key, isNewCardOnInit || true);
         }
       } else {
         debugLog(`[Throttle] No pod element returned for ${key}. Download state:`, { 
@@ -1136,31 +1156,31 @@
         
         // Focus behavior based on stable_focus_mode preference
         const stableFocusMode = getPref("extensions.downloads.stable_focus_mode", true);
-        const currentFocusedData = focusedDownloadKey ? activeDownloadCards.get(focusedDownloadKey) : null;
+        const currentFocusedData = focusedKeyRef.current ? activeDownloadCards.get(focusedKeyRef.current) : null;
         const currentFocusedDownload = currentFocusedData?.download;
         
-        if (!focusedDownloadKey) {
+        if (!focusedKeyRef.current) {
           // Always focus if no current focus
-          focusedDownloadKey = key;
+          focusedKeyRef.current = key;
           debugLog(`[PodFUNC] New pod created, setting as focused (no current focus): ${key}. Total pods: ${orderedPodKeys.length}`);
         } else if (!stableFocusMode) {
           // In non-stable mode, always switch to newest
-          focusedDownloadKey = key;
+          focusedKeyRef.current = key;
           debugLog(`[PodFUNC] New pod created, setting as focused (non-stable mode): ${key}. Total pods: ${orderedPodKeys.length}`);
         } else if (download.succeeded) {
           // Completed downloads always take focus
-          focusedDownloadKey = key;
+          focusedKeyRef.current = key;
           debugLog(`[PodFUNC] New pod created, setting as focused (completed download): ${key}. Total pods: ${orderedPodKeys.length}`);
         } else if (currentFocusedDownload && (currentFocusedDownload.succeeded || currentFocusedDownload.error)) {
           // If current focus is on a finished download, switch to the new active one
-          focusedDownloadKey = key;
-          debugLog(`[PodFUNC] New pod created, setting as focused (current focus was finished): ${key}. Previous: ${focusedDownloadKey}`);
+          focusedKeyRef.current = key;
+          debugLog(`[PodFUNC] New pod created, setting as focused (current focus was finished): ${key}. Previous: ${focusedKeyRef.current}`);
         } else {
           // In stable mode, keep current focus for in-progress downloads when current is also in-progress
-          debugLog(`[PodFUNC] New pod created but keeping current focus on: ${focusedDownloadKey}. New pod: ${key} (stable focus mode - both in progress)`);
+          debugLog(`[PodFUNC] New pod created but keeping current focus on: ${focusedKeyRef.current}. New pod: ${key} (stable focus mode - both in progress)`);
         }
       } else {
-        debugLog(`[PodFUNC] Pod ${key} already exists in orderedPodKeys. Current focus: ${focusedDownloadKey}`);
+        debugLog(`[PodFUNC] Pod ${key} already exists in orderedPodKeys. Current focus: ${focusedKeyRef.current}`);
       }
 
       // Pods only appear on completion; Zen arc animation runs before download starts, so no sync needed.
@@ -1293,22 +1313,23 @@
     })();
 
     const shouldForceLayout = isNewOrSignificantUpdate || isFinalStateUpdateCandidate;
-    const enoughTimeElapsedForLayout = (now - lastUIUpdateTime) >= MIN_UI_UPDATE_INTERVAL_MS;
+    const enoughTimeElapsedForLayout =
+      (now - store.lastUIUpdateTime) >= store.MIN_UI_UPDATE_INTERVAL_MS;
 
     if (!shouldForceLayout && !enoughTimeElapsedForLayout) {
       debugLog(`[UIUPDATE_SKIP] Skipping UI update/layout for ${keyToFocus} to avoid layout storm.`);
       return;
     }
 
-    lastUIUpdateTime = now;
+    store.lastUIUpdateTime = now;
 
-    debugLog(`[UIUPDATE_TOP] updateUIForFocusedDownload called. keyToFocus: ${keyToFocus}, isNewOrSignificantUpdate: ${isNewOrSignificantUpdate}, current focusedDownloadKey: ${focusedDownloadKey}`);
+    debugLog(`[UIUPDATE_TOP] updateUIForFocusedDownload called. keyToFocus: ${keyToFocus}, isNewOrSignificantUpdate: ${isNewOrSignificantUpdate}, current focused key: ${focusedKeyRef.current}`);
     
-    const oldFocusedKey = focusedDownloadKey;
-    focusedDownloadKey = keyToFocus; 
-    debugLog(`[UIUPDATE_FOCUS_SET] focusedDownloadKey is NOW: ${focusedDownloadKey}`);
+    const oldFocusedKey = focusedKeyRef.current;
+    focusedKeyRef.current = keyToFocus; 
+    debugLog(`[UIUPDATE_FOCUS_SET] focused key is NOW: ${focusedKeyRef.current}`);
 
-    const cardDataToFocus = focusedDownloadKey ? activeDownloadCards.get(focusedDownloadKey) : null;
+    const cardDataToFocus = focusedKeyRef.current ? activeDownloadCards.get(focusedKeyRef.current) : null;
 
     if (!masterTooltipDOMElement) {
         debugLog("[UIUPDATE_ERROR] Master tooltip DOM element not found. Cannot update UI.");
@@ -1316,7 +1337,7 @@
     }
 
     if (!cardDataToFocus || !cardDataToFocus.podElement) {
-      debugLog(`[UIUPDATE_NO_CARD_DATA] No card data or podElement for key ${focusedDownloadKey}. Hiding master tooltip. CardData:`, cardDataToFocus);
+      debugLog(`[UIUPDATE_NO_CARD_DATA] No card data or podElement for key ${focusedKeyRef.current}. Hiding master tooltip. CardData:`, cardDataToFocus);
       masterTooltipDOMElement.style.opacity = "0";
       masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
       masterTooltipDOMElement.style.pointerEvents = "none";
@@ -1324,8 +1345,8 @@
       // cardDataToFocus and podElement are valid, proceed with UI updates for tooltip and AI.
       masterTooltipDOMElement.style.display = "flex"; 
 
-      if (oldFocusedKey !== focusedDownloadKey || isNewOrSignificantUpdate) {
-          debugLog(`[UIUPDATE_TOOLTIP_RESET] Focus changed or significant update. Resetting tooltip for animation for ${focusedDownloadKey}. Old focus: ${oldFocusedKey}`);
+      if (oldFocusedKey !== focusedKeyRef.current || isNewOrSignificantUpdate) {
+          debugLog(`[UIUPDATE_TOOLTIP_RESET] Focus changed or significant update. Resetting tooltip for animation for ${focusedKeyRef.current}. Old focus: ${oldFocusedKey}`);
           masterTooltipDOMElement.style.opacity = "0"; 
           masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
           masterTooltipDOMElement.style.pointerEvents = "none";
@@ -1335,7 +1356,7 @@
       const podElement = cardDataToFocus.podElement; 
 
       if (!download) {
-        debugLog(`[UIUPDATE_ERROR] cardDataToFocus for key ${focusedDownloadKey} is valid, but its .download property is undefined. Cannot update tooltip content or AI.`);
+        debugLog(`[UIUPDATE_ERROR] cardDataToFocus for key ${focusedKeyRef.current} is valid, but its .download property is undefined. Cannot update tooltip content or AI.`);
         // Keep tooltip hidden or show a generic error if it was supposed to be visible
         if (masterTooltipDOMElement.style.opacity !== '0') {
              masterTooltipDOMElement.style.opacity = "0";
@@ -1350,11 +1371,11 @@
           cardDataToFocus.complete = true;
           cardDataToFocus.userCanceled = false;
           podElement.classList.add("completed");
-          debugLog(`[UIUPDATE] Download marked as complete during UI update: ${focusedDownloadKey}`);
+          debugLog(`[UIUPDATE] Download marked as complete during UI update: ${focusedKeyRef.current}`);
           
           // Add to AI rename queue when completion is detected in UI update
           const aiRenamingEnabled = getPref("extensions.downloads.enable_ai_renaming", true);
-          debugLog(`[UIUPDATE] Checking AI rename eligibility for ${focusedDownloadKey}:`, {
+          debugLog(`[UIUPDATE] Checking AI rename eligibility for ${focusedKeyRef.current}:`, {
             aiRenamingEnabled,
             aiRenamingPossible,
             hasPath: !!download.target?.path,
@@ -1366,24 +1387,24 @@
               !renamedFiles.has(download.target.path)) {
             // Small delay to ensure download is fully settled before queuing
             setTimeout(() => {
-              const currentCardData = activeDownloadCards.get(focusedDownloadKey);
+              const currentCardData = activeDownloadCards.get(focusedKeyRef.current);
               if (currentCardData && currentCardData.download) {
-                debugLog(`[UIUPDATE] Adding ${focusedDownloadKey} to AI rename queue after delay`);
-                addToAIRenameQueue(focusedDownloadKey, currentCardData.download, currentCardData.originalFilename);
+                debugLog(`[UIUPDATE] Adding ${focusedKeyRef.current} to AI rename queue after delay`);
+                addToAIRenameQueue(focusedKeyRef.current, currentCardData.download, currentCardData.originalFilename);
               } else {
-                debugLog(`[UIUPDATE] Cannot add ${focusedDownloadKey} to queue - cardData missing after delay`);
+                debugLog(`[UIUPDATE] Cannot add ${focusedKeyRef.current} to queue - cardData missing after delay`);
               }
             }, 1000);
           } else {
-            debugLog(`[UIUPDATE] Not adding ${focusedDownloadKey} to AI rename queue - conditions not met`);
+            debugLog(`[UIUPDATE] Not adding ${focusedKeyRef.current} to AI rename queue - conditions not met`);
           }
           
-          scheduleCardRemoval(focusedDownloadKey);
+          scheduleCardRemoval(focusedKeyRef.current);
           
           // Set image preview for completed downloads
           const previewElement = podElement.querySelector(".card-preview-container");
           if (previewElement) {
-            debugLog(`[UIUPDATE] Setting completed file preview for: ${focusedDownloadKey}`);
+            debugLog(`[UIUPDATE] Setting completed file preview for: ${focusedKeyRef.current}`);
               previewApi.setCompletedFilePreview(previewElement, download)
                 .catch(e => debugLog("Error setting completed file preview during UI update", { error: e, download }));
           }
@@ -1523,7 +1544,7 @@
     // 6. Update which pod appears "focused" visually (this iterates all cards, safe to be here)
     activeDownloadCards.forEach(cd => {
         if (cd.podElement) {
-            if (cd.key === focusedDownloadKey) {
+            if (cd.key === focusedKeyRef.current) {
                 cd.podElement.classList.add('focused-pod');
                 
                 // Use dominant color if available, otherwise default blue
@@ -1542,7 +1563,7 @@
   function managePodVisibilityAndAnimations() {
     if (!masterTooltipDOMElement || !podsRowContainerElement) return;
     debugLog("[LayoutManager] managePodVisibilityAndAnimations Natural Stacking Style called.");
-    debugLog(`[LayoutManager] Current state: orderedPodKeys=${orderedPodKeys.length}, focusedDownloadKey=${focusedDownloadKey}, activeDownloadCards=${activeDownloadCards.size}`);
+    debugLog(`[LayoutManager] Current state: orderedPodKeys=${orderedPodKeys.length}, focusedKey=${focusedKeyRef.current}, activeDownloadCards=${activeDownloadCards.size}`);
 
     const tooltipWidth = masterTooltipDOMElement.offsetWidth;
     const podNominalWidth = 56; 
@@ -1584,13 +1605,13 @@
         return; 
     }
     
-    // Ensure focusedDownloadKey is valid and in orderedPodKeys, default to newest if not.
-    if (!focusedDownloadKey || !orderedPodKeys.includes(focusedDownloadKey)) {
+    // Ensure focused key is valid and in orderedPodKeys, default to newest if not.
+    if (!focusedKeyRef.current || !orderedPodKeys.includes(focusedKeyRef.current)) {
         if (orderedPodKeys.length > 0) {
           const newFocusKey = orderedPodKeys[orderedPodKeys.length - 1]; // Default to newest
-            if (focusedDownloadKey !== newFocusKey) {
-                focusedDownloadKey = newFocusKey;
-                debugLog(`[LayoutManager] Focused key was invalid or missing, defaulted to newest: ${focusedDownloadKey}`);
+            if (focusedKeyRef.current !== newFocusKey) {
+                focusedKeyRef.current = newFocusKey;
+                debugLog(`[LayoutManager] Focused key was invalid or missing, defaulted to newest: ${focusedKeyRef.current}`);
             }
         }
     }
@@ -1621,17 +1642,17 @@
     });
 
     let visiblePodsLayoutData = []; // Stores {key, x, zIndex, isFocused}
-    const focusedIndexInOrdered = orderedPodKeys.indexOf(focusedDownloadKey);
+    const focusedIndexInOrdered = orderedPodKeys.indexOf(focusedKeyRef.current);
 
     if (focusedIndexInOrdered === -1 && orderedPodKeys.length > 0) {
         // This should not happen if the check above worked, but as a failsafe:
-        debugLog(`[LayoutManager_ERROR] Focused key ${focusedDownloadKey} not in ordered keys after all! Defaulting again.`);
-        focusedDownloadKey = orderedPodKeys[orderedPodKeys.length - 1];
-        // updateUIForFocusedDownload(focusedDownloadKey, false); // This could cause a loop, be careful
+        debugLog(`[LayoutManager_ERROR] Focused key ${focusedKeyRef.current} not in ordered keys after all! Defaulting again.`);
+        focusedKeyRef.current = orderedPodKeys[orderedPodKeys.length - 1];
+        // updateUIForFocusedDownload(focusedKeyRef.current, false); // could loop; keep disabled
         // return; // Might be better to just proceed with the default for this frame
     }
     
-    if (!focusedDownloadKey) { // If still no focused key (e.g. orderedPodKeys became empty)
+    if (!focusedKeyRef.current) { // If still no focused key (e.g. orderedPodKeys became empty)
       debugLog("[LayoutManager] No focused key available, cannot proceed with jukebox layout.");
       // Potentially hide all pods if this state is reached unexpectedly.
       orderedPodKeys.forEach(key => {
@@ -1648,7 +1669,7 @@
     // 1. Position the focused pod
     let currentX = 0;
     visiblePodsLayoutData.push({
-        key: focusedDownloadKey,
+        key: focusedKeyRef.current,
         x: currentX,
         zIndex: baseZIndex + orderedPodKeys.length + 1, // Highest Z
         isFocused: true
@@ -1657,7 +1678,7 @@
 
     // 2. Position the pile pods to the right in reverse chronological order (natural stacking)
     // Create pile from newest to oldest, excluding the focused pod
-    const pileKeys = orderedPodKeys.slice().reverse().filter(key => key !== focusedDownloadKey);
+    const pileKeys = orderedPodKeys.slice().reverse().filter(key => key !== focusedKeyRef.current);
     let pileCount = 0;
     
     for (let i = 0; i < pileKeys.length && pileCount < maxVisiblePodsInPile - 1; i++) {
@@ -1677,7 +1698,7 @@
         }
     }
 
-    debugLog(`[LayoutManager_NaturalStack] Calculated layout for ${visiblePodsLayoutData.length} pods. Focused: ${focusedDownloadKey}`, visiblePodsLayoutData);
+    debugLog(`[LayoutManager_NaturalStack] Calculated layout for ${visiblePodsLayoutData.length} pods. Focused: ${focusedKeyRef.current}`, visiblePodsLayoutData);
 
     // 3. Apply styles and animations
     orderedPodKeys.forEach(key => {
@@ -1708,12 +1729,12 @@
                 debugLog(`[LayoutManager_Jukebox_Anim_Setup] Pod ${key}: Setting up IN/MOVE animation to X=${layoutData.x}, Opacity=${targetOpacity}. Prev IntendedTransform: ${cardData.intendedTargetTransform}, Prev Opacity: ${cardData.intendedTargetOpacity}, IsVisible: ${cardData.isVisible}`);
                 
                 // Apply directional entrance animation for newly focused pods during rotation
-                if (layoutData.isFocused && !cardData.isVisible && lastRotationDirection) {
+                if (layoutData.isFocused && !cardData.isVisible && store.lastRotationDirection) {
                     let entranceTransform;
-                    if (lastRotationDirection === 'forward') {
+                    if (store.lastRotationDirection === 'forward') {
                         // Forward rotation: new focused pod slides in from the right
                         entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
-                    } else if (lastRotationDirection === 'backward') {
+                    } else if (store.lastRotationDirection === 'backward') {
                         // Backward rotation: new focused pod slides in from the right (same as forward - reverse animation)
                         entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
       } else {
@@ -1724,7 +1745,7 @@
                     podElement.style.transform = entranceTransform;
                     podElement.style.opacity = '0';
                     
-                    debugLog(`[LayoutManager_DirectionalAnim] Pod ${key}: Starting ${lastRotationDirection} entrance from ${entranceTransform}`);
+                    debugLog(`[LayoutManager_DirectionalAnim] Pod ${key}: Starting ${store.lastRotationDirection} entrance from ${entranceTransform}`);
                     
                     // Animate to final position
                     requestAnimationFrame(() => {
@@ -1765,13 +1786,13 @@
                 
                 // Apply directional exit animation for previously focused pod during rotation
                 let targetTransformOut;
-                if (cardData.key === focusedDownloadKey && lastRotationDirection) {
+                if (cardData.key === focusedKeyRef.current && store.lastRotationDirection) {
                     // This shouldn't happen as focused pod should be visible, but safety check
                     targetTransformOut = 'scale(0.8) translateX(-30px)';
-                } else if (lastRotationDirection === 'forward') {
+                } else if (store.lastRotationDirection === 'forward') {
                     // Forward rotation: previously focused pod slides left to join pile
                     targetTransformOut = 'scale(0.8) translateX(-60px)';
-                } else if (lastRotationDirection === 'backward') {
+                } else if (store.lastRotationDirection === 'backward') {
                     // Backward rotation: previously focused pod slides left to join pile (same as forward - reverse animation)
                     targetTransformOut = 'scale(0.8) translateX(-60px)';
                 } else {
@@ -1782,7 +1803,7 @@
                 if (cardData.intendedTargetTransform !== targetTransformOut || cardData.intendedTargetOpacity !== '0') {
                     podElement.style.opacity = '0';
                     podElement.style.transform = targetTransformOut;
-                    debugLog(`[LayoutManager_DirectionalExit] Pod ${key}: Exiting with ${lastRotationDirection || 'default'} animation: ${targetTransformOut}`);
+                    debugLog(`[LayoutManager_DirectionalExit] Pod ${key}: Exiting with ${store.lastRotationDirection || 'default'} animation: ${targetTransformOut}`);
                 }
                 cardData.intendedTargetTransform = targetTransformOut;
                 cardData.intendedTargetOpacity = '0';
@@ -1802,9 +1823,9 @@
       debugLog(`[LayoutManager_NaturalStack] Finished. Visible pods: ${visiblePodsLayoutData.map(p => p.key).join(", ")}`);
     
     // Reset rotation direction after animations are set up
-    if (lastRotationDirection) {
+    if (store.lastRotationDirection) {
         setTimeout(() => {
-            lastRotationDirection = null;
+            store.lastRotationDirection = null;
             debugLog(`[LayoutManager] Reset rotation direction after animation`);
         }, 100); // Small delay to ensure animations start before reset
     }
@@ -1817,13 +1838,13 @@
     event.preventDefault(); // Prevent page scroll
     event.stopPropagation();
 
-    if (!focusedDownloadKey || !orderedPodKeys.includes(focusedDownloadKey)) {
+    if (!focusedKeyRef.current || !orderedPodKeys.includes(focusedKeyRef.current)) {
       debugLog("[StackRotation] No valid focused key, cannot rotate stack");
       return;
     }
 
     // Get current stack arrangement: focused pod + pile in reverse chronological order
-    const currentFocused = focusedDownloadKey;
+    const currentFocused = focusedKeyRef.current;
     const pileKeys = orderedPodKeys.slice().reverse().filter(key => key !== currentFocused);
     
     let newFocusedKey;
@@ -1875,15 +1896,15 @@
 
       // Track rotation direction for animation purposes
       if (event.deltaY > 0) {
-        lastRotationDirection = 'forward';
+        store.lastRotationDirection = 'forward';
       } else {
-        lastRotationDirection = 'backward';
+        store.lastRotationDirection = 'backward';
       }
 
       // Update focus and refresh UI
-      focusedDownloadKey = newFocusedKey;
-      debugLog(`[StackRotation] Stack rotated ${lastRotationDirection}. New order:`, orderedPodKeys);
-      debugLog(`[StackRotation] New focused: ${focusedDownloadKey}`);
+      focusedKeyRef.current = newFocusedKey;
+      debugLog(`[StackRotation] Stack rotated ${store.lastRotationDirection}. New order:`, orderedPodKeys);
+      debugLog(`[StackRotation] New focused: ${focusedKeyRef.current}`);
       
       // Update UI with the new focus
       updateUIForFocusedDownload(newFocusedKey, false);
@@ -1991,8 +2012,8 @@
           debugLog(`Pod removed for download: ${downloadKey}, NOT marked as dismissed (recent completion). Remaining ordered keys:`, orderedPodKeys);
         }
 
-        if (focusedDownloadKey === downloadKey) {
-          focusedDownloadKey = null; // Clear focus first
+        if (focusedKeyRef.current === downloadKey) {
+          focusedKeyRef.current = null; // Clear focus first
           if (orderedPodKeys.length > 0) {
             // Try to focus an adjacent pod to the one removed.
             // orderedPodKeys is [oldest, ..., newest]
@@ -2006,8 +2027,8 @@
             } else if (orderedPodKeys.length > 0) { // Fallback to newest if extremes were removed
                  newFocusKey = orderedPodKeys[orderedPodKeys.length - 1];
             }
-            focusedDownloadKey = newFocusKey;
-            debugLog(`[RemoveCard] Old focus ${downloadKey} removed. New focus attempt: ${focusedDownloadKey}`);
+            focusedKeyRef.current = newFocusKey;
+            debugLog(`[RemoveCard] Old focus ${downloadKey} removed. New focus attempt: ${focusedKeyRef.current}`);
           }
         }
         
@@ -2015,7 +2036,7 @@
         
         // Update UI based on new focus (or lack thereof)
         // This will also hide the master tooltip if no pods are left or re-evaluate layout
-        updateUIForFocusedDownload(focusedDownloadKey, false); 
+        updateUIForFocusedDownload(focusedKeyRef.current, false); 
         
         // Additional check: if no cards remain, ensure container is hidden
         if (orderedPodKeys.length === 0 && downloadCardsContainer) {
@@ -2124,7 +2145,7 @@
     if (idx > -1) orderedPodKeys.splice(idx, 1);
 
     // 5. Hide tooltip if this was the focused pod; focus next non-sticky pod if any
-    if (focusedDownloadKey === downloadKey && masterTooltipDOMElement) {
+    if (focusedKeyRef.current === downloadKey && masterTooltipDOMElement) {
       masterTooltipDOMElement.style.opacity = "0";
       masterTooltipDOMElement.style.transform = "scaleY(0.8) translateY(10px)";
       masterTooltipDOMElement.style.pointerEvents = "none";
@@ -2134,9 +2155,9 @@
           masterTooltipDOMElement.style.display = "none";
         }
       }, 300);
-      focusedDownloadKey = null;
+      focusedKeyRef.current = null;
       if (orderedPodKeys.length > 0) {
-        focusedDownloadKey = orderedPodKeys[orderedPodKeys.length - 1];
+        focusedKeyRef.current = orderedPodKeys[orderedPodKeys.length - 1];
       }
     }
 
@@ -2190,186 +2211,7 @@
     if (podsRowContainerElement) podsRowContainerElement.style.pointerEvents = '';
   }
 
-  // SecurityUtils, getPref, sanitizeFilename, waitForElement: see tidy-downloads-utils.uc.js
-    // findDownloadsButton, patchDownloadsIndicatorMethods: see tidy-downloads-animation.uc.js
-
-    // Preview: setGenericIcon, setCompletedFilePreview, updatePodGlowColor - from tidy-downloads-preview.uc.js
-
-  // Improved file renaming function
-  async function renameDownloadFileAndUpdateRecord(download, newName, key) {
-    try {
-      const oldPath = download.target.path;
-      if (!oldPath) throw new Error("No file path available");
-
-      // SECURITY: Validate the existing path (non-strict mode)
-      const oldPathValidation = SecurityUtils.validateFilePath(oldPath, { strict: false });
-      if (!oldPathValidation.valid) {
-        debugLog(`Path validation warning for old path (continuing anyway): ${oldPathValidation.error}`, { 
-          path: oldPath,
-          code: oldPathValidation.code 
-        });
-      }
-
-      const directory = oldPath.substring(0, oldPath.lastIndexOf(PATH_SEPARATOR));
-      const oldFileName = oldPath.split(PATH_SEPARATOR).pop();
-      const fileExt = oldFileName.includes(".") 
-        ? oldFileName.substring(oldFileName.lastIndexOf(".")) 
-        : "";
-
-      // SECURITY: Use comprehensive filename sanitization
-      let cleanNewName = sanitizeFilename(newName);
-      // Ensure extension is preserved and re-sanitize if needed
-      if (fileExt && !cleanNewName.endsWith(fileExt)) {
-        cleanNewName = sanitizeFilename(cleanNewName + fileExt);
-      }
-
-      // Handle duplicate names
-      let finalName = cleanNewName;
-      let counter = 1;
-      while (counter < 100) {
-        const testPath = directory + PATH_SEPARATOR + finalName;
-        let exists = false;
-        try {
-          // SECURITY: Validate path (non-strict for duplicate check)
-          const testValidation = SecurityUtils.validateFilePath(testPath, { strict: false });
-          if (!testValidation.valid) {
-            // If validation fails, treat as non-existent to avoid infinite loop
-            debugLog(`Path validation warning in duplicate check (treating as non-existent): ${testValidation.error}`);
-            break;
-          }
-          const testFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-          testFile.initWithPath(testPath);
-          exists = testFile.exists();
-        } catch (e) {
-          // File doesn't exist or can't access - proceed
-          if (e.message && e.message.includes('Invalid file path')) {
-            break; // Break loop on path errors
-          }
-        }
-        if (!exists) break;
-        
-        const baseName = cleanNewName.includes(".") 
-          ? cleanNewName.substring(0, cleanNewName.lastIndexOf(".")) 
-          : cleanNewName;
-        finalName = `${baseName}-${counter}${fileExt}`;
-        counter++;
-      }
-
-      const newPath = directory + PATH_SEPARATOR + finalName;
-      
-      // SECURITY: Validate new path (non-strict mode)
-      const newPathValidation = SecurityUtils.validateFilePath(newPath, { strict: false });
-      if (!newPathValidation.valid) {
-        debugLog(`Path validation warning for new path (continuing anyway): ${newPathValidation.error}`, { 
-          path: newPath,
-          code: newPathValidation.code 
-        });
-      }
-      debugLog("Rename paths", { oldPath, newPath });
-
-      const oldFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-      oldFile.initWithPath(oldPath);
-
-      if (!oldFile.exists()) throw new Error("Source file does not exist");
-
-      // Perform the rename
-      oldFile.moveTo(null, finalName);
-
-      // Update download record
-      download.target.path = newPath;
-      
-      // Update card data key mapping
-      const cardData = activeDownloadCards.get(key); // key is the OLD key here
-      if (cardData) {
-        activeDownloadCards.delete(key);
-        activeDownloadCards.set(newPath, cardData);
-        cardData.key = newPath; // Update the key stored in cardData itself
-        if (cardData.podElement) { // Update dataset on the pod element itself
-            cardData.podElement.dataset.downloadKey = newPath;
-            debugLog(`[Rename] Updated podElement.dataset.downloadKey to ${newPath}`);
-        }
-        // Update the key in orderedPodKeys as well
-        const oldKeyIndex = orderedPodKeys.indexOf(key);
-        if (oldKeyIndex > -1) {
-            orderedPodKeys.splice(oldKeyIndex, 1, newPath);
-            debugLog(`[Rename] Updated key in orderedPodKeys from ${key} to ${newPath}`);
-        } else {
-            debugLog(`[Rename] Warning: Old key ${key} not found in orderedPodKeys during rename.`);
-        }
-        
-        // Reschedule autohide with the new key if there was an existing timeout
-        if (cardData.autohideTimeoutId) {
-          clearTimeout(cardData.autohideTimeoutId);
-          cardData.autohideTimeoutId = null;
-          debugLog(`[Rename] Cleared old autohide timeout for ${key}, rescheduling for ${newPath}`);
-          scheduleCardRemoval(newPath);
-        }
-        
-        debugLog(`Updated card key mapping from ${key} to ${newPath}`);
-      }
-
-      debugLog("File renamed successfully");
-      return true;
-    } catch (e) {
-      // Log detailed error information for debugging
-      const errorInfo = {
-        name: e.name || 'Error',
-        message: e.message || e.toString() || 'Unknown error',
-        oldPath: download?.target?.path,
-        newName: newName,
-        key: key
-      };
-      
-      console.error(`Rename failed: ${errorInfo.name}: ${errorInfo.message}`, errorInfo);
-      debugLog(`Rename failed: ${errorInfo.name}: ${errorInfo.message}`, {
-        oldPath: errorInfo.oldPath,
-        newName: errorInfo.newName
-      });
-      return false;
-    }
-  }
-
-    // Initialize AI Rename module (uses renameDownloadFileAndUpdateRecord as callback)
-    (function initAIRenameModule() {
-      const api = window.zenTidyDownloadsAIRename?.init({
-        renameDownloadFileAndUpdateRecord,
-        scheduleCardRemoval,
-        performAutohideSequence,
-        getCardData: (k) => activeDownloadCards.get(k),
-        getFocusedKey: () => focusedDownloadKey,
-        setFocusedKey: (v) => { focusedDownloadKey = v; },
-        getMasterTooltip: () => masterTooltipDOMElement,
-        hasRenamedPath: (p) => renamedFiles.has(p),
-        addRenamedPath: (p) => renamedFiles.add(p),
-        deleteRenamedPath: (p) => renamedFiles.delete(p),
-        updateUIForFocusedDownload,
-        debugLog,
-        getPref,
-        SecurityUtils,
-        RateLimiter,
-        redactSensitiveData,
-        sanitizeFilename,
-        formatBytes,
-        getContentTypeFromFilename,
-        MISTRAL_API_KEY_PREF,
-        IMAGE_EXTENSIONS,
-        PATH_SEPARATOR,
-        previewApi,
-        showRenameToast,
-        showSimpleToast,
-        getDownloadKey,
-        Cc,
-        Ci
-      });
-      if (api) {
-        addToAIRenameQueue = api.addToAIRenameQueue;
-        removeFromAIRenameQueue = api.removeFromAIRenameQueue;
-        cancelAIProcessForDownload = api.cancelAIProcessForDownload;
-        isInQueue = api.isInQueue;
-        getQueuePosition = api.getQueuePosition;
-        updateQueueStatusInUI = api.updateQueueStatusInUI;
-      }
-    })();
+  // renameDownloadFileAndUpdateRecord, undoRename: tidy-downloads-fileops.uc.js (createRenameHandlers)
 
   // Setup compact mode observer to handle visibility changes
   function setupCompactModeObserver() {
@@ -2472,169 +2314,6 @@
   }
 
   console.log("=== DOWNLOAD PREVIEW SCRIPT LOADED SUCCESSFULLY ===");
-
-// --- Function to Undo AI Rename ---
-async function undoRename(keyOfAIRenamedFile) {
-  debugLog("[UndoRename] Attempting to undo rename for key:", keyOfAIRenamedFile);
-  const cardData = activeDownloadCards.get(keyOfAIRenamedFile);
-
-  if (!cardData || !cardData.download) {
-      debugLog("[UndoRename] No cardData or download object found for key:", keyOfAIRenamedFile);
-      return false;
-  }
-
-  const currentAIRenamedPath = cardData.download.target.path; // Current path (after AI rename)
-  const originalSimpleName = cardData.trueOriginalSimpleNameBeforeAIRename;
-  const originalFullPath = cardData.trueOriginalPathBeforeAIRename; // The full path before AI rename
-
-  if (!currentAIRenamedPath || !originalSimpleName || !originalFullPath) {
-      debugLog("[UndoRename] Missing path/name information for undo:", 
-          { currentAIRenamedPath, originalSimpleName, originalFullPath });
-      // Maybe update status to indicate error?
-      return false;
-  }
-  
-  // Ensure originalSimpleName is what we expect if originalFullPath is the key to the past state
-  // For safety, we reconstruct the target directory from the *current* path if the original was just a simple name.
-  const targetDirectory = currentAIRenamedPath.substring(0, currentAIRenamedPath.lastIndexOf(PATH_SEPARATOR));
-  const targetOriginalPath = targetDirectory + PATH_SEPARATOR + originalSimpleName;
-
-  debugLog("[UndoRename] Details:", {
-      currentPath: currentAIRenamedPath,
-      originalSimple: originalSimpleName,
-      originalFullPathStored: originalFullPath, // The key to what it *was*
-      targetOriginalPathForRename: targetOriginalPath // The path we want to rename *to*
-  });
-
-  /**
-   * Undo AI rename operation - restore original filename
-   * Uses a modified version of rename logic
-   */
-  try {
-      // SECURITY: Validate path before file operations (non-strict for undo operations)
-      const undoPathValidation = SecurityUtils.validateFilePath(currentAIRenamedPath, { strict: false });
-      if (!undoPathValidation.valid) {
-        debugLog("[UndoRename] Path validation warning", {
-          path: currentAIRenamedPath,
-          error: undoPathValidation.error,
-          code: undoPathValidation.code
-        });
-        // Continue anyway - user-initiated undo operation
-      }
-      
-      const fileToUndo = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
-      fileToUndo.initWithPath(currentAIRenamedPath);
-
-      if (!fileToUndo.exists()) {
-          debugLog("[UndoRename] File to undo does not exist at current path:", currentAIRenamedPath);
-          // Perhaps it was moved or deleted by the user? Clean up UI.
-          if (masterTooltipDOMElement) {
-              const undoBtn = masterTooltipDOMElement.querySelector(".card-undo-button");
-              if (undoBtn) undoBtn.style.display = "none";
-          }
-          // Consider removing the card or updating status more drastically.
-          return false;
-      }
-
-      // Perform the rename back to originalSimpleName in the current directory
-      fileToUndo.moveTo(null, originalSimpleName); 
-      debugLog(`[UndoRename] File moved from ${currentAIRenamedPath} to ${targetOriginalPath} (using simple name ${originalSimpleName})`);
-
-      // Update download object and cardData
-      cardData.download.target.path = targetOriginalPath;
-      cardData.download.aiName = null; // Clear the AI name
-      // cardData.originalFilename should revert to originalSimpleName (or be updated by next UI refresh)
-      cardData.originalFilename = originalSimpleName; 
-
-      // Update the key in activeDownloadCards map
-      if (keyOfAIRenamedFile !== targetOriginalPath) {
-          activeDownloadCards.delete(keyOfAIRenamedFile);
-          activeDownloadCards.set(targetOriginalPath, cardData);
-          cardData.key = targetOriginalPath;
-          if (cardData.podElement) cardData.podElement.dataset.downloadKey = targetOriginalPath;
-          
-          // Update orderedPodKeys
-          const oldKeyIndex = orderedPodKeys.indexOf(keyOfAIRenamedFile);
-          if (oldKeyIndex > -1) {
-              orderedPodKeys.splice(oldKeyIndex, 1, targetOriginalPath);
-          }
-
-          // If this was the focused key, update focusedDownloadKey
-          if (focusedDownloadKey === keyOfAIRenamedFile) {
-              focusedDownloadKey = targetOriginalPath;
-          }
-          debugLog(`[UndoRename] Updated activeDownloadCards map key from ${keyOfAIRenamedFile} to ${targetOriginalPath}`);
-      }
-      
-      renamedFiles.delete(originalFullPath); // Allow AI re-rename if user downloads it again or wants to retry
-      renamedFiles.delete(currentAIRenamedPath); // Remove the AI-renamed path from the set too
-
-      // Update UI immediately for the focused item
-      if (focusedDownloadKey === targetOriginalPath && masterTooltipDOMElement) {
-          const titleEl = masterTooltipDOMElement.querySelector(".card-title");
-          const statusEl = masterTooltipDOMElement.querySelector(".card-status");
-          const originalFilenameEl = masterTooltipDOMElement.querySelector(".card-original-filename");
-          const progressEl = masterTooltipDOMElement.querySelector(".card-progress");
-          const undoBtn = masterTooltipDOMElement.querySelector(".card-undo-button");
-
-          if (titleEl) titleEl.textContent = originalSimpleName;
-          if (statusEl) {
-              statusEl.textContent = "Download completed"; // Or original status if stored
-              statusEl.style.color = "#1dd1a1";
-          }
-          if (originalFilenameEl) originalFilenameEl.style.display = "none";
-          if (progressEl) progressEl.style.display = "block"; // Show progress/size again
-          if (undoBtn) undoBtn.style.display = "none";
-      }
-
-      // Trigger a full UI update
-      updateUIForFocusedDownload(focusedDownloadKey || targetOriginalPath, true); 
-
-      // 4. Ensure autohide is scheduled/rescheduled
-      // We need to clear the old timeout associated with the OLD key (keyOfAIRenamedFile) 
-      // and start a new one for the NEW key (targetOriginalPath).
-      
-      // Try to find the cardData that was moved to the new key
-      const revertedCardData = activeDownloadCards.get(targetOriginalPath);
-      
-      if (revertedCardData) {
-         // Reset timeout ID just in case it carried over but wasn't cleared
-         if (revertedCardData.autohideTimeoutId) {
-             clearTimeout(revertedCardData.autohideTimeoutId);
-             revertedCardData.autohideTimeoutId = null;
-         }
-      }
-
-      // Schedule removal with a short delay (e.g. 2000ms) to allow user to see the change
-      const originalDelay = getPref("extensions.downloads.autohide_delay_ms", 10000);
-      const shortDelay = 2000;
-      
-      // Temporarily override the delay pref (or just manually call setTimeout/performAutohide)
-      // Since scheduleCardRemoval reads the pref, we'll implement a custom one-off removal here
-      // or just trust scheduleCardRemoval if we want standard behavior.
-      // But user asked for "dismiss automatically" which usually implies "soon".
-      
-      debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
-      revertedCardData.autohideTimeoutId = setTimeout(() => {
-          performAutohideSequence(targetOriginalPath);
-      }, shortDelay);
-
-      debugLog("[UndoRename] Rename undone successfully.");
-      return true;
-
-  } catch (e) {
-      debugLog("[UndoRename] Error during undo rename process:", e);
-      // Update status to show error?
-      if (masterTooltipDOMElement && focusedDownloadKey === keyOfAIRenamedFile) {
-           const statusEl = masterTooltipDOMElement.querySelector(".card-status");
-           if (statusEl) {
-              statusEl.textContent = "Undo rename failed";
-              statusEl.style.color = "#ff6b6b";
-           }
-      }
-      return false;
-  }
-}
 
   } // Close initializeMainScript function
 

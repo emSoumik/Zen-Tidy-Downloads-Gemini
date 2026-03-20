@@ -13,22 +13,19 @@
 
   /**
    * Initialize the AI rename module. Called by tidy-downloads.uc.js after main script setup.
-   * @param {Object} ctx - Context from main script
+   * @param {Object} ctx
+   * @param {Object} ctx.store - zenTidyDownloadsStore.createStore() (uses activeDownloadCards, focusedKeyRef, renamedFiles)
+   * @param {Object} ctx.deps - callbacks and utils from main (tidyDeps + rename + AI-specific fields)
    * @returns {{ addToAIRenameQueue, removeFromAIRenameQueue, cancelAIProcessForDownload, isInQueue, getQueuePosition, updateQueueStatusInUI }}
    */
   window.zenTidyDownloadsAIRename = {
     init(ctx) {
+      const { store, deps } = ctx;
       const {
         renameDownloadFileAndUpdateRecord,
         scheduleCardRemoval,
         performAutohideSequence,
-        getCardData,
-        getFocusedKey,
-        setFocusedKey,
         getMasterTooltip,
-        hasRenamedPath,
-        addRenamedPath,
-        deleteRenamedPath,
         updateUIForFocusedDownload,
         debugLog,
         getPref,
@@ -47,7 +44,9 @@
         getDownloadKey,
         Cc,
         Ci
-      } = ctx;
+      } = deps;
+
+      const { activeDownloadCards, focusedKeyRef, renamedFiles } = store;
 
       // AI Process Management
       const activeAIProcesses = new Map();
@@ -160,7 +159,7 @@
           return false;
         }
 
-        if (hasRenamedPath(download.target?.path)) {
+        if (renamedFiles.has(download.target?.path)) {
           debugLog(`[AI Queue] Download ${downloadKey} already renamed (path: ${download.target?.path}), skipping`);
           return false;
         }
@@ -211,14 +210,14 @@
       }
 
       function updateQueueStatusInUI(downloadKey) {
-        if (downloadKey !== getFocusedKey() || !getMasterTooltip()) return;
+        if (downloadKey !== focusedKeyRef.current || !getMasterTooltip()) return;
 
         const masterTooltipDOMElement = getMasterTooltip();
         const statusEl = masterTooltipDOMElement.querySelector(".card-status");
         if (!statusEl) return;
 
         const position = getQueuePosition(downloadKey);
-        const cardData = getCardData(downloadKey);
+        const cardData = activeDownloadCards.get(downloadKey);
 
         if (position > 0) {
           statusEl.textContent = `Waiting for AI rename (${position} in queue)...`;
@@ -236,7 +235,7 @@
 
       async function processDownloadForAIRenaming(download, originalNameForUICard, keyOverride) {
         const key = keyOverride || getDownloadKey(download);
-        const cardData = getCardData(key);
+        const cardData = activeDownloadCards.get(key);
 
         const abortController = new AbortController();
         const processState = { phase: 'initializing', startTime: Date.now() };
@@ -251,7 +250,7 @@
         let podElementToStyle;
 
         const masterTooltipDOMElement = getMasterTooltip();
-        const focusedKey = getFocusedKey();
+        const focusedKey = focusedKeyRef.current;
 
         if (focusedKey === key && masterTooltipDOMElement) {
           statusElToUpdate = masterTooltipDOMElement.querySelector(".card-status");
@@ -280,7 +279,7 @@
 
         const trueOriginalFilename = cardData.originalFilename;
 
-        if (hasRenamedPath(downloadPath)) {
+        if (renamedFiles.has(downloadPath)) {
           debugLog(`Skipping rename - already processed: ${downloadPath}`);
           activeAIProcesses.delete(key);
           return false;
@@ -346,7 +345,7 @@
 
           if (abortController.signal.aborted) {
             debugLog(`[AI Process] Process aborted before analysis: ${key}`);
-            deleteRenamedPath(downloadPath);
+            renamedFiles.delete(downloadPath);
             activeAIProcesses.delete(key);
             throw new DOMException('AI process was aborted', 'AbortError');
           }
@@ -473,7 +472,7 @@ Instructions:
           if (!suggestedName) {
             debugLog("No valid name suggestion received from AI");
             if (statusElToUpdate) statusElToUpdate.textContent = "Could not generate a better name";
-            deleteRenamedPath(downloadPath);
+            renamedFiles.delete(downloadPath);
             if (podElementToStyle) {
               podElementToStyle.classList.remove("renaming-active");
               podElementToStyle.classList.remove('renaming-initiated');
@@ -484,7 +483,7 @@ Instructions:
 
           if (abortController.signal.aborted) {
             debugLog(`[AI Process] Process aborted before file rename: ${key}`);
-            deleteRenamedPath(downloadPath);
+            renamedFiles.delete(downloadPath);
             activeAIProcesses.delete(key);
             throw new DOMException('AI process was aborted', 'AbortError');
           }
@@ -512,7 +511,7 @@ Instructions:
           if (cleanName.length <= 2 || cleanName.toLowerCase() === currentFilename.toLowerCase()) {
             debugLog("Skipping AI rename - name too short or same as original");
             if (statusElToUpdate) statusElToUpdate.textContent = "Original name is suitable";
-            deleteRenamedPath(downloadPath);
+            renamedFiles.delete(downloadPath);
             if (podElementToStyle) {
               podElementToStyle.classList.remove("renaming-active");
               podElementToStyle.classList.remove('renaming-initiated');
@@ -532,8 +531,8 @@ Instructions:
             const actualFilename = newPath.split(pathSeparator).pop() || cleanName;
 
             download.aiName = actualFilename;
-            addRenamedPath(downloadPath);
-            addRenamedPath(newPath);
+            renamedFiles.add(downloadPath);
+            renamedFiles.add(newPath);
             debugLog(`[AI Rename] Added paths to renamedFiles: ${downloadPath} and ${newPath}`);
 
             if (titleElToUpdate) {
@@ -568,10 +567,10 @@ Instructions:
             }
 
             let keyForFinalUIUpdate = key;
-            if (getFocusedKey() === key) {
-              setFocusedKey(newPath);
+            if (focusedKeyRef.current === key) {
+              focusedKeyRef.current = newPath;
               keyForFinalUIUpdate = newPath;
-              debugLog(`[AI Rename] Focused item ${key} renamed to ${newPath}. Updated focusedDownloadKey and keyForFinalUIUpdate.`);
+              debugLog(`[AI Rename] Focused item ${key} renamed to ${newPath}. Updated focusedKeyRef and keyForFinalUIUpdate.`);
             }
 
             updateUIForFocusedDownload(keyForFinalUIUpdate, true);
@@ -589,14 +588,14 @@ Instructions:
                   const revertedPath = download.target.path;
                   download.aiName = null;
 
-                  if (getFocusedKey() === currentAIPath) {
-                    setFocusedKey(revertedPath);
-                    debugLog(`[Undo] Updated focusedDownloadKey to ${revertedPath}`);
+                  if (focusedKeyRef.current === currentAIPath) {
+                    focusedKeyRef.current = revertedPath;
+                    debugLog(`[Undo] Updated focusedKeyRef to ${revertedPath}`);
                   }
 
                   updateUIForFocusedDownload(revertedPath, true);
 
-                  const revertedCardData = getCardData(revertedPath);
+                  const revertedCardData = activeDownloadCards.get(revertedPath);
                   if (revertedCardData && revertedCardData.podElement) {
                     revertedCardData.podElement.classList.remove("renamed-by-ai");
                   }
@@ -629,7 +628,7 @@ Instructions:
             activeAIProcesses.delete(key);
             return true;
           } else {
-            deleteRenamedPath(downloadPath);
+            renamedFiles.delete(downloadPath);
             if (statusElToUpdate) statusElToUpdate.textContent = "Rename failed";
             if (podElementToStyle) {
               podElementToStyle.classList.remove("renaming-active");
@@ -644,7 +643,7 @@ Instructions:
           } else {
             console.error("AI Rename process error:", e);
           }
-          deleteRenamedPath(downloadPath);
+          renamedFiles.delete(downloadPath);
           if (statusElToUpdate && e.name !== 'AbortError') statusElToUpdate.textContent = "Rename error";
           if (podElementToStyle) {
             podElementToStyle.classList.remove("renaming-active");
@@ -690,7 +689,7 @@ Instructions:
             currentlyProcessingKey = downloadKey;
             debugLog(`[AI Queue] Processing ${downloadKey}. Remaining in queue: ${aiRenameQueue.length}`);
 
-            const cardData = getCardData(downloadKey);
+            const cardData = activeDownloadCards.get(downloadKey);
             if (!cardData || !cardData.download) {
               debugLog(`[AI Queue] Skipping ${downloadKey} - card data no longer exists`);
               currentlyProcessingKey = null;
@@ -698,7 +697,7 @@ Instructions:
             }
 
             const currentPath = cardData.download.target?.path;
-            if (hasRenamedPath(currentPath)) {
+            if (renamedFiles.has(currentPath)) {
               debugLog(`[AI Queue] Skipping ${downloadKey} - already renamed`);
               currentlyProcessingKey = null;
               continue;
@@ -711,7 +710,7 @@ Instructions:
             }
 
             const masterTooltipDOMElement = getMasterTooltip();
-            if (getFocusedKey() === downloadKey && masterTooltipDOMElement) {
+            if (focusedKeyRef.current === downloadKey && masterTooltipDOMElement) {
               const statusEl = masterTooltipDOMElement.querySelector(".card-status");
               if (statusEl) {
                 statusEl.textContent = "Analyzing for rename...";
@@ -733,7 +732,7 @@ Instructions:
               } else {
                 debugLog(`[AI Queue] Error processing ${downloadKey}:`, error);
               }
-              const cardDataErr = getCardData(downloadKey);
+              const cardDataErr = activeDownloadCards.get(downloadKey);
               if (cardDataErr?.podElement) {
                 cardDataErr.podElement.classList.remove('renaming-initiated', 'renaming-active');
               }
@@ -777,14 +776,14 @@ Instructions:
           aiProcess.abortController.abort();
           activeAIProcesses.delete(downloadKey);
 
-          const cardData = getCardData(downloadKey);
+          const cardData = activeDownloadCards.get(downloadKey);
           if (cardData?.podElement) {
             cardData.podElement.classList.remove("renaming-active");
             cardData.podElement.classList.remove("renaming-initiated");
           }
 
           const masterTooltipDOMElement = getMasterTooltip();
-          if (downloadKey === getFocusedKey() && masterTooltipDOMElement) {
+          if (downloadKey === focusedKeyRef.current && masterTooltipDOMElement) {
             const statusEl = masterTooltipDOMElement.querySelector(".card-status");
             if (statusEl && (statusEl.textContent.includes("Analyzing") || statusEl.textContent.includes("Generating"))) {
               const download = cardData?.download;

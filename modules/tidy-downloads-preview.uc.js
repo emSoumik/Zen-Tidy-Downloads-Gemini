@@ -19,11 +19,11 @@
      * @param {Set} ctx.IMAGE_EXTENSIONS - Image file extensions
      * @param {function} ctx.debugLog - debugLog
      * @param {function} ctx.getPref - getPref
-     * @param {function} ctx.getFocusedKey - () => focusedDownloadKey
+     * @param {{ current: string|null }} ctx.focusedKeyRef - focused download key ref
      * @returns {{ setGenericIcon, setCompletedFilePreview, updatePodGlowColor, renderSystemIcon, renderSystemIconByExtension }}
      */
     init(ctx) {
-      const { IMAGE_EXTENSIONS, debugLog, getPref, getFocusedKey } = ctx;
+      const { IMAGE_EXTENSIONS, debugLog, getPref, focusedKeyRef } = ctx;
 
       const filePreviewEnabled = typeof getPref === "function"
         ? getPref("extensions.downloads.enable_file_preview", false)
@@ -285,7 +285,7 @@
                   if (pod) {
                     pod.dataset.dominantColor = dominantColor;
                     const downloadKey = pod.dataset.downloadKey;
-                    if (downloadKey === getFocusedKey()) {
+                    if (downloadKey === focusedKeyRef.current) {
                       updatePodGlowColor(pod, dominantColor);
                     }
                   }

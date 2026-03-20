@@ -18,14 +18,14 @@
      * @param {function} ctx.getMasterTooltip - () => masterTooltipDOMElement
      * @param {function} ctx.getPodsContainer - () => podsRowContainerElement
      * @param {function} ctx.getActiveCards - () => activeDownloadCards
-     * @param {function} ctx.getFocusedKey - () => focusedDownloadKey
+     * @param {{ current: string|null }} ctx.focusedKeyRef - focused download key ref
      * @param {function} ctx.updateUI - updateUIForFocusedDownload
      * @param {Object} ctx.sidebarWidthRef - { value } mutable ref for currentZenSidebarWidth
      * @param {function} ctx.debugLog - debugLog
      * @returns {{ initZenAnimationObserver, initSidebarWidthSync, triggerCardEntrance }}
      */
     init(ctx) {
-      const { getMasterTooltip, getPodsContainer, getActiveCards, getFocusedKey, updateUI, sidebarWidthRef, debugLog } = ctx;
+      const { getMasterTooltip, getPodsContainer, getActiveCards, focusedKeyRef, updateUI, sidebarWidthRef, debugLog } = ctx;
 
       function updateCurrentZenSidebarWidth() {
         const mainWindow = document.getElementById("main-window");
@@ -115,7 +115,7 @@
             debugLog(`[ZenSync] Appended pod ${downloadKeyToTrigger} to DOM.`);
           }
 
-          updateUI(getFocusedKey() || downloadKeyToTrigger, false);
+          updateUI(focusedKeyRef.current || downloadKeyToTrigger, false);
         } else {
           debugLog(`[ZenSync] triggerCardEntrance: ${downloadKeyToTrigger} was not waiting for Zen animation.`);
         }

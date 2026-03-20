@@ -4,7 +4,7 @@
 // ==/UserScript==
 
 // tidy-downloads-fileops.uc.js
-// File operations: open, erase from history, content-type detection
+// File operations: open, erase from history, content-type, rename/undo (createRenameHandlers)
 // Receives context from tidy-downloads.uc.js
 (function () {
   "use strict";
@@ -191,6 +191,308 @@
         openDownloadedFile,
         eraseDownloadFromHistory,
         getContentTypeFromFilename
+      };
+    },
+
+    /**
+     * Rename on disk + update download record and card maps. Call after scheduleCardRemoval /
+     * performAutohideSequence exist (same scope as main script), and before init() if load is synchronous.
+     * @param {Object} ctx
+     * @param {Object} ctx.store - zenTidyDownloadsStore.createStore() result (activeDownloadCards, orderedPodKeys, focusedKeyRef, renamedFiles)
+     * @param {Object} ctx.deps - shared callbacks/utils (SecurityUtils, debugLog, sanitizeFilename, PATH_SEPARATOR, Cc, Ci, scheduleCardRemoval, performAutohideSequence, updateUIForFocusedDownload, getMasterTooltip)
+     * @returns {{ renameDownloadFileAndUpdateRecord: Function, undoRename: Function }}
+     */
+    createRenameHandlers(ctx) {
+      const { store, deps } = ctx;
+      const {
+        SecurityUtils,
+        debugLog,
+        sanitizeFilename,
+        PATH_SEPARATOR,
+        Cc,
+        Ci,
+        scheduleCardRemoval,
+        performAutohideSequence,
+        updateUIForFocusedDownload,
+        getMasterTooltip
+      } = deps;
+      const { activeDownloadCards, orderedPodKeys, focusedKeyRef, renamedFiles } = store;
+
+      /**
+       * @param {Object} download
+       * @param {string} newName
+       * @param {string} key
+       * @returns {Promise<boolean>}
+       */
+      async function renameDownloadFileAndUpdateRecord(download, newName, key) {
+        try {
+          const oldPath = download.target.path;
+          if (!oldPath) throw new Error("No file path available");
+
+          const oldPathValidation = SecurityUtils.validateFilePath(oldPath, { strict: false });
+          if (!oldPathValidation.valid) {
+            debugLog(`Path validation warning for old path (continuing anyway): ${oldPathValidation.error}`, {
+              path: oldPath,
+              code: oldPathValidation.code
+            });
+          }
+
+          const directory = oldPath.substring(0, oldPath.lastIndexOf(PATH_SEPARATOR));
+          const oldFileName = oldPath.split(PATH_SEPARATOR).pop();
+          const fileExt = oldFileName.includes(".")
+            ? oldFileName.substring(oldFileName.lastIndexOf("."))
+            : "";
+
+          let cleanNewName = sanitizeFilename(newName);
+          if (fileExt && !cleanNewName.endsWith(fileExt)) {
+            cleanNewName = sanitizeFilename(cleanNewName + fileExt);
+          }
+
+          let finalName = cleanNewName;
+          let counter = 1;
+          while (counter < 100) {
+            const testPath = directory + PATH_SEPARATOR + finalName;
+            let exists = false;
+            try {
+              const testValidation = SecurityUtils.validateFilePath(testPath, { strict: false });
+              if (!testValidation.valid) {
+                debugLog(`Path validation warning in duplicate check (treating as non-existent): ${testValidation.error}`);
+                break;
+              }
+              const testFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+              testFile.initWithPath(testPath);
+              exists = testFile.exists();
+            } catch (e) {
+              if (e.message && e.message.includes("Invalid file path")) {
+                break;
+              }
+            }
+            if (!exists) break;
+
+            const baseName = cleanNewName.includes(".")
+              ? cleanNewName.substring(0, cleanNewName.lastIndexOf("."))
+              : cleanNewName;
+            finalName = `${baseName}-${counter}${fileExt}`;
+            counter++;
+          }
+
+          const newPath = directory + PATH_SEPARATOR + finalName;
+
+          const newPathValidation = SecurityUtils.validateFilePath(newPath, { strict: false });
+          if (!newPathValidation.valid) {
+            debugLog(`Path validation warning for new path (continuing anyway): ${newPathValidation.error}`, {
+              path: newPath,
+              code: newPathValidation.code
+            });
+          }
+          debugLog("Rename paths", { oldPath, newPath });
+
+          const oldFile = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+          oldFile.initWithPath(oldPath);
+
+          if (!oldFile.exists()) throw new Error("Source file does not exist");
+
+          oldFile.moveTo(null, finalName);
+
+          download.target.path = newPath;
+
+          const cardData = activeDownloadCards.get(key);
+          if (cardData) {
+            activeDownloadCards.delete(key);
+            activeDownloadCards.set(newPath, cardData);
+            cardData.key = newPath;
+            if (cardData.podElement) {
+              cardData.podElement.dataset.downloadKey = newPath;
+              debugLog(`[Rename] Updated podElement.dataset.downloadKey to ${newPath}`);
+            }
+            const oldKeyIndex = orderedPodKeys.indexOf(key);
+            if (oldKeyIndex > -1) {
+              orderedPodKeys.splice(oldKeyIndex, 1, newPath);
+              debugLog(`[Rename] Updated key in orderedPodKeys from ${key} to ${newPath}`);
+            } else {
+              debugLog(`[Rename] Warning: Old key ${key} not found in orderedPodKeys during rename.`);
+            }
+
+            if (cardData.autohideTimeoutId) {
+              clearTimeout(cardData.autohideTimeoutId);
+              cardData.autohideTimeoutId = null;
+              debugLog(`[Rename] Cleared old autohide timeout for ${key}, rescheduling for ${newPath}`);
+              scheduleCardRemoval(newPath);
+            }
+
+            debugLog(`Updated card key mapping from ${key} to ${newPath}`);
+          }
+
+          debugLog("File renamed successfully");
+          return true;
+        } catch (e) {
+          const errorInfo = {
+            name: e.name || "Error",
+            message: e.message || e.toString() || "Unknown error",
+            oldPath: download?.target?.path,
+            newName,
+            key
+          };
+
+          console.error(`Rename failed: ${errorInfo.name}: ${errorInfo.message}`, errorInfo);
+          debugLog(`Rename failed: ${errorInfo.name}: ${errorInfo.message}`, {
+            oldPath: errorInfo.oldPath,
+            newName: errorInfo.newName
+          });
+          return false;
+        }
+      }
+
+      /**
+       * @param {string} keyOfAIRenamedFile
+       * @returns {Promise<boolean>}
+       */
+      async function undoRename(keyOfAIRenamedFile) {
+        debugLog("[UndoRename] Attempting to undo rename for key:", keyOfAIRenamedFile);
+        const cardData = activeDownloadCards.get(keyOfAIRenamedFile);
+
+        if (!cardData || !cardData.download) {
+          debugLog("[UndoRename] No cardData or download object found for key:", keyOfAIRenamedFile);
+          return false;
+        }
+
+        const currentAIRenamedPath = cardData.download.target.path;
+        const originalSimpleName = cardData.trueOriginalSimpleNameBeforeAIRename;
+        const originalFullPath = cardData.trueOriginalPathBeforeAIRename;
+
+        if (!currentAIRenamedPath || !originalSimpleName || !originalFullPath) {
+          debugLog("[UndoRename] Missing path/name information for undo:", {
+            currentAIRenamedPath,
+            originalSimpleName,
+            originalFullPath
+          });
+          return false;
+        }
+
+        const targetDirectory = currentAIRenamedPath.substring(
+          0,
+          currentAIRenamedPath.lastIndexOf(PATH_SEPARATOR)
+        );
+        const targetOriginalPath = targetDirectory + PATH_SEPARATOR + originalSimpleName;
+
+        debugLog("[UndoRename] Details:", {
+          currentPath: currentAIRenamedPath,
+          originalSimple: originalSimpleName,
+          originalFullPathStored: originalFullPath,
+          targetOriginalPathForRename: targetOriginalPath
+        });
+
+        try {
+          const undoPathValidation = SecurityUtils.validateFilePath(currentAIRenamedPath, { strict: false });
+          if (!undoPathValidation.valid) {
+            debugLog("[UndoRename] Path validation warning", {
+              path: currentAIRenamedPath,
+              error: undoPathValidation.error,
+              code: undoPathValidation.code
+            });
+          }
+
+          const fileToUndo = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+          fileToUndo.initWithPath(currentAIRenamedPath);
+
+          if (!fileToUndo.exists()) {
+            debugLog("[UndoRename] File to undo does not exist at current path:", currentAIRenamedPath);
+            const masterTooltipDOMElement = getMasterTooltip();
+            if (masterTooltipDOMElement) {
+              const undoBtn = masterTooltipDOMElement.querySelector(".card-undo-button");
+              if (undoBtn) undoBtn.style.display = "none";
+            }
+            return false;
+          }
+
+          fileToUndo.moveTo(null, originalSimpleName);
+          debugLog(
+            `[UndoRename] File moved from ${currentAIRenamedPath} to ${targetOriginalPath} (using simple name ${originalSimpleName})`
+          );
+
+          cardData.download.target.path = targetOriginalPath;
+          cardData.download.aiName = null;
+          cardData.originalFilename = originalSimpleName;
+
+          if (keyOfAIRenamedFile !== targetOriginalPath) {
+            activeDownloadCards.delete(keyOfAIRenamedFile);
+            activeDownloadCards.set(targetOriginalPath, cardData);
+            cardData.key = targetOriginalPath;
+            if (cardData.podElement) cardData.podElement.dataset.downloadKey = targetOriginalPath;
+
+            const oldKeyIndex = orderedPodKeys.indexOf(keyOfAIRenamedFile);
+            if (oldKeyIndex > -1) {
+              orderedPodKeys.splice(oldKeyIndex, 1, targetOriginalPath);
+            }
+
+            if (focusedKeyRef.current === keyOfAIRenamedFile) {
+              focusedKeyRef.current = targetOriginalPath;
+            }
+            debugLog(
+              `[UndoRename] Updated activeDownloadCards map key from ${keyOfAIRenamedFile} to ${targetOriginalPath}`
+            );
+          }
+
+          renamedFiles.delete(originalFullPath);
+          renamedFiles.delete(currentAIRenamedPath);
+
+          const masterTooltipDOMElement = getMasterTooltip();
+          if (focusedKeyRef.current === targetOriginalPath && masterTooltipDOMElement) {
+            const titleEl = masterTooltipDOMElement.querySelector(".card-title");
+            const statusEl = masterTooltipDOMElement.querySelector(".card-status");
+            const originalFilenameEl = masterTooltipDOMElement.querySelector(".card-original-filename");
+            const progressEl = masterTooltipDOMElement.querySelector(".card-progress");
+            const undoBtn = masterTooltipDOMElement.querySelector(".card-undo-button");
+
+            if (titleEl) titleEl.textContent = originalSimpleName;
+            if (statusEl) {
+              statusEl.textContent = "Download completed";
+              statusEl.style.color = "#1dd1a1";
+            }
+            if (originalFilenameEl) originalFilenameEl.style.display = "none";
+            if (progressEl) progressEl.style.display = "block";
+            if (undoBtn) undoBtn.style.display = "none";
+          }
+
+          updateUIForFocusedDownload(focusedKeyRef.current || targetOriginalPath, true);
+
+          const revertedCardData = activeDownloadCards.get(targetOriginalPath);
+
+          if (revertedCardData) {
+            if (revertedCardData.autohideTimeoutId) {
+              clearTimeout(revertedCardData.autohideTimeoutId);
+              revertedCardData.autohideTimeoutId = null;
+            }
+          }
+
+          const shortDelay = 2000;
+
+          debugLog(`[UndoRename] Scheduling immediate dismissal in ${shortDelay}ms`);
+          if (revertedCardData) {
+            revertedCardData.autohideTimeoutId = setTimeout(() => {
+              performAutohideSequence(targetOriginalPath);
+            }, shortDelay);
+          }
+
+          debugLog("[UndoRename] Rename undone successfully.");
+          return true;
+        } catch (e) {
+          debugLog("[UndoRename] Error during undo rename process:", e);
+          const masterTooltipDOMElement = getMasterTooltip();
+          if (masterTooltipDOMElement && focusedKeyRef.current === keyOfAIRenamedFile) {
+            const statusEl = masterTooltipDOMElement.querySelector(".card-status");
+            if (statusEl) {
+              statusEl.textContent = "Undo rename failed";
+              statusEl.style.color = "#ff6b6b";
+            }
+          }
+          return false;
+        }
+      }
+
+      return {
+        renameDownloadFileAndUpdateRecord,
+        undoRename
       };
     }
   };
