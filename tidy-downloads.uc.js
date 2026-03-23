@@ -70,6 +70,14 @@
     
     // If all checks pass, continue with initialization
     console.log('Zen Tidy Downloads: All popup exclusion checks passed, proceeding with initialization');
+
+    // Single-flight: duplicate script evaluation would register listeners twice. Only arm after
+    // we know this is the real browser chrome (popup checks above).
+    if (window.__zenTidyDownloadsBundleExecuted) {
+      console.warn("[Tidy Downloads] Bundle already executed in this window; skipping duplicate load.");
+      return;
+    }
+    window.__zenTidyDownloadsBundleExecuted = true;
     
     // === MAIN SCRIPT INITIALIZATION CONTINUES HERE ===
     // Wait for utils (handles load-order races; utils must be in theme.json scripts)
@@ -98,6 +106,12 @@
   function initializeMainScript() {
     const Utils = window.zenTidyDownloadsUtils;
     if (!Utils) return;
+
+    if (window.__zenTidyDownloadsMainInitialized) {
+      console.warn("[Tidy Downloads] initializeMainScript already ran in this window; skip duplicate.");
+      return;
+    }
+    window.__zenTidyDownloadsMainInitialized = true;
     const {
       getPref,
       SecurityUtils,
@@ -278,6 +292,8 @@
         fileSize: download.currentBytes || download.totalBytes || 0,
         contentType: download.contentType,
         targetPath: download.target?.path,
+        /** @type {string|number|undefined} Firefox download id when present — used to reconcile pile actions with Downloads API */
+        downloadId: download.id != null ? download.id : undefined,
         sourceUrl: download.source?.url,
         startTime: download.startTime,
         endTime: download.endTime,
@@ -364,7 +380,9 @@
       scheduleCardRemoval,
       performAutohideSequence,
       updateUIForFocusedDownload,
-      getMasterTooltip: () => masterTooltipDOMElement
+      getMasterTooltip: () => masterTooltipDOMElement,
+      /** @type {(oldKey: string, newKey: string) => void} */
+      migrateAIRenameKeys() {}
     };
 
     const { renameDownloadFileAndUpdateRecord, undoRename } = window.zenTidyDownloadsFileOps.createRenameHandlers({
@@ -400,6 +418,7 @@
         isInQueue = api.isInQueue;
         getQueuePosition = api.getQueuePosition;
         updateQueueStatusInUI = api.updateQueueStatusInUI;
+        tidyDeps.migrateAIRenameKeys = api.migrateAIRenameKeys;
       }
     })();
 
@@ -543,6 +562,15 @@
 
           // When the pile expands (zen-stuff fires pile-shown), remove sticky pods from the pods row
           document.addEventListener('pile-shown', clearAllStickyPods);
+          document.addEventListener('pile-hidden', () => {
+            debugLog('[PileRepair] pile-hidden: restore download chrome + focus invariants');
+            updateDownloadCardsVisibility();
+            if (focusedKeyRef.current && !activeDownloadCards.has(focusedKeyRef.current)) {
+              focusedKeyRef.current =
+                orderedPodKeys.length > 0 ? orderedPodKeys[orderedPodKeys.length - 1] : null;
+              updateUIForFocusedDownload(focusedKeyRef.current, false);
+            }
+          });
           
           // Add close handler for the master tooltip's close button AFTER creating podsRowContainerElement
           const masterCloseBtn = masterTooltipDOMElement.querySelector(".card-close-button");
@@ -701,7 +729,8 @@
           clearStickyPodsOnly,
           updateDownloadCardsVisibility,
           updateUIForFocusedDownload,
-          getPodsRowContainer: () => podsRowContainerElement
+          getPodsRowContainer: () => podsRowContainerElement,
+          migrateAIRenameKeys: (oldKey, newKey) => tidyDeps.migrateAIRenameKeys(oldKey, newKey)
         });
         throttledCreateOrUpdateCard = podsApi.throttledCreateOrUpdateCard;
 

@@ -32,6 +32,7 @@
      * @param {function} ctx.updateDownloadCardsVisibility
      * @param {function} ctx.updateUIForFocusedDownload
      * @param {function} ctx.getPodsRowContainer - () => pods row element or null
+     * @param {function} ctx.migrateAIRenameKeys - (oldKey, newKey) => void — keep AI queue aligned when card key changes
      * @returns {{ throttledCreateOrUpdateCard: function, createOrUpdatePodElement: function }}
      */
     init(ctx) {
@@ -53,7 +54,8 @@
         clearStickyPodsOnly,
         updateDownloadCardsVisibility,
         updateUIForFocusedDownload,
-        getPodsRowContainer
+        getPodsRowContainer,
+        migrateAIRenameKeys
       } = ctx;
 
       const {
@@ -69,8 +71,62 @@
         renamedFiles
       } = store;
 
+      /**
+       * Move an existing card to newKey when Firefox updates path/id so getDownloadKey(download) changes.
+       * @param {string} oldKey
+       * @param {string} newKey
+       * @param {Object} cardData
+       * @returns {boolean}
+       */
+      function rekeyActiveDownloadCardIfNeeded(oldKey, newKey, cardData) {
+        if (!oldKey || !newKey || oldKey === newKey || !cardData) return false;
+        const occupant = activeDownloadCards.get(newKey);
+        if (occupant && occupant !== cardData) {
+          debugLog("[Rekey] Skipped: target key already used by another card", { oldKey, newKey });
+          return false;
+        }
+
+        activeDownloadCards.delete(oldKey);
+        activeDownloadCards.set(newKey, cardData);
+        cardData.key = newKey;
+
+        if (cardData.podElement) {
+          cardData.podElement.dataset.downloadKey = newKey;
+          cardData.podElement.id = `download-pod-${newKey.replace(/[^a-zA-Z0-9_]/g, "-")}`;
+        }
+
+        const oldKeyIndex = orderedPodKeys.indexOf(oldKey);
+        if (oldKeyIndex > -1) {
+          orderedPodKeys.splice(oldKeyIndex, 1, newKey);
+        } else {
+          debugLog(`[Rekey] Old key not in orderedPodKeys: ${oldKey}`);
+        }
+
+        if (stickyPods.has(oldKey)) {
+          stickyPods.delete(oldKey);
+          stickyPods.add(newKey);
+        }
+
+        const throttledAt = cardUpdateThrottle.get(oldKey);
+        if (throttledAt != null) {
+          cardUpdateThrottle.delete(oldKey);
+          cardUpdateThrottle.set(newKey, throttledAt);
+        }
+
+        if (focusedKeyRef.current === oldKey) {
+          focusedKeyRef.current = newKey;
+        }
+
+        if (typeof migrateAIRenameKeys === "function") {
+          migrateAIRenameKeys(oldKey, newKey);
+        }
+
+        debugLog(`[Rekey] Card key updated: ${oldKey} → ${newKey}`);
+        return true;
+      }
+
       function createOrUpdatePodElement(download, isNewCardOnInit = false) {
-        const key = getDownloadKey(download);
+        let key = getDownloadKey(download);
         if (!key) {
           debugLog("Skipping download object without usable key", download);
           return null;
@@ -137,6 +193,31 @@
         });
 
         let cardData = activeDownloadCards.get(key);
+
+        if (!cardData) {
+          for (const [storedKey, cd] of activeDownloadCards) {
+            const sameRef = cd.download === download;
+            const sameId = download?.id != null && cd.download?.id === download.id;
+            if (!sameRef && !sameId) {
+              continue;
+            }
+            if (storedKey !== key) {
+              const targetOccupied = activeDownloadCards.get(key);
+              if (targetOccupied && targetOccupied !== cd) {
+                debugLog("[Rekey] Keeping prior key; canonical path key held by another entry", {
+                  storedKey,
+                  key
+                });
+                key = storedKey;
+              } else {
+                rekeyActiveDownloadCardIfNeeded(storedKey, key, cd);
+              }
+            }
+            cardData = cd;
+            break;
+          }
+        }
+
         const safeFilename = getSafeFilename(download);
 
         let podElement;

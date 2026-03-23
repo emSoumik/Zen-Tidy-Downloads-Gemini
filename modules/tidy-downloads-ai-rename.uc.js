@@ -16,7 +16,7 @@
    * @param {Object} ctx
    * @param {Object} ctx.store - zenTidyDownloadsStore.createStore() (uses activeDownloadCards, focusedKeyRef, renamedFiles)
    * @param {Object} ctx.deps - callbacks and utils from main (tidyDeps + rename + AI-specific fields)
-   * @returns {{ addToAIRenameQueue, removeFromAIRenameQueue, cancelAIProcessForDownload, isInQueue, getQueuePosition, updateQueueStatusInUI }}
+   * @returns {{ addToAIRenameQueue, removeFromAIRenameQueue, cancelAIProcessForDownload, isInQueue, getQueuePosition, updateQueueStatusInUI, migrateAIRenameKeys }}
    */
   window.zenTidyDownloadsAIRename = {
     init(ctx) {
@@ -47,6 +47,11 @@
       } = deps;
 
       const { activeDownloadCards, focusedKeyRef, renamedFiles } = store;
+
+      /** @param {string} [p] */
+      function normalizePathForAiDedupe(p) {
+        return typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "";
+      }
 
       // AI Process Management
       const activeAIProcesses = new Map();
@@ -149,6 +154,50 @@
           currentlyProcessing: currentlyProcessingKey
         });
 
+        if (!download || !download.target?.path) {
+          debugLog(`[AI Queue] Download ${downloadKey} missing download object or path, skipping`);
+          return false;
+        }
+
+        const targetPath = download.target.path;
+
+        if (renamedFiles.has(targetPath)) {
+          debugLog(`[AI Queue] Download ${downloadKey} already renamed (path: ${targetPath}), skipping`);
+          return false;
+        }
+
+        const pathNorm = normalizePathForAiDedupe(targetPath);
+        if (pathNorm) {
+          if (aiRenameQueue.some(item => normalizePathForAiDedupe(item.download?.target?.path) === pathNorm)) {
+            debugLog(`[AI Queue] Same file path already queued under another key, skipping`, {
+              downloadKey,
+              pathNorm
+            });
+            return false;
+          }
+          if (currentlyProcessingKey) {
+            const curDl = activeDownloadCards.get(currentlyProcessingKey)?.download;
+            if (normalizePathForAiDedupe(curDl?.target?.path) === pathNorm) {
+              debugLog(`[AI Queue] Same file path currently being processed, skipping`, {
+                downloadKey,
+                pathNorm
+              });
+              return false;
+            }
+          }
+          for (const procKey of activeAIProcesses.keys()) {
+            const dl = activeDownloadCards.get(procKey)?.download;
+            if (normalizePathForAiDedupe(dl?.target?.path) === pathNorm) {
+              debugLog(`[AI Queue] Same file path already in active AI process, skipping`, {
+                downloadKey,
+                pathNorm,
+                procKey
+              });
+              return false;
+            }
+          }
+        }
+
         if (aiRenameQueue.some(item => item.downloadKey === downloadKey)) {
           debugLog(`[AI Queue] Download ${downloadKey} already in queue, skipping`);
           return false;
@@ -156,16 +205,6 @@
 
         if (currentlyProcessingKey === downloadKey) {
           debugLog(`[AI Queue] Download ${downloadKey} is currently being processed, skipping`);
-          return false;
-        }
-
-        if (renamedFiles.has(download.target?.path)) {
-          debugLog(`[AI Queue] Download ${downloadKey} already renamed (path: ${download.target?.path}), skipping`);
-          return false;
-        }
-
-        if (!download || !download.target?.path) {
-          debugLog(`[AI Queue] Download ${downloadKey} missing download object or path, skipping`);
           return false;
         }
 
@@ -755,6 +794,36 @@ Instructions:
         }
       }
 
+      /**
+       * When a card's map key changes (temp→path, id→path, disk rename), keep queue and in-flight AI maps aligned.
+       * @param {string} oldKey
+       * @param {string} newKey
+       */
+      function migrateAIRenameKeys(oldKey, newKey) {
+        if (!oldKey || !newKey || oldKey === newKey) return;
+
+        let touched = false;
+        for (const item of aiRenameQueue) {
+          if (item.downloadKey === oldKey) {
+            item.downloadKey = newKey;
+            touched = true;
+          }
+        }
+        if (currentlyProcessingKey === oldKey) {
+          currentlyProcessingKey = newKey;
+          touched = true;
+        }
+        if (activeAIProcesses.has(oldKey)) {
+          const proc = activeAIProcesses.get(oldKey);
+          activeAIProcesses.delete(oldKey);
+          activeAIProcesses.set(newKey, proc);
+          touched = true;
+        }
+        if (touched) {
+          debugLog(`[AI] Migrated rename keys: ${oldKey} → ${newKey}`);
+        }
+      }
+
       async function cancelAIProcessForDownload(downloadKey) {
         const wasInQueue = removeFromAIRenameQueue(downloadKey);
         if (wasInQueue) {
@@ -812,7 +881,8 @@ Instructions:
         cancelAIProcessForDownload,
         isInQueue,
         getQueuePosition,
-        updateQueueStatusInUI
+        updateQueueStatusInUI,
+        migrateAIRenameKeys
       };
     }
   };

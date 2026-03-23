@@ -199,7 +199,7 @@
      * performAutohideSequence exist (same scope as main script), and before init() if load is synchronous.
      * @param {Object} ctx
      * @param {Object} ctx.store - zenTidyDownloadsStore.createStore() result (activeDownloadCards, orderedPodKeys, focusedKeyRef, renamedFiles)
-     * @param {Object} ctx.deps - shared callbacks/utils (SecurityUtils, debugLog, sanitizeFilename, PATH_SEPARATOR, Cc, Ci, scheduleCardRemoval, performAutohideSequence, updateUIForFocusedDownload, getMasterTooltip)
+     * @param {Object} ctx.deps - shared callbacks/utils (SecurityUtils, debugLog, sanitizeFilename, PATH_SEPARATOR, Cc, Ci, scheduleCardRemoval, performAutohideSequence, updateUIForFocusedDownload, getMasterTooltip, migrateAIRenameKeys)
      * @returns {{ renameDownloadFileAndUpdateRecord: Function, undoRename: Function }}
      */
     createRenameHandlers(ctx) {
@@ -214,9 +214,10 @@
         scheduleCardRemoval,
         performAutohideSequence,
         updateUIForFocusedDownload,
-        getMasterTooltip
+        getMasterTooltip,
+        migrateAIRenameKeys
       } = deps;
-      const { activeDownloadCards, orderedPodKeys, focusedKeyRef, renamedFiles } = store;
+      const { activeDownloadCards, orderedPodKeys, focusedKeyRef, renamedFiles, stickyPods, cardUpdateThrottle } = store;
 
       /**
        * @param {Object} download
@@ -321,6 +322,19 @@
             }
 
             debugLog(`Updated card key mapping from ${key} to ${newPath}`);
+
+            if (typeof migrateAIRenameKeys === "function") {
+              migrateAIRenameKeys(key, newPath);
+            }
+            if (stickyPods?.has(key)) {
+              stickyPods.delete(key);
+              stickyPods.add(newPath);
+            }
+            const throttledAt = cardUpdateThrottle?.get(key);
+            if (throttledAt != null && cardUpdateThrottle) {
+              cardUpdateThrottle.delete(key);
+              cardUpdateThrottle.set(newPath, throttledAt);
+            }
           }
 
           debugLog("File renamed successfully");
@@ -431,6 +445,19 @@
             debugLog(
               `[UndoRename] Updated activeDownloadCards map key from ${keyOfAIRenamedFile} to ${targetOriginalPath}`
             );
+
+            if (typeof migrateAIRenameKeys === "function") {
+              migrateAIRenameKeys(keyOfAIRenamedFile, targetOriginalPath);
+            }
+            if (stickyPods?.has(keyOfAIRenamedFile)) {
+              stickyPods.delete(keyOfAIRenamedFile);
+              stickyPods.add(targetOriginalPath);
+            }
+            const throttledUndo = cardUpdateThrottle?.get(keyOfAIRenamedFile);
+            if (throttledUndo != null && cardUpdateThrottle) {
+              cardUpdateThrottle.delete(keyOfAIRenamedFile);
+              cardUpdateThrottle.set(targetOriginalPath, throttledUndo);
+            }
           }
 
           renamedFiles.delete(originalFullPath);

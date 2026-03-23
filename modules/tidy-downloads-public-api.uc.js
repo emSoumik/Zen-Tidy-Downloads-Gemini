@@ -52,6 +52,96 @@
         stickyPods
       } = store;
 
+      /**
+       * @param {string} [p]
+       * @returns {string}
+       */
+      function normPath(p) {
+        return typeof p === "string" ? p.replace(/\\/g, "/").toLowerCase() : "";
+      }
+
+      /**
+       * Match a pile snapshot to the current Firefox Downloads list (source of truth at action time).
+       * @param {unknown[]} downloads
+       * @param {Object} podData
+       * @param {string} [podKey] - optional key when podData.key missing
+       * @returns {unknown|null}
+       */
+      function findDownloadMatchingPodData(downloads, podData, podKey) {
+        const key = podKey || podData?.key;
+        if (!podData || !Array.isArray(downloads)) {
+          return null;
+        }
+
+        if (podData.downloadId != null && podData.downloadId !== "") {
+          const byId = downloads.find(
+            (dl) => dl.id != null && String(dl.id) === String(podData.downloadId)
+          );
+          if (byId) {
+            return byId;
+          }
+        }
+
+        if (key) {
+          const byKey = downloads.find((dl) => getDownloadKey(dl) === key);
+          if (byKey) {
+            return byKey;
+          }
+        }
+
+        const snap = normPath(podData.targetPath);
+        if (snap) {
+          const byPath = downloads.find((dl) => normPath(dl.target?.path) === snap);
+          if (byPath) {
+            return byPath;
+          }
+        }
+
+        if (key && (key.includes("/") || key.includes("\\"))) {
+          const nk = normPath(key);
+          const byKeyPath = downloads.find((dl) => normPath(dl.target?.path) === nk);
+          if (byKeyPath) {
+            return byKeyPath;
+          }
+        }
+
+        if (podData.sourceUrl && podData.startTime) {
+          const t0 = new Date(podData.startTime).getTime();
+          const byUrlTime = downloads.find((dl) => {
+            if (!dl.source?.url || dl.source.url !== podData.sourceUrl) {
+              return false;
+            }
+            if (!dl.startTime) {
+              return false;
+            }
+            return Math.abs(new Date(dl.startTime).getTime() - t0) < 5000;
+          });
+          if (byUrlTime) {
+            return byUrlTime;
+          }
+        }
+
+        if (podData.sourceUrl) {
+          const fn = podData.filename || podData.originalFilename;
+          const byUrlFn = downloads.find((dl) => {
+            if (dl.source?.url !== podData.sourceUrl) {
+              return false;
+            }
+            const p = dl.target?.path;
+            if (!p || !fn) {
+              return false;
+            }
+            const base = p.split(/[/\\]/).pop();
+            return base === fn || base === podData.originalFilename;
+          });
+          if (byUrlFn) {
+            return byUrlFn;
+          }
+        }
+
+        return null;
+      }
+
       return {
         onPodDismissed(callback) {
           if (typeof callback === "function") {
@@ -254,6 +344,69 @@
             };
             debugLog(`[API] Error adding external file:`, errorInfo);
             throw error;
+          }
+        },
+
+        /**
+         * Resolve the live Download object from Firefox's list using id, path key, paths, and URL heuristics.
+         * @param {Object} podData - pile / dismissed snapshot
+         * @returns {Promise<unknown|null>}
+         */
+        async resolveDownloadFromPodData(podData) {
+          try {
+            const list = await DownloadsAdapter.getAllDownloadsList();
+            if (!list) {
+              debugLog("[API] resolveDownloadFromPodData: Downloads list unavailable");
+              return null;
+            }
+            const downloads = await list.getAll();
+            const found = findDownloadMatchingPodData(downloads, podData, podData?.key);
+            if (found) {
+              debugLog("[API] resolveDownloadFromPodData: matched download", {
+                id: found.id,
+                path: found.target?.path
+              });
+            } else {
+              debugLog("[API] resolveDownloadFromPodData: no match", {
+                key: podData?.key,
+                downloadId: podData?.downloadId
+              });
+            }
+            return found || null;
+          } catch (error) {
+            debugLog("[API] resolveDownloadFromPodData error:", error);
+            return null;
+          }
+        },
+
+        /**
+         * Remove the download that corresponds to pile snapshot data from Firefox's history (Downloads API).
+         * @param {Object} podData
+         * @param {unknown} [resolvedDownload] - optional result of resolveDownloadFromPodData to avoid a second scan
+         * @returns {Promise<boolean>}
+         */
+        async removeDownloadFromListForPodData(podData, resolvedDownload = null) {
+          try {
+            const list = await DownloadsAdapter.getAllDownloadsList();
+            if (!list) {
+              return false;
+            }
+            const target =
+              resolvedDownload ||
+              findDownloadMatchingPodData(await list.getAll(), podData, podData?.key);
+            if (!target) {
+              debugLog("[API] removeDownloadFromListForPodData: no matching download");
+              return false;
+            }
+            await list.remove(target);
+            debugLog("[API] removeDownloadFromListForPodData: removed", {
+              id: target.id,
+              path: target.target?.path
+            });
+            return true;
+          } catch (error) {
+            debugLog("[API] removeDownloadFromListForPodData error:", error);
+            return false;
           }
         }
       };

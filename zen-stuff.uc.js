@@ -17,6 +17,13 @@
     console.error("[Zen Stuff] zenTidyDownloadsUtils not loaded - ensure tidy-downloads-utils.uc.js loads first (check @loadOrder in headers)");
     return;
   }
+
+  // Single-flight: avoid duplicate pile registration if this script is evaluated twice.
+  if (window.__zenStuffPileBundleExecuted) {
+    console.warn("[Zen Stuff] Bundle already executed in this window; skipping duplicate load.");
+    return;
+  }
+  window.__zenStuffPileBundleExecuted = true;
   const {
     validateFilePathOrThrow,
     validatePodData,
@@ -92,6 +99,10 @@
       this.mediaToolbarMaskRemovalTimeout = null;
       // --- true from row contextmenu until popuphidden (covers gap before menupopup.state === 'open') ---
       this.pileContextMenuActive = false;
+      // --- sticky / mask layout repair (coalesced) ---
+      this.pileRepairDebounceId = null;
+      this.lastPileRepairAt = 0;
+      this.pileLayoutRepairIntervalId = null;
     }
 
     // Safe getters with validation
@@ -358,6 +369,15 @@
 
   // Initialize the pile system with proper error handling
   async function init() {
+    if (state.isInitialized) {
+      return;
+    }
+    if (window.__zenStuffPileInitInProgress) {
+      debugLog("init skipped: already in progress (single-flight)");
+      return;
+    }
+    window.__zenStuffPileInitInProgress = true;
+
     debugLog("Initializing dismissed downloads pile system");
 
     try {
@@ -392,6 +412,8 @@
       ErrorHandler.handleError(error, 'initialization');
       state.retryCount++;
       setTimeout(init, CONFIG.retryDelay);
+    } finally {
+      window.__zenStuffPileInitInProgress = false;
     }
   }
 
@@ -429,6 +451,7 @@
         fileSize: podData.fileSize,
         contentType: podData.contentType,
         targetPath: podData.targetPath,
+        downloadId: podData.downloadId,
         sourceUrl: podData.sourceUrl,
         startTime: podData.startTime,
         endTime: podData.endTime,
@@ -992,6 +1015,7 @@
       if (state.dismissedPods.size > 0) {
         showPile();
         showPileBackground();
+        schedulePileLayoutRepair("request-pile-expand", 60);
       }
     });
 
@@ -1002,6 +1026,16 @@
         hideContextMenu();
       }
     });
+
+    // Periodic cheap repair: mask/sizer can desync after sticky transitions or toolbar reflow
+    if (state.pileLayoutRepairIntervalId) {
+      clearInterval(state.pileLayoutRepairIntervalId);
+    }
+    state.pileLayoutRepairIntervalId = setInterval(() => {
+      if (state.dismissedPods.size > 0) {
+        schedulePileLayoutRepair("interval", 0);
+      }
+    }, 90000);
 
     debugLog("Event listeners setup complete");
   }
@@ -1075,6 +1109,8 @@
         updatePodTextColors();
       }, 50);
     }
+
+    schedulePileLayoutRepair("add-pod", 120);
 
     debugLog(`Added pod to pile: ${podData.filename}`);
   }
@@ -1762,6 +1798,7 @@
     state.hoverTimeout = setTimeout(() => {
       debugLog("[DownloadHover] Timeout triggered - calling showPile()");
       showPile();
+      schedulePileLayoutRepair("download-hover", 50);
     }, CONFIG.hoverDebounceMs);
   }
 
@@ -1820,6 +1857,7 @@
     if (state.dismissedPods.size > 0) {
       showPile();
       showPileBackground();
+      schedulePileLayoutRepair("sizer-hover", 40);
       debugLog("[SizerHover] Maintaining pile visibility and mask during sizer hover");
     }
   }
@@ -1884,7 +1922,7 @@
     
     // If pile is visible, ensure it stays visible during hover
     if (state.dismissedPods.size > 0 && state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
-      // Keep the pile visible and maintain the mask
+      schedulePileLayoutRepair("pile-hover", 40);
       debugLog("[PileHover] Maintaining pile visibility and mask during hover");
     }
   }
@@ -2079,6 +2117,8 @@
       podsToShow,
       dynamicHeight: gridHeight
     });
+
+    schedulePileLayoutRepair("show-pile", 30);
   }
 
   // Hide the pile
@@ -2154,6 +2194,115 @@
     showWorkspaceScrollboxAfter();
 
     debugLog("Hiding dismissed downloads pile by collapsing sizer");
+
+    document.dispatchEvent(
+      new CustomEvent("pile-hidden", { bubbles: true, detail: { reason: "collapsed" } })
+    );
+  }
+
+  /*
+   * Pile visibility state machine (informal invariants):
+   * - collapsed: dynamicSizer height 0, --zen-pile-height typically -50px, bridge hidden
+   * - expanded:  sizer has row height, mask >= 0 (or 0 when geometry is tiny), pointer-events per always-show
+   * - always_visible: getAlwaysShowPile() && dismissedPods.size > 0 ⇒ should not stay collapsed (except compact+sidebar collapsed)
+   * - pending_close: pendingPileClose until popuphidden / leave timeout resolves
+   * Repair re-syncs mask to sizer and re-applies pointer-events when these drift (e.g. after sticky + pile-shown).
+   */
+
+  /**
+   * @returns {number}
+   */
+  function getPileMaskHeightPx() {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue("--zen-pile-height").trim();
+    const n = parseFloat(raw);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  /**
+   * @returns {number}
+   */
+  function readSizerContentHeightPx() {
+    const h = state.dynamicSizer?.style?.height;
+    if (!h || h === "0px") {
+      return 0;
+    }
+    const n = parseFloat(h);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  /**
+   * Fix desynced mask / sizer / pointer-events. Idempotent; logs when it changes something.
+   * @param {string} source
+   */
+  function enforcePileLayoutInvariants(source = "") {
+    if (!state.dynamicSizer) {
+      return;
+    }
+
+    const podCount = state.dismissedPods.size;
+    const sizerOpen = state.dynamicSizer.style.height !== "0px";
+    const maskH = getPileMaskHeightPx();
+    const sizerH = readSizerContentHeightPx();
+
+    if (podCount === 0) {
+      if (
+        sizerOpen &&
+        !state.recentlyRemoved &&
+        !state.isEditing &&
+        !isContextMenuVisible()
+      ) {
+        debugLog("[PileRepair] empty pile but sizer open → hidePile", { source });
+        hidePile();
+      }
+      return;
+    }
+
+    const isCompactMode = document.documentElement.getAttribute("zen-compact-mode") === "true";
+    const isSidebarExpanded = document.documentElement.getAttribute("zen-sidebar-expanded") === "true";
+    const compactBlocksPile = isCompactMode && !isSidebarExpanded;
+
+    if (getAlwaysShowPile() && !sizerOpen && !compactBlocksPile) {
+      debugLog("[PileRepair] always-show + pods but sizer collapsed → showPile", { source });
+      showPile();
+      updatePointerEvents();
+      return;
+    }
+
+    if (sizerOpen && !compactBlocksPile) {
+      const maskBadNegative = Number.isFinite(maskH) && maskH < 0;
+      const maskZeroButSizerTall = maskH === 0 && sizerH > 16;
+      if (maskBadNegative || maskZeroButSizerTall) {
+        debugLog("[PileRepair] sizer open but mask out of sync → updatePileHeight", {
+          source,
+          maskH,
+          sizerH
+        });
+        updatePileHeight();
+        updatePointerEvents();
+      }
+    }
+  }
+
+  /**
+   * Coalesce rapid calls; throttle how often we run a full enforce pass.
+   * @param {string} source
+   * @param {number} delayMs
+   */
+  function schedulePileLayoutRepair(source, delayMs = 80) {
+    clearTimeout(state.pileRepairDebounceId);
+    state.pileRepairDebounceId = setTimeout(() => {
+      state.pileRepairDebounceId = null;
+      const now = Date.now();
+      if (now - state.lastPileRepairAt < 350) {
+        return;
+      }
+      state.lastPileRepairAt = now;
+      try {
+        enforcePileLayoutInvariants(source);
+      } catch (e) {
+        debugLog("[PileRepair] enforce error:", e);
+      }
+    }, delayMs);
   }
 
   // Recalculate layout on window resize
@@ -2180,6 +2329,8 @@
       generateGridPosition(podKey);
       applyGridPosition(podKey, 0);
     });
+
+    schedulePileLayoutRepair("resize", 0);
   }
 
   // Utility: Debounce function
@@ -2243,28 +2394,37 @@
   }
 
   // Function to remove a specific download from Firefox downloads list
-  async function removeDownloadFromFirefoxList(podData) {
+  async function removeDownloadFromFirefoxList(podData, resolvedDownload = null) {
     try {
       debugLog(`[DeleteDownload] Attempting to remove download from Firefox list: ${podData.filename}`);
 
-      // Get the downloads list
+      if (
+        window.zenTidyDownloads &&
+        typeof window.zenTidyDownloads.removeDownloadFromListForPodData === 'function'
+      ) {
+        const ok = await window.zenTidyDownloads.removeDownloadFromListForPodData(
+          podData,
+          resolvedDownload
+        );
+        if (ok) {
+          return true;
+        }
+        debugLog(`[DeleteDownload] API matcher did not remove; falling back to legacy path/URL scan`);
+      }
+
       const list = await window.Downloads.getList(window.Downloads.ALL);
       const downloads = await list.getAll();
 
-      // Find the download that matches our pod data
       let targetDownload = null;
 
       for (const download of downloads) {
-        // Try to match by target path (most reliable)
         if (podData.targetPath && download.target?.path === podData.targetPath) {
           targetDownload = download;
           debugLog(`[DeleteDownload] Found download by target path: ${download.target.path}`);
           break;
         }
 
-        // Fallback: try to match by source URL and filename
         if (podData.sourceUrl && download.source?.url === podData.sourceUrl) {
-          // Additional check for filename if available
           const downloadFilename = download.target?.path ?
             download.target.path.split(/[/\\]/).pop() : null;
 
@@ -2278,15 +2438,12 @@
       }
 
       if (targetDownload) {
-        // Remove the download from Firefox's list
         await list.remove(targetDownload);
         debugLog(`[DeleteDownload] Successfully removed download from Firefox list: ${podData.filename}`);
         return true;
-      } else {
-        debugLog(`[DeleteDownload] Download not found in Firefox list: ${podData.filename}`);
-        return false;
       }
-
+      debugLog(`[DeleteDownload] Download not found in Firefox list: ${podData.filename}`);
+      return false;
     } catch (error) {
       debugLog(`[DeleteDownload] Error removing download from Firefox list:`, error);
       throw error;
@@ -2970,6 +3127,7 @@
             // If still hovering, just clear the flag
             state.pendingPileClose = false;
           }
+          schedulePileLayoutRepair("contextmenu-popuphidden", 150);
         }, 100);
       });
 
@@ -3006,6 +3164,14 @@
       if (state.hoverTimeout) {
         clearTimeout(state.hoverTimeout);
         state.hoverTimeout = null;
+      }
+      if (state.pileRepairDebounceId) {
+        clearTimeout(state.pileRepairDebounceId);
+        state.pileRepairDebounceId = null;
+      }
+      if (state.pileLayoutRepairIntervalId) {
+        clearInterval(state.pileLayoutRepairIntervalId);
+        state.pileLayoutRepairIntervalId = null;
       }
 
       // Remove all event listeners
@@ -3381,11 +3547,7 @@
     debugLog(`[DeleteFile] Attempting to delete file from system: ${podData.filename}`);
     try {
       validatePodData(podData);
-      if (!podData.targetPath) {
-        throw new Error('No file path available');
-      }
 
-      // Confirm deletion with user (pass window so prompt is available from context menu)
       const confirmed = Services.prompt.confirm(
         window,
         'Delete File',
@@ -3397,35 +3559,70 @@
         return;
       }
 
-      // Check if file exists before attempting deletion
-      const fileExists = await FileSystem.fileExists(podData.targetPath);
-      if (!fileExists) {
-        // File doesn't exist, but still remove from pile
-        debugLog(`[DeleteFile] File does not exist, removing from pile only: ${podData.filename}`);
+      let resolvedDownload = null;
+      if (
+        window.zenTidyDownloads &&
+        typeof window.zenTidyDownloads.resolveDownloadFromPodData === 'function'
+      ) {
+        try {
+          resolvedDownload = await window.zenTidyDownloads.resolveDownloadFromPodData(podData);
+        } catch (resolveErr) {
+          debugLog(`[DeleteFile] resolveDownloadFromPodData failed:`, resolveErr);
+        }
+      }
+
+      const pathCandidates = [];
+      if (resolvedDownload?.target?.path) {
+        pathCandidates.push(resolvedDownload.target.path);
+      }
+      if (podData.targetPath) {
+        pathCandidates.push(podData.targetPath);
+      }
+      const uniquePaths = [...new Set(pathCandidates.filter(Boolean))];
+
+      let pathToDelete = null;
+      for (const p of uniquePaths) {
+        if (await FileSystem.fileExists(p)) {
+          pathToDelete = p;
+          break;
+        }
+      }
+
+      if (!pathToDelete) {
+        debugLog(
+          `[DeleteFile] No file at Firefox-reported or saved path; clearing pile and downloads entry only: ${podData.filename}`
+        );
+        try {
+          await removeDownloadFromFirefoxList(podData, resolvedDownload);
+        } catch (error) {
+          debugLog(`[DeleteFile] Could not remove from Firefox downloads list:`, error);
+        }
         removePodFromPile(podData.key);
+        if (window.zenTidyDownloads && window.zenTidyDownloads.dismissedPods) {
+          try {
+            window.zenTidyDownloads.dismissedPods.delete(podData.key);
+          } catch (error) {
+            debugLog(`[DeleteFile] Could not remove from main script dismissed pods:`, error);
+          }
+        }
         return;
       }
 
-      // Delete the file
-      const deleted = await FileSystem.deleteFile(podData.targetPath);
+      const deleted = await FileSystem.deleteFile(pathToDelete);
       if (!deleted) {
         throw new Error('File deletion failed');
       }
 
-      debugLog(`[DeleteFile] Successfully deleted file: ${podData.filename}`);
+      debugLog(`[DeleteFile] Successfully deleted file at ${pathToDelete}: ${podData.filename}`);
 
-      // Try to remove from Firefox downloads list
       try {
-        await removeDownloadFromFirefoxList(podData);
+        await removeDownloadFromFirefoxList(podData, resolvedDownload);
       } catch (error) {
         debugLog(`[DeleteFile] Could not remove from Firefox downloads list:`, error);
-        // Continue even if this fails
       }
 
-      // Remove pod from pile
       removePodFromPile(podData.key);
 
-      // Try to remove from main script's dismissed pods if API exists
       if (window.zenTidyDownloads && window.zenTidyDownloads.dismissedPods) {
         try {
           window.zenTidyDownloads.dismissedPods.delete(podData.key);
