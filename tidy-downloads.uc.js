@@ -187,6 +187,8 @@
     let podsRowContainerElement = null;
     let masterTooltipDOMElement = null;
     let initSidebarWidthSyncFn = () => { };
+    /** @type {{ getDownloadViewListener: function(): Object, destroy: function(): void }|null} */
+    let libraryPieController = null;
 
     // File operations module (open, erase from history, content-type)
     const fileOpsApi = window.zenTidyDownloadsFileOps?.init({ SecurityUtils, debugLog }) || {
@@ -734,6 +736,10 @@
         });
         throttledCreateOrUpdateCard = podsApi.throttledCreateOrUpdateCard;
 
+        if (window.zenTidyDownloadsLibraryPie?.createController) {
+          libraryPieController = window.zenTidyDownloadsLibraryPie.createController({ getPref, debugLog });
+        }
+
         const downloadListener = DownloadsAdapter.createDownloadViewListener({
           onCompletedState: (dl) => throttledCreateOrUpdateCard(dl),
           onRemoved: async (dl) => {
@@ -767,6 +773,9 @@
               return;
             }
             list.addView(downloadListener);
+            if (libraryPieController) {
+              list.addView(libraryPieController.getDownloadViewListener());
+            }
             list.getAll().then((all) => {
               const recentDownloads = DownloadsAdapter.filterInitialCompletedDownloads(all, {
                 getDownloadKey,

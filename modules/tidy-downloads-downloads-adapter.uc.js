@@ -49,6 +49,29 @@
     },
 
     /**
+     * View listener that receives every add/change (including in-progress) for progress UI.
+     * @param {{ onDownloadSessionEvent: function }} handlers
+     * @returns {{ onDownloadAdded: function, onDownloadChanged: function, onDownloadRemoved: function }}
+     */
+    createProgressSessionViewListener(handlers) {
+      const { onDownloadSessionEvent } = handlers;
+      const notify = (dl) => {
+        if (typeof onDownloadSessionEvent === "function") {
+          try {
+            onDownloadSessionEvent(dl);
+          } catch (e) {
+            console.error("[DownloadsAdapter] onDownloadSessionEvent error:", e);
+          }
+        }
+      };
+      return {
+        onDownloadAdded: (dl) => notify(dl),
+        onDownloadChanged: (dl) => notify(dl),
+        onDownloadRemoved: (dl) => notify(dl)
+      };
+    },
+
+    /**
      * Completed (succeeded or error) downloads to show on cold start; mutates dismissedDownloads for old items.
      * @param {unknown[]} all - result of downloadList.getAll()
      * @param {Object} ctx

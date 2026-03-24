@@ -57,12 +57,6 @@
         debugLog("[LayoutManager] managePodVisibilityAndAnimations Natural Stacking Style called.");
         debugLog(`[LayoutManager] Current state: orderedPodKeys=${orderedPodKeys.length}, focusedKey=${focusedKeyRef.current}, activeDownloadCards=${activeDownloadCards.size}`);
 
-        const tooltipWidth = masterTooltipDOMElement.offsetWidth;
-        const podNominalWidth = 56; 
-          const podOverlapAmount = 50;
-        const baseZIndex = 10;
-        const maxVisiblePodsInPile = Math.min(4, Math.floor((tooltipWidth - podNominalWidth) / (podNominalWidth - podOverlapAmount)) + 1); 
-
         if (orderedPodKeys.length === 0) {
             // Hide the entire container when no pods exist
             if (downloadCardsContainer) {
@@ -88,15 +82,6 @@
         // Show the container when we have pods (respects compact mode via updateDownloadCardsVisibility)
         updateDownloadCardsVisibility();
 
-        if (tooltipWidth === 0 && orderedPodKeys.length > 0) {
-            debugLog("[LayoutManager] Master tooltip width is 0. Cannot manage pod layout yet.");
-            // Set a minimum height for the container to prevent layout collapse
-            if (podsRowContainerElement.style.height === '0px') {
-                podsRowContainerElement.style.height = '56px';
-            }
-            return; 
-        }
-        
         // Ensure focused key is valid and in orderedPodKeys, default to newest if not.
         if (!focusedKeyRef.current || !orderedPodKeys.includes(focusedKeyRef.current)) {
             if (orderedPodKeys.length > 0) {
@@ -108,7 +93,10 @@
             }
         }
 
+        const podNominalWidth = 56;
+
         // Ensure all pods in orderedPodKeys are in the DOM and have initial styles for animation/layout.
+        // Run before tooltip width check so pods are attached even when the master tooltip still measures 0 on first show.
         orderedPodKeys.forEach(key => {
             const cardData = activeDownloadCards.get(key);
             if (cardData && cardData.podElement && !cardData.isWaitingForZenAnimation) {
@@ -132,6 +120,19 @@
                 }
             }
         });
+
+        const tooltipWidth = masterTooltipDOMElement.offsetWidth;
+        const podOverlapAmount = 50;
+        const baseZIndex = 10;
+        const maxVisiblePodsInPile = Math.min(4, Math.floor((tooltipWidth - podNominalWidth) / (podNominalWidth - podOverlapAmount)) + 1);
+
+        if (tooltipWidth === 0 && orderedPodKeys.length > 0) {
+            debugLog("[LayoutManager] Master tooltip width is 0. Cannot manage pod layout yet.");
+            if (podsRowContainerElement.style.height === '0px') {
+                podsRowContainerElement.style.height = '56px';
+            }
+            return;
+        }
 
         let visiblePodsLayoutData = []; // Stores {key, x, zIndex, isFocused}
         const focusedIndexInOrdered = orderedPodKeys.indexOf(focusedKeyRef.current);
@@ -215,10 +216,17 @@
                 podElement.style.zIndex = `${layoutData.zIndex}`;
                 const targetTransform = `translateX(${layoutData.x}px) scale(1) translateY(0)`;
                 const targetOpacity = layoutData.isFocused ? '1' : '0.75';
+                const forceStickyEntrance =
+                  layoutData.isFocused && cardData.needsStickyEntranceReveal === true;
 
                 // Only animate if intended state changes or if it's becoming visible
-                if (!cardData.isVisible || cardData.intendedTargetTransform !== targetTransform || cardData.intendedTargetOpacity !== targetOpacity) {
-                    debugLog(`[LayoutManager_Jukebox_Anim_Setup] Pod ${key}: Setting up IN/MOVE animation to X=${layoutData.x}, Opacity=${targetOpacity}. Prev IntendedTransform: ${cardData.intendedTargetTransform}, Prev Opacity: ${cardData.intendedTargetOpacity}, IsVisible: ${cardData.isVisible}`);
+                if (
+                    !cardData.isVisible ||
+                    cardData.intendedTargetTransform !== targetTransform ||
+                    cardData.intendedTargetOpacity !== targetOpacity ||
+                    forceStickyEntrance
+                ) {
+                    debugLog(`[LayoutManager_Jukebox_Anim_Setup] Pod ${key}: Setting up IN/MOVE animation to X=${layoutData.x}, Opacity=${targetOpacity}. Prev IntendedTransform: ${cardData.intendedTargetTransform}, Prev Opacity: ${cardData.intendedTargetOpacity}, IsVisible: ${cardData.isVisible}, forceStickyEntrance: ${forceStickyEntrance}`);
                     
                     // Apply directional entrance animation for newly focused pods during rotation
                     if (layoutData.isFocused && !cardData.isVisible && store.lastRotationDirection) {
@@ -245,6 +253,21 @@
                                 podElement.style.opacity = targetOpacity;
                                 podElement.style.transform = targetTransform;
                                 debugLog(`[LayoutManager_DirectionalAnim] Pod ${key}: Animating to final position ${targetTransform}`);
+                            });
+                        });
+                    } else if (forceStickyEntrance) {
+                        // Download finished while this pod was already laid out during progress — target matches so the
+                        // branch above would skip; replay a proper entrance (same motion as pile rotation).
+                        cardData.needsStickyEntranceReveal = false;
+                        const entranceTransform = `translateX(${layoutData.x + 80}px) scale(0.8) translateY(0)`;
+                        podElement.style.transform = entranceTransform;
+                        podElement.style.opacity = "0";
+                        debugLog(`[LayoutManager_StickyEntrance] Pod ${key}: Completion entrance from ${entranceTransform}`);
+                        requestAnimationFrame(() => {
+                            requestAnimationFrame(() => {
+                                podElement.style.opacity = targetOpacity;
+                                podElement.style.transform = targetTransform;
+                                debugLog(`[LayoutManager_StickyEntrance] Pod ${key}: Animating to ${targetTransform}`);
                             });
                         });
                     } else {
@@ -388,6 +411,7 @@
 
             // 0. Ensure completion status is up to date
             if (download.succeeded && !cardDataToFocus.complete) {
+              cardDataToFocus.needsStickyEntranceReveal = true;
               cardDataToFocus.complete = true;
               cardDataToFocus.userCanceled = false;
               podElement.classList.add("completed");

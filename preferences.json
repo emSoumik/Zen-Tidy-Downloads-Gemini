@@ -51,6 +51,12 @@
     "default": 2
   },
     {
+    "property": "extensions.downloads.enable_library_pie_progress",
+    "type": "checkbox",
+    "label": "Show circular download progress on Library / Downloads button (after Zen arc)",
+    "defaultValue": true
+  },
+  {
     "type": "separator",
     "label": "Zen Stuff"
   },

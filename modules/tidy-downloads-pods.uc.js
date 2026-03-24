@@ -320,7 +320,9 @@
             domAppended: false,
             intendedTargetTransform: null,
             intendedTargetOpacity: null,
-            isBeingRemoved: false
+            isBeingRemoved: false,
+            /** True until layout runs a one-shot entrance when download reaches succeeded (in-progress layout skips re-animation otherwise). */
+            needsStickyEntranceReveal: false
           };
           activeDownloadCards.set(key, cardData);
 
@@ -382,6 +384,7 @@
           }
 
           if (download.succeeded && !cardData.complete) {
+            cardData.needsStickyEntranceReveal = true;
             cardData.complete = true;
             cardData.userCanceled = false;
             podElement.classList.add("completed");
@@ -433,6 +436,7 @@
         }
 
         if (download.succeeded && !cardData.complete) {
+          cardData.needsStickyEntranceReveal = true;
           cardData.complete = true;
           cardData.userCanceled = false;
           podElement.classList.add("completed");
@@ -482,8 +486,12 @@
         const now = Date.now();
         const lastUpdate = cardUpdateThrottle.get(key) || 0;
         const throttleDelay = 200;
+        /** Never drop the final transition (pie → sticky pod + tooltip); completion often fires <200ms after progress. */
+        const isTerminalState =
+          !!download &&
+          (download.succeeded === true || !!download.error || !!download.canceled);
 
-        if (now - lastUpdate < throttleDelay && !isNewCardOnInit) {
+        if (now - lastUpdate < throttleDelay && !isNewCardOnInit && !isTerminalState) {
           debugLog(`[Throttle] Skipping throttled update for download: ${key} (delay: ${throttleDelay}ms)`);
           return;
         }
