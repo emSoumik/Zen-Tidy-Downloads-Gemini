@@ -67,7 +67,7 @@
       contentBox.style.maxWidth = "100%";
   
       const titleLabel = document.createXULElement('label');
-      titleLabel.textContent = "Download renamed !";
+      titleLabel.textContent = "Download renamed!";
       titleLabel.style.fontSize = "0.85em";
       titleLabel.style.opacity = "0.7";
       titleLabel.style.marginBottom = "2px";
