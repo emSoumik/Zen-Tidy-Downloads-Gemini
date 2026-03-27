@@ -4,7 +4,7 @@
 // @ignorecache
 // ==/UserScript==
 
-// zen-dismissed-downloads-pile.uc.js
+// zen-stuff.uc.js
 // Dismissed downloads pile with messy-to-grid transition
 (function () {
   "use strict";
@@ -12,19 +12,43 @@
   // Wait for browser window to be ready
   if (location.href !== "chrome://browser/content/browser.xhtml") return;
 
+  const Utils = window.zenTidyDownloadsUtils;
+  if (!Utils) {
+    console.error("[Zen Stuff] zenTidyDownloadsUtils not loaded - ensure tidy-downloads-utils.uc.js loads first (check @loadOrder in headers)");
+    return;
+  }
+
+  // Single-flight: avoid duplicate pile registration if this script is evaluated twice.
+  if (window.__zenStuffPileBundleExecuted) {
+    console.warn("[Zen Stuff] Bundle already executed in this window; skipping duplicate load.");
+    return;
+  }
+  window.__zenStuffPileBundleExecuted = true;
+  const {
+    validateFilePathOrThrow,
+    validatePodData,
+    formatBytes,
+    waitForElement,
+    IMAGE_EXTENSIONS,
+    TEXT_EXTENSIONS,
+    SYSTEM_ICON_EXTENSIONS,
+    readTextFilePreview,
+    filenameEndsWithExtensionFromSet
+  } = Utils;
+
   // Configuration
   const CONFIG = {
     maxPileSize: 20, // Maximum pods to keep in pile
     pileDisplayCount: 20, // Pods visible in messy pile
-    gridAnimationDelay: 50, // ms between pod animations
-    hoverDebounceMs: 150, // Hover debounce delay
+    gridAnimationDelay: 15, // ms between pod animations
+    hoverDebounceMs: 50, // Hover debounce delay
     pileRotationRange: 8, // degrees ±
     pileOffsetRange: 8, // pixels ±
     gridPadding: 12, // pixels between grid items
     minPodSize: 45, // minimum pod size in grid
     minSidePadding: 5, // minimum padding from sidebar edges
-    animationDuration: 400, // pod transition duration
-    containerAnimationDuration: 100, // container height/padding transition duration
+    animationDuration: 150, // pod transition duration
+    containerAnimationDuration: 80, // container height/padding transition duration
     maxRetryAttempts: 10, // Maximum initialization retry attempts
     retryDelay: 500, // Delay between retry attempts
   };
@@ -32,6 +56,7 @@
   // Firefox preferences
   const PREFS = {
     alwaysShowPile: 'zen.stuff-pile.always-show', // Boolean: show pile always (hide with Alt key)
+    useLibraryButton: 'zen.tidy-downloads.use-library-button', // Boolean: use zen-library-button instead of downloads-button
   };
 
   // Centralized state management
@@ -40,7 +65,8 @@
       this.downloadButton = null;
       this.pileContainer = null;
       this.dynamicSizer = null;
-      this.isGridMode = false;
+      this.hoverBridge = null;
+      // Removed isGridMode - always single column mode
       this.hoverTimeout = null;
       this.dismissedPods = new Map(); // podKey -> podData
       this.podElements = new Map(); // podKey -> DOM element
@@ -63,6 +89,20 @@
       this.carouselStartIndex = 0;
       // --- add isGridAnimating flag ---
       this.isGridAnimating = false;
+      // --- add workspaceScrollboxStyle for controlling ::after opacity ---
+      this.workspaceScrollboxStyle = null;
+      // --- add isEditing flag to prevent pile from hiding during rename ---
+      this.isEditing = false;
+      // --- add recentlyRemoved flag to prevent pile from hiding immediately after removal ---
+      this.recentlyRemoved = false;
+      // --- add mediaToolbarMaskRemovalTimeout for delayed mask removal on pile collapse ---
+      this.mediaToolbarMaskRemovalTimeout = null;
+      // --- true from row contextmenu until popuphidden (covers gap before menupopup.state === 'open') ---
+      this.pileContextMenuActive = false;
+      // --- sticky / mask layout repair (coalesced) ---
+      this.pileRepairDebounceId = null;
+      this.lastPileRepairAt = 0;
+      this.pileLayoutRepairIntervalId = null;
     }
 
     // Safe getters with validation
@@ -114,7 +154,7 @@
   // Global state instance
   const state = new PileState();
 
-  // Error handling utilities
+  // Error handling utilities (validateFilePath, validatePodData: see tidy-downloads-utils.uc.js)
   class ErrorHandler {
     static handleError(error, context, fallback = null) {
       console.error(`[Dismissed Pile] Error in ${context}:`, error);
@@ -134,42 +174,25 @@
         }
       }
     }
+  }
 
-    static validateFilePath(path) {
-      if (!path || typeof path !== 'string') {
-        throw new Error('Invalid file path: path must be a non-empty string');
-      }
-      
-      // Basic path validation - prevent directory traversal
-      if (path.includes('..') || path.includes('//')) {
-        throw new Error('Invalid file path: contains forbidden characters');
-      }
-      
-      return path;
+  // Text-file preview toggle for dismissed pods (disabled by default). Images always get previews.
+  let zenStuffFilePreviewEnabled = false;
+  try {
+    if (typeof Services !== "undefined" && Services.prefs) {
+      // Opt-in for text-file previews; images always show regardless.
+      zenStuffFilePreviewEnabled = Services.prefs.getBoolPref("extensions.downloads.enable_file_preview", false);
     }
-
-    static validatePodData(podData) {
-      if (!podData || typeof podData !== 'object') {
-        throw new Error('Invalid pod data: must be an object');
-      }
-      
-      if (!podData.key || typeof podData.key !== 'string') {
-        throw new Error('Invalid pod data: missing or invalid key');
-      }
-      
-      if (!podData.filename || typeof podData.filename !== 'string') {
-        throw new Error('Invalid pod data: missing or invalid filename');
-      }
-      
-      return podData;
-    }
+  } catch (e) {
+    // Fallback to disabled if prefs are unavailable
+    zenStuffFilePreviewEnabled = false;
   }
 
   // File system utilities with proper error handling
   class FileSystem {
     static async createFileInstance(path) {
       try {
-        const validatedPath = ErrorHandler.validateFilePath(path);
+        const validatedPath = validateFilePathOrThrow(path);
         const file = Components.classes["@mozilla.org/file/local;1"].createInstance(Components.interfaces.nsIFile);
         file.initWithPath(validatedPath);
         return file;
@@ -262,7 +285,7 @@
       }
 
       element.addEventListener(event, handler, options);
-      
+
       // Track for cleanup
       const key = `${element.id || 'unknown'}-${event}`;
       if (!state.eventListeners.has(key)) {
@@ -273,9 +296,9 @@
 
     static removeEventListener(element, event, handler) {
       if (!element || !handler) return;
-      
+
       element.removeEventListener(event, handler);
-      
+
       // Remove from tracking
       const key = `${element.id || 'unknown'}-${event}`;
       const listeners = state.eventListeners.get(key);
@@ -305,40 +328,83 @@
   function debugLog(message, data = null) {
     // Only log in development mode or when explicitly enabled
     if (typeof window.zenDebugMode !== 'undefined' && window.zenDebugMode) {
-    try {
-      console.log(`[Dismissed Pile] ${message}`, data || '');
-    } catch (e) {
-      console.log(`[Dismissed Pile] ${message}`);
+      try {
+        console.log(`[Dismissed Pile] ${message}`, data || '');
+      } catch (e) {
+        console.log(`[Dismissed Pile] ${message}`);
       }
     }
   }
 
+  // Debug function to test preference (call from browser console)
+  window.testLibraryButtonPref = function() {
+    console.log("=== Testing Library Button Preference ===");
+    console.log(`Preference name: ${PREFS.useLibraryButton}`);
+    
+    try {
+      const value = Services.prefs.getBoolPref(PREFS.useLibraryButton, false);
+      console.log(`Current preference value: ${value}`);
+    } catch (e) {
+      console.log(`Error reading preference:`, e);
+    }
+    
+    const libraryBtn = document.getElementById('zen-library-button');
+    const downloadsBtn = document.getElementById('downloads-button');
+    console.log(`zen-library-button exists: ${!!libraryBtn}`);
+    console.log(`downloads-button exists: ${!!downloadsBtn}`);
+    console.log(`Current state.downloadButton:`, state.downloadButton);
+    
+    // Test waiting for zen-library-button
+    console.log("Testing waitForElement for zen-library-button...");
+    waitForElement('zen-library-button', 3000).then(element => {
+      console.log(`waitForElement result:`, element);
+    });
+    
+    // Test re-finding the button
+    console.log("Re-finding button...");
+    findDownloadButton().then(() => {
+      console.log(`After re-find, state.downloadButton:`, state.downloadButton);
+    }).catch(e => console.error("Error re-finding:", e));
+  };
+
   // Initialize the pile system with proper error handling
   async function init() {
+    if (state.isInitialized) {
+      return;
+    }
+    if (window.__zenStuffPileInitInProgress) {
+      debugLog("init skipped: already in progress (single-flight)");
+      return;
+    }
+    window.__zenStuffPileInitInProgress = true;
+
     debugLog("Initializing dismissed downloads pile system");
-    
+
     try {
       // Check retry limit
       if (state.retryCount >= CONFIG.maxRetryAttempts) {
         console.error('[Dismissed Pile] Max retry attempts reached, initialization failed');
         return;
       }
-    
-    // Wait for the main download script to be available
-    if (!window.zenTidyDownloads) {
+
+      // Wait for the main download script to be available
+      if (!window.zenTidyDownloads) {
         state.retryCount++;
         debugLog(`Main download script not ready, retry ${state.retryCount}/${CONFIG.maxRetryAttempts}`);
         setTimeout(init, CONFIG.retryDelay);
-      return;
-    }
+        return;
+      }
+
+      // Wait for SessionStore to be ready
+      await initSessionStore();
 
       await ErrorHandler.withRetry(async () => {
-      await findDownloadButton();
+        await findDownloadButton();
         await createPileContainer();
-      setupEventListeners();
-      loadExistingDismissedPods();
+        setupEventListeners();
+        loadExistingDismissedPods();
       });
-      
+
       state.isInitialized = true;
       state.retryCount = 0; // Reset retry count on success
       debugLog("Dismissed downloads pile system initialized successfully");
@@ -346,76 +412,446 @@
       ErrorHandler.handleError(error, 'initialization');
       state.retryCount++;
       setTimeout(init, CONFIG.retryDelay);
+    } finally {
+      window.__zenStuffPileInitInProgress = false;
     }
   }
 
-  // Find the Firefox downloads button with better error handling
-  async function findDownloadButton() {
-    const selectors = [
-      '#downloads-button',
-      '[data-l10n-id="downloads-button"]',
-      '#downloads-indicator',
-      '.toolbarbutton-1[command="Tools:Downloads"]'
-    ];
+  // Initialize SessionStore and wait for it to be ready
+  async function initSessionStore() {
+    if (!window.SessionStore) {
+      console.warn("[Dismissed Pile] SessionStore not available, retrying...");
+      await new Promise(resolve => setTimeout(resolve, 200));
+      return initSessionStore();
+    }
 
-    for (const selector of selectors) {
-      try {
-        state.downloadButton = document.querySelector(selector);
-        if (state.downloadButton) {
-        debugLog(`Found download button using selector: ${selector}`);
+    try {
+      if (window.SessionStore.promiseInitialized) {
+        await window.SessionStore.promiseInitialized;
+      }
+      debugLog("[SessionStore] SessionStore initialized and ready");
+    } catch (error) {
+      console.error("[Dismissed Pile] Error initializing SessionStore:", error);
+    }
+  }
+
+  // Save dismissed pod to SessionStore
+  function saveDismissedPodToSession(podData) {
+    try {
+      if (!window.SessionStore) {
+        console.warn("[Dismissed Pile] SessionStore not available for saving");
         return;
+      }
+
+      // Serialize pod data (exclude DOM elements and functions)
+      const serializedData = {
+        key: podData.key,
+        filename: podData.filename,
+        originalFilename: podData.originalFilename,
+        fileSize: podData.fileSize,
+        contentType: podData.contentType,
+        targetPath: podData.targetPath,
+        downloadId: podData.downloadId,
+        sourceUrl: podData.sourceUrl,
+        startTime: podData.startTime,
+        endTime: podData.endTime,
+        dismissTime: podData.dismissTime,
+        wasRenamed: podData.wasRenamed,
+        previewData: podData.previewData,
+        dominantColor: podData.dominantColor
+      };
+
+      SessionStore.setCustomWindowValue(
+        window,
+        `zen-stuff-pod-${podData.key}`,
+        JSON.stringify(serializedData)
+      );
+
+      debugLog(`[SessionStore] Saved pod to session: ${podData.key}`);
+    } catch (error) {
+      console.error("[Dismissed Pile] Error saving pod to SessionStore:", error);
+    }
+  }
+
+  // Remove dismissed pod from SessionStore
+  function removeDismissedPodFromSession(podKey) {
+    try {
+      if (!window.SessionStore) {
+        console.warn("[Dismissed Pile] SessionStore not available for removal");
+        return;
+      }
+
+      SessionStore.deleteCustomWindowValue(window, `zen-stuff-pod-${podKey}`);
+      debugLog(`[SessionStore] Removed pod from session: ${podKey}`);
+    } catch (error) {
+      console.error("[Dismissed Pile] Error removing pod from SessionStore:", error);
+    }
+  }
+
+  // Restore dismissed pods from SessionStore
+  async function restoreDismissedPodsFromSession() {
+    try {
+      if (!window.SessionStore) {
+        console.warn("[Dismissed Pile] SessionStore not available for restoration");
+        return;
+      }
+
+      // Get the list of pod keys from SessionStore
+      const podKeysJson = SessionStore.getCustomWindowValue(window, 'zen-stuff-pod-keys');
+      if (!podKeysJson) {
+        debugLog("[SessionStore] No saved pod keys found");
+        return;
+      }
+
+      // SECURITY FIX: Add error handling for JSON.parse
+      let podKeys;
+      try {
+        podKeys = JSON.parse(podKeysJson);
+      } catch (error) {
+        console.error("[SessionStore] Error parsing pod keys JSON:", error);
+        debugLog("[SessionStore] Invalid pod keys JSON, skipping restoration");
+        return;
+      }
+
+      // Validate podKeys is an array
+      if (!Array.isArray(podKeys)) {
+        console.error("[SessionStore] Pod keys is not an array:", typeof podKeys);
+        debugLog("[SessionStore] Pod keys is not an array, skipping restoration");
+        return;
+      }
+
+      let restoredCount = 0;
+      const restorationPromises = [];
+
+      for (const podKey of podKeys) {
+        const restorationPromise = (async () => {
+          try {
+            const podDataJson = SessionStore.getCustomWindowValue(window, `zen-stuff-pod-${podKey}`);
+            if (podDataJson) {
+              // SECURITY: Comprehensive data validation for SessionStore
+              let podData;
+              try {
+                podData = JSON.parse(podDataJson);
+              } catch (error) {
+                console.error(`[SessionStore] Error parsing pod data JSON for key ${podKey}:`, error);
+                debugLog(`[SessionStore] Invalid pod data JSON for ${podKey}, skipping`);
+                return;
+              }
+
+              // SECURITY: Validate pod data structure and content
+              if (!podData || typeof podData !== 'object') {
+                console.error(`[SessionStore] Invalid pod data type for key ${podKey}:`, typeof podData);
+                debugLog(`[SessionStore] Pod data is not an object for ${podKey}, skipping`);
+                return;
+              }
+
+              // Validate required fields
+              const requiredFields = ['key', 'filename', 'targetPath'];
+              const missingFields = requiredFields.filter(field => !podData[field]);
+              if (missingFields.length > 0) {
+                console.error(`[SessionStore] Missing required fields for ${podKey}:`, missingFields);
+                debugLog(`[SessionStore] Pod data missing required fields: ${missingFields.join(', ')}, skipping`);
+                return;
+              }
+
+              // Validate field types
+              if (typeof podData.key !== 'string' || podData.key.length === 0) {
+                console.error(`[SessionStore] Invalid key field for ${podKey}`);
+                return;
+              }
+              if (typeof podData.filename !== 'string' || podData.filename.length === 0) {
+                console.error(`[SessionStore] Invalid filename field for ${podKey}`);
+                return;
+              }
+              if (typeof podData.targetPath !== 'string' || podData.targetPath.length === 0) {
+                console.error(`[SessionStore] Invalid targetPath field for ${podKey}`);
+                return;
+              }
+
+              // SECURITY: Validate path before using it
+              try {
+                validateFilePathOrThrow(podData.targetPath);
+              } catch (pathError) {
+                console.error(`[SessionStore] Invalid path in stored data for ${podKey}:`, pathError.message);
+                debugLog(`[SessionStore] Path validation failed for ${podKey}, skipping`);
+                return;
+              }
+
+              // Validate numeric fields if present
+              if (podData.fileSize !== undefined && (typeof podData.fileSize !== 'number' || podData.fileSize < 0)) {
+                console.warn(`[SessionStore] Invalid fileSize for ${podKey}, resetting to 0`);
+                podData.fileSize = 0;
+              }
+
+              // Validate previewData structure if present
+              if (podData.previewData !== null && podData.previewData !== undefined) {
+                if (typeof podData.previewData !== 'object') {
+                  console.warn(`[SessionStore] Invalid previewData type for ${podKey}, clearing`);
+                  podData.previewData = null;
+                } else if (podData.previewData.type === 'image' && !podData.previewData.src) {
+                  console.warn(`[SessionStore] Image previewData missing src for ${podKey}, clearing`);
+                  podData.previewData = null;
+                }
+              }
+
+              // Verify the file still exists before restoring
+              let actualPath = podData.targetPath;
+              let exists = await FileSystem.fileExists(actualPath);
+
+              console.log(`[SessionStore] Checking file existence for ${podData.filename}: saved path=${podData.targetPath}, exists=${exists}`);
+
+              // If file doesn't exist at saved path, try to find it with current filename
+              if (!exists && podData.filename) {
+                try {
+                  const parentDir = await FileSystem.getParentDirectory(podData.targetPath);
+                  console.log(`[SessionStore] Parent directory exists: ${parentDir && parentDir.exists()}`);
+
+                  if (parentDir && parentDir.exists()) {
+                    const newFile = parentDir.clone();
+                    newFile.append(podData.filename);
+                    const newPath = newFile.path;
+                    const newExists = newFile.exists();
+
+                    console.log(`[SessionStore] Trying new path: ${newPath}, exists=${newExists}`);
+
+                    if (newExists) {
+                      actualPath = newPath;
+                      exists = true;
+                      podData.targetPath = actualPath; // Update the saved path
+                      console.log(`[SessionStore] Found file with updated path: ${podData.filename} -> ${actualPath}`);
+
+                      // Also save the updated path back to SessionStore
+                      saveDismissedPodToSession(podData);
+                    } else {
+                      console.log(`[SessionStore] File not found with current filename: ${podData.filename}`);
+                    }
+                  }
+                } catch (error) {
+                  console.warn(`[SessionStore] Error checking for file with current filename:`, error);
+                }
+              }
+
+              if (exists) {
+                console.log(`[SessionStore] File exists, checking if image regeneration needed. ContentType: "${podData.contentType}", filename: ${podData.filename}`);
+
+                // Always regenerate image preview for image files to ensure correct path
+                const hasImageContentType = podData.contentType && podData.contentType !== "null" && podData.contentType.startsWith('image/');
+                const hasImageExtension = podData.filename && /\.(jpg|jpeg|png|gif|bmp|webp|svg|ico)$/i.test(podData.filename);
+                const isImage = hasImageContentType || hasImageExtension;
+
+                console.log(`[SessionStore] Image detection - contentType: "${podData.contentType}", hasImageContentType: ${hasImageContentType}, hasImageExtension: ${hasImageExtension}, isImage: ${isImage}`);
+
+                if (isImage) {
+                  console.log(`[SessionStore] Starting image preview regeneration for: ${podData.filename}`);
+                  try {
+                    const file = await FileSystem.createFileInstance(actualPath);
+
+                    // Try multiple approaches to create a working image URL
+                    let fileUrl;
+
+                    // Method 1: Use Services.io.newFileURI (most reliable)
+                    if (Services.io && Services.io.newFileURI) {
+                      try {
+                        fileUrl = Services.io.newFileURI(file).spec;
+                        console.log(`[SessionStore] Created file URL using Services.io: ${fileUrl}`);
+                      } catch (ioError) {
+                        console.warn(`[SessionStore] Services.io.newFileURI failed:`, ioError);
+                      }
+                    }
+
+                    // Method 2: Manual file URL construction (fallback)
+                    if (!fileUrl) {
+                      const path = actualPath.replace(/\\/g, '/');
+                      fileUrl = 'file:///' + (path.startsWith('/') ? path.substring(1) : path);
+                      console.log(`[SessionStore] Created file URL manually: ${fileUrl}`);
+                    }
+
+                    podData.previewData = {
+                      type: 'image',
+                      src: fileUrl
+                    };
+                    console.log(`[SessionStore] Regenerated image preview for: ${podData.filename}, URL: ${fileUrl}`);
+                  } catch (error) {
+                    console.error(`[SessionStore] Error regenerating image preview for ${podData.filename}:`, error);
+                    // Fall back to icon if image preview fails
+                    podData.previewData = null;
+                  }
+                }
+
+                // Don't call addPodToPile as it would save again, just restore the state
+                state.dismissedPods.set(podData.key, podData);
+
+                // Create DOM element
+                const podElement = createPodElement(podData);
+                state.podElements.set(podData.key, podElement);
+                state.pileContainer.appendChild(podElement);
+
+                // Generate position for single column layout
+                generateGridPosition(podData.key);
+                applyGridPosition(podData.key, 0);
+
+                restoredCount++;
+                debugLog(`[SessionStore] Restored pod: ${podData.filename}`);
+              } else {
+                // File no longer exists, remove from session
+                removeDismissedPodFromSession(podKey);
+                debugLog(`[SessionStore] File no longer exists, skipping: ${podData.filename}`);
+              }
+            }
+          } catch (error) {
+            console.error(`[Dismissed Pile] Error restoring pod ${podKey}:`, error);
+          }
+        })();
+
+        restorationPromises.push(restorationPromise);
+      }
+
+      // Wait for all restorations to complete
+      await Promise.all(restorationPromises);
+
+      if (restoredCount > 0) {
+        // Update the pod keys list to remove any that failed to restore
+        updatePodKeysInSession();
+
+        updatePileVisibility();
+        updateDownloadsButtonVisibility();
+
+        // Show pile if in always-show mode
+        if (getAlwaysShowPile() && shouldPileBeVisible()) {
+          setTimeout(() => showPile(), 100);
+        }
+      }
+
+      debugLog(`[SessionStore] Restored ${restoredCount} pods from session`);
+    } catch (error) {
+      console.error("[Dismissed Pile] Error restoring pods from SessionStore:", error);
+    }
+  }
+
+  // Update the list of pod keys in SessionStore
+  function updatePodKeysInSession() {
+    try {
+      if (!window.SessionStore) return;
+
+      const podKeys = Array.from(state.dismissedPods.keys());
+      SessionStore.setCustomWindowValue(
+        window,
+        'zen-stuff-pod-keys',
+        JSON.stringify(podKeys)
+      );
+
+      debugLog(`[SessionStore] Updated pod keys list: ${podKeys.length} pods`);
+    } catch (error) {
+      console.error("[Dismissed Pile] Error updating pod keys in SessionStore:", error);
+    }
+  }
+
+  // Find the Firefox downloads button with better error handling and retry for custom buttons
+  async function findDownloadButton() {
+    try {
+      // Always try zen-library-button first (auto-detect), regardless of preference.
+      // This ensures hover works correctly when zen-library-button replaces the downloads button.
+      console.log(`[Zen Stuff] Auto-detecting download button (trying zen-library-button first)...`);
+      const libraryButton = await waitForElement('zen-library-button', 2000);
+
+      if (libraryButton) {
+        console.log("[Zen Stuff] ✅ Found zen-library-button for hover detection (auto-detected)");
+        debugLog("Found zen-library-button for hover detection (auto-detected)");
+        state.downloadButton = libraryButton;
+        return;
+      }
+      console.log("[Zen Stuff] zen-library-button not found, trying downloads button...");
+      debugLog("zen-library-button not found, falling back to downloads button");
+      
+      // Optimized selector order - most common first
+      const selectors = [
+        '#downloads-button',
+        '#downloads-indicator',
+        '[data-l10n-id="downloads-button"]',
+        '.toolbarbutton-1[command="Tools:Downloads"]'
+      ];
+
+      for (const selector of selectors) {
+        try {
+          state.downloadButton = document.querySelector(selector);
+          if (state.downloadButton) {
+            console.log(`[Zen Stuff] ✅ Found download button using selector: ${selector}`, state.downloadButton);
+            debugLog(`Found download button using selector: ${selector}`);
+            return;
+          }
+        } catch (error) {
+          console.warn(`[DownloadButton] Error with selector ${selector}:`, error);
+        }
+      }
+
+      // Fallback: look for any element with downloads-related attributes
+      try {
+        const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
+        for (const element of fallbackElements) {
+          if (element.getAttribute('command')?.includes('Downloads') ||
+            element.textContent?.toLowerCase().includes('download')) {
+            state.downloadButton = element;
+            debugLog("Found download button using fallback method", element);
+            return;
+          }
         }
       } catch (error) {
-        console.warn(`[DownloadButton] Error with selector ${selector}:`, error);
+        console.warn('[DownloadButton] Error in fallback search:', error);
       }
-    }
 
-    // Fallback: look for any element with downloads-related attributes
-    try {
-    const fallbackElements = document.querySelectorAll('[id*="download"], [class*="download"]');
-    for (const element of fallbackElements) {
-      if (element.getAttribute('command')?.includes('Downloads') || 
-          element.textContent?.toLowerCase().includes('download')) {
-          state.downloadButton = element;
-        debugLog("Found download button using fallback method", element);
-        return;
-      }
-      }
+      throw new Error("Download button not found after all attempts");
     } catch (error) {
-      console.warn('[DownloadButton] Error in fallback search:', error);
+      console.error('[DownloadButton] Error finding download button:', error);
+      throw error;
     }
-
-    throw new Error("Download button not found after all attempts");
   }
 
   // Create the pile container
   async function createPileContainer() {
     if (!state.downloadButton) throw new Error("Download button not available");
 
-    // Check for existing elements
+    // Check for existing elements (sizer and hover bridge are siblings — removing sizer alone orphans the bridge)
     let existingSizer = document.getElementById("zen-dismissed-pile-dynamic-sizer");
     if (existingSizer) {
       debugLog("Found existing dynamic sizer, removing it first");
       existingSizer.remove();
     }
+    let existingBridge = document.getElementById("zen-dismissed-pile-hover-bridge");
+    while (existingBridge) {
+      debugLog("Found existing hover bridge, removing it first");
+      existingBridge.remove();
+      existingBridge = document.getElementById("zen-dismissed-pile-hover-bridge");
+    }
+    state.hoverBridge = null;
 
     // Create the dynamic sizer element
     state.dynamicSizer = document.createElement("div");
     state.dynamicSizer.id = "zen-dismissed-pile-dynamic-sizer";
+
+    // Check if we're in compact mode to determine positioning
+    const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
+    const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
+
+    // Use absolute positioning when integrated into toolbar structure (like media controls)
+    // This allows it to integrate properly with compact mode
+    const positionType = (isCompactMode && !isSidebarExpanded) ? 'absolute' : 'absolute';
+
     state.dynamicSizer.style.cssText = `
-      position: fixed;
+      position: ${positionType};
       overflow: hidden;
       height: 0px;
-      bottom: 30px;
+      bottom: 35px;
       left: 0px;
+      right: 0px;
       background: transparent;
-      mask: linear-gradient(to top, transparent 0%, black 5%, black 80%, transparent 100%);
-      -webkit-mask: linear-gradient(to top, transparent 0%, black 5%, black 85%, transparent 100%);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
       box-sizing: border-box;
       transition: height ${CONFIG.containerAnimationDuration}ms ease, padding-bottom ${CONFIG.containerAnimationDuration}ms ease, padding-left ${CONFIG.containerAnimationDuration}ms ease, background 0.2s ease;
       display: flex;
-      align-items: flex-end;
-      justify-content: flex-start;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-end;
       padding-bottom: 0px;
       padding-left: 0px;
       z-index: 4;
@@ -424,142 +860,105 @@
     state.pileContainer = document.createElement("div");
     state.pileContainer.id = "zen-dismissed-pile-container";
     state.pileContainer.className = "zen-dismissed-pile";
-    
+
     state.pileContainer.style.cssText = `
       position: relative;
       z-index: 1;
+      width: 100%;
+      height: 100%;
+      box-sizing: border-box;
+      padding-left: 5px;
+      padding-right: 5px;
     `;
 
-    // Create floating downloads button
-    const downloadsButton = document.createElement("button");
-    downloadsButton.id = "zen-pile-downloads-button";
-    downloadsButton.innerHTML = "Full list";
-    downloadsButton.title = "Open Firefox Downloads";
-    downloadsButton.style.cssText = `
-      width: 50px;
-      height: 20px;
-      border: none;
-      border-radius: 4px;
-      background: var(--zen-primary-color);
-      color: light-dark(rgb(255,255,255), rgb(0,0,0));
-      font-size: 10px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background 0.2s ease, opacity 0.2s ease;
-      opacity: 0;
-    `;
-
-    // Add hover effect
-    downloadsButton.addEventListener('mouseenter', () => {
-      downloadsButton.style.background = 'color-mix(in srgb, var(--zen-primary-color) 80%, transparent)';
-    });
-    downloadsButton.addEventListener('mouseleave', () => {
-      downloadsButton.style.background = 'var(--zen-primary-color)';
-    });
-
-    // Add click handler to open downloads
-    downloadsButton.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      try {
-        // Try to open the downloads panel
-        if (window.DownloadsPanel) {
-          window.DownloadsPanel.showDownloadsHistory();
-        } else if (window.PlacesCommandHook) {
-          window.PlacesCommandHook.showPlacesOrganizer('Downloads');
-        } else {
-          // Fallback: open downloads page
-          window.openTrustedLinkIn('about:downloads', 'tab');
-        }
-        debugLog("Opened Firefox downloads");
-      } catch (error) {
-        debugLog("Error opening downloads:", error);
-      }
-    });
-
-    // Create clear all downloads button
-    const clearAllButton = document.createElement("button");
-    clearAllButton.id = "zen-pile-clear-all-button";
-    clearAllButton.innerHTML = "Clear all";
-    clearAllButton.title = "Clear all Firefox Downloads";
-    clearAllButton.style.cssText = `
-      width: 50px;
-      height: 20px;
-      border: none;
-      border-radius: 4px;
-      background: light-dark(rgba(220, 53, 69, 1), rgb(223, 90, 104));
-      color: white;
-      font-size: 10px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background 0.2s ease, opacity 0.2s ease;
-      opacity: 0;
-    `;
-
-    // Add hover effect for clear button
-    clearAllButton.addEventListener('mouseenter', () => {
-      clearAllButton.style.background = 'light-dark(rgb(223, 90, 104), rgba(220, 53, 69, 1))';
-    });
-    clearAllButton.addEventListener('mouseleave', () => {
-      clearAllButton.style.background = 'light-dark(rgba(220, 53, 69, 1), rgb(223, 90, 104))';
-    });
-
-    // Add click handler to clear all downloads
-    clearAllButton.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      try {
-        // Confirm with user before clearing
-        if (confirm("Clear all downloads from Firefox history? This action cannot be undone.")) {
-          await clearAllDownloads();
-          debugLog("Cleared all Firefox downloads");
-        }
-      } catch (error) {
-        debugLog("Error clearing downloads:", error);
-      }
-    });
-
-    // Create button container for centering
-    const buttonContainer = document.createElement("div");
-    buttonContainer.id = "zen-pile-button-container";
-    buttonContainer.style.cssText = `
-      position: absolute;
-      top: 5px;
-      left: 0;
-      right: 0;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 5px;
-      z-index: 10;
-      margin-top: 30px;
-      pointer-events: none;
-    `;
-
-    // Enable pointer events for buttons but not container
-    downloadsButton.style.pointerEvents = 'auto';
-    clearAllButton.style.pointerEvents = 'auto';
-
-    // Add buttons to container
-    buttonContainer.appendChild(downloadsButton);
-    buttonContainer.appendChild(clearAllButton);
-
-    // Append button container to dynamicSizer
-    state.dynamicSizer.appendChild(buttonContainer);
+    // Buttons removed - no longer needed
 
     // Append pileContainer to dynamicSizer
     state.dynamicSizer.appendChild(state.pileContainer);
 
+    // Create hover bridge to cover the gap between download button and pile (prevents pile from hiding when cursor is in that zone)
+    state.hoverBridge = document.createElement("div");
+    state.hoverBridge.id = "zen-dismissed-pile-hover-bridge";
+    state.hoverBridge.style.cssText = `
+      position: absolute;
+      bottom: 20px;
+      left: 0;
+      right: 0;
+      height: 28px;
+      z-index: 3;
+      pointer-events: auto;
+      display: none;
+      -moz-window-dragging: no-drag;
+    `;
+
     // Setup hover events for background/buttons
     setupPileBackgroundHoverEvents();
 
-    // Always append to document.body for maximum z-index control
-    document.body.appendChild(state.dynamicSizer);
-    debugLog("Created pile container and dynamic sizer, appended to document.body");
+    // Insert into browser DOM structure after media controls toolbar for better integration
+    // Similar to how notifications attach after the media controls toolbar
+    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+    const zenMainAppWrapper = document.getElementById('zen-main-app-wrapper');
+
+    if (mediaControlsToolbar && mediaControlsToolbar.parentNode) {
+      // Insert bridge first (fills gap below pile), then dynamicSizer
+      const parent = mediaControlsToolbar.parentNode;
+      parent.insertBefore(state.hoverBridge, mediaControlsToolbar.nextSibling);
+      parent.insertBefore(state.dynamicSizer, state.hoverBridge.nextSibling);
+
+      // Ensure parent has position: relative for absolute positioning to work correctly
+      const parentStyle = window.getComputedStyle(parent);
+      if (parentStyle.position === 'static') {
+        parent.style.position = 'relative';
+        debugLog("Set parent container to position: relative for absolute positioning");
+      }
+
+      debugLog("Inserted dismissed pile container after zen-media-controls-toolbar");
+    } else if (zenMainAppWrapper) {
+      // Fallback: insert into zen-main-app-wrapper
+      zenMainAppWrapper.appendChild(state.hoverBridge);
+      zenMainAppWrapper.appendChild(state.dynamicSizer);
+      debugLog("Inserted dismissed pile container into zen-main-app-wrapper (fallback)");
+    } else {
+      // Final fallback: append to document.body
+      document.body.appendChild(state.hoverBridge);
+      document.body.appendChild(state.dynamicSizer);
+      debugLog("Inserted dismissed pile container into document.body (final fallback)");
+    }
+
+    // Set up observer for compact mode changes
+    setupCompactModeObserver();
+
+    // Create style element for controlling workspace-arrowscrollbox::after opacity
+    if (!state.workspaceScrollboxStyle) {
+      state.workspaceScrollboxStyle = document.createElement('style');
+      state.workspaceScrollboxStyle.id = 'zen-stuff-workspace-scrollbox-style';
+      state.workspaceScrollboxStyle.textContent = `
+        arrowscrollbox.workspace-arrowscrollbox::after {
+          opacity: var(--zen-stuff-scrollbox-after-opacity, 1) !important;
+        }
+
+        @property --zen-pile-height {
+          syntax: "<length>";
+          inherits: true;
+          initial-value: -50px;
+        }
+
+        #zen-tabs-wrapper {
+          mask-image: linear-gradient(to top, transparent var(--zen-pile-height), black calc(var(--zen-pile-height) + 50px)) !important;
+          transition: --zen-pile-height 100ms ease !important;
+        }
+
+        #zen-media-controls-toolbar.zen-pile-expanded {
+          mask-image: linear-gradient(to top, transparent 50px, black 150px) !important;
+          -webkit-mask-image: linear-gradient(to top, transparent 50px, black 150px) !important;
+          mask-size: 100% 100%;
+          -webkit-mask-size: 100% 100%;
+          transition: mask-image 80ms ease, -webkit-mask-image 80ms ease;
+        }
+      `;
+      document.head.appendChild(state.workspaceScrollboxStyle);
+      debugLog("Created arrowscrollbox.workspace-arrowscrollbox::after style control");
+    }
   }
 
   // Setup event listeners
@@ -574,14 +973,6 @@
     if (state.downloadButton) {
       state.downloadButton.addEventListener('mouseenter', handleDownloadButtonHover);
       state.downloadButton.addEventListener('mouseleave', handleDownloadButtonLeave);
-    }
-
-    // Also listen for hover on the main download cards container area
-    const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-    if (mainDownloadContainer) {
-      mainDownloadContainer.addEventListener('mouseenter', handleDownloadButtonHover);
-      mainDownloadContainer.addEventListener('mouseleave', handleDownloadButtonLeave);
-      debugLog("Added hover listeners to main download cards container");
     }
 
     // Dynamic sizer hover events (keep container open when cursor is inside)
@@ -619,13 +1010,32 @@
       debugLog("[PileSync] Could not register listener for actual download removals - API not found on main script.");
     }
 
+    // Sticky pod hover: expand pile when user hovers over a sticky pod
+    document.addEventListener('request-pile-expand', () => {
+      if (state.dismissedPods.size > 0) {
+        showPile();
+        showPileBackground();
+        schedulePileLayoutRepair("request-pile-expand", 60);
+      }
+    });
+
     // Context menu click-outside handler
     document.addEventListener('click', (e) => {
-      if (window.zenPileContextMenu && 
-          !window.zenPileContextMenu.contextMenu.contains(e.target)) {
+      if (window.zenPileContextMenu &&
+        !window.zenPileContextMenu.contextMenu.contains(e.target)) {
         hideContextMenu();
       }
     });
+
+    // Periodic cheap repair: mask/sizer can desync after sticky transitions or toolbar reflow
+    if (state.pileLayoutRepairIntervalId) {
+      clearInterval(state.pileLayoutRepairIntervalId);
+    }
+    state.pileLayoutRepairIntervalId = setInterval(() => {
+      if (state.dismissedPods.size > 0) {
+        schedulePileLayoutRepair("interval", 0);
+      }
+    }, 90000);
 
     debugLog("Event listeners setup complete");
   }
@@ -637,7 +1047,10 @@
       addPodToPile(podData, false); // Don't animate existing pods
     });
     debugLog(`Loaded ${existingPods.size} existing dismissed pods`);
-    
+
+    // Restore dismissed pods from SessionStore
+    restoreDismissedPodsFromSession();
+
     // If always-show mode is enabled and we have pods, show the pile
     if (getAlwaysShowPile() && existingPods.size > 0) {
       setTimeout(() => {
@@ -656,8 +1069,8 @@
       return;
     }
 
-    // Limit pile size
-    if (state.dismissedPods.size >= CONFIG.maxPileSize) {
+    // Limit to 4 most recent pods
+    if (state.dismissedPods.size >= 4) {
       const oldestKey = Array.from(state.dismissedPods.keys())[0];
       removePodFromPile(oldestKey);
     }
@@ -665,19 +1078,22 @@
     // Store pod data
     state.dismissedPods.set(podData.key, podData);
 
+    // Save to SessionStore for persistence
+    saveDismissedPodToSession(podData);
+
+    // Update the list of pod keys in SessionStore
+    updatePodKeysInSession();
+
     // Create DOM element
     const podElement = createPodElement(podData);
     state.podElements.set(podData.key, podElement);
     state.pileContainer.appendChild(podElement);
 
-    // Generate pile position
-    generatePilePosition(podData.key);
-
-    // Generate grid position
+    // Generate position for single column layout
     generateGridPosition(podData.key);
 
-    // Apply initial pile position
-    applyPilePosition(podData.key, animate);
+    // Apply position immediately (no messy pile mode)
+    applyGridPosition(podData.key, animate ? 0 : 0);
 
     // Update pile visibility
     updatePileVisibility();
@@ -685,31 +1101,65 @@
     // Update downloads button visibility
     updateDownloadsButtonVisibility();
 
-    // In always-show mode, show the pile immediately when a pod is added
-    if (getAlwaysShowPile() && shouldPileBeVisible()) {
+    // Show the pile immediately when a pod is added
+    if (shouldPileBeVisible()) {
       showPile();
+      // Update text colors after showing pile
+      setTimeout(() => {
+        updatePodTextColors();
+      }, 50);
     }
+
+    schedulePileLayoutRepair("add-pod", 120);
 
     debugLog(`Added pod to pile: ${podData.filename}`);
   }
 
   // Create a DOM element for a dismissed pod
   function createPodElement(podData) {
+    // Create row container that spans full width
+    const row = document.createElement("div");
+    row.className = "dismissed-pod-row";
+    row.dataset.podKey = podData.key;
+    row.title = `${podData.filename}\nClick: Open file\nMiddle-click: Show in file explorer\nRight-click: Context menu`;
+
+    row.style.cssText = `
+      position: absolute;
+      width: 100%;
+      height: 48px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 10px;
+      padding: 0 8px;
+      box-sizing: border-box;
+      cursor: pointer;
+      transition: opacity 0.1s ease, background-color 0.1s ease, transform 0.1s ease;
+      will-change: transform, opacity;
+      left: 0;
+      right: 0;
+      border-radius: 6px;
+    `;
+
+    // Add hover background color
+    row.addEventListener('mouseenter', () => {
+      row.style.backgroundColor = 'rgba(255, 255, 255, 0.08)';
+    });
+
+    row.addEventListener('mouseleave', () => {
+      row.style.backgroundColor = 'transparent';
+    });
+
+    // Create pod thumbnail (left side)
     const pod = document.createElement("div");
     pod.className = "dismissed-pod";
-    pod.dataset.podKey = podData.key;
-    pod.title = `${podData.filename}\nClick: Open file\nMiddle-click: Show in file explorer\nRight-click: Context menu`;
-    
     pod.style.cssText = `
-      position: absolute;
-      width: 45px;
-      height: 45px;
-      border-radius: 8px;
+      width: 36px;
+      height: 36px;
+      min-width: 36px;
+      border-radius: 6px;
       overflow: hidden;
-      cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-      transition: transform ${CONFIG.animationDuration}ms cubic-bezier(0.4, 0, 0.2, 1);
-      will-change: transform;
+      flex-shrink: 0;
     `;
 
     // Create preview content
@@ -721,38 +1171,202 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #2a2a2a;
+      background: transparent; /* Changed from #2a2a2a to transparent */
       color: white;
-      font-size: 20px;
+      font-size: 16px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     `;
 
-    // Set preview content
-    if (podData.previewData) {
-      if (podData.previewData.type === 'image' && podData.previewData.src) {
-        const img = document.createElement("img");
-        img.src = podData.previewData.src;
-        img.style.cssText = `
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        `;
-        img.onerror = () => {
-          preview.innerHTML = getFileIcon(podData.contentType);
-        };
-        preview.appendChild(img);
-      } else if (podData.previewData.html) {
-        preview.innerHTML = podData.previewData.html;
-      } else {
-        preview.innerHTML = getFileIcon(podData.contentType);
+    const isImageFile = (filename, contentType) =>
+      !!(contentType && contentType.startsWith("image/")) ||
+      filenameEndsWithExtensionFromSet(filename, IMAGE_EXTENSIONS);
+
+    const isTextFile = (filename, contentType) =>
+      !!(contentType && contentType.startsWith("text/")) ||
+      filenameEndsWithExtensionFromSet(filename, TEXT_EXTENSIONS);
+
+    const isSystemIconFile = (filename, contentType) => {
+      if (contentType && (contentType.startsWith("video/") || contentType.startsWith("audio/") || contentType.includes("pdf"))) {
+        return true;
       }
-    } else {
-      preview.innerHTML = getFileIcon(podData.contentType);
-    }
+      return filenameEndsWithExtensionFromSet(filename, SYSTEM_ICON_EXTENSIONS);
+    };
+
+    // Set preview content
+    // Priority: Image -> Text -> System Icon -> Generic Icon
+    
+    const renderPreview = async () => {
+        // 1. Image (always show when available - not gated by pref)
+        if (podData.previewData && podData.previewData.type === 'image' && podData.previewData.src) {
+             const img = document.createElement("img");
+            img.src = podData.previewData.src;
+            img.style.cssText = `
+              width: 100%;
+              height: 100%;
+              object-fit: cover;
+            `;
+            img.onload = () => {
+              // Image loaded
+            };
+            img.onerror = (e) => {
+              // Fallback
+              const icon = getFileIcon(podData.contentType);
+              renderIcon(icon);
+            };
+            preview.appendChild(img);
+            return;
+        }
+        
+        // 2. Text File (if path available - disabled by default via pref)
+        if (podData.targetPath && isTextFile(podData.filename, podData.contentType)) {
+             if (zenStuffFilePreviewEnabled) {
+                  const textContent = await readTextFilePreview(podData.targetPath);
+                  if (textContent) {
+                      preview.innerHTML = "";
+                      const textDiv = document.createElement("div");
+                      textDiv.style.cssText = `
+                          width: 100%;
+                          height: 100%;
+                          padding: 4px;
+                          box-sizing: border-box;
+                          font-family: monospace;
+                          font-size: 5px; 
+                          line-height: 1.1;
+                          overflow: hidden;
+                          white-space: pre-wrap;
+                          color: rgba(255,255,255,0.8);
+                          background: rgba(0,0,0,0.2);
+                          text-align: left;
+                          word-break: break-all;
+                      `;
+                      textDiv.textContent = textContent;
+                      preview.appendChild(textDiv);
+                      return;
+                  }
+             }
+             // No preview - use system icon for text files
+             const fileUrl = "file:///" + podData.targetPath.replace(/\\/g, "/");
+             const iconUrl = `moz-icon://${fileUrl}?size=32`;
+             const img = document.createElement("img");
+             img.src = iconUrl;
+             img.style.cssText = `width: 100%; height: 100%; object-fit: cover;`;
+             img.onerror = () => {
+                 const icon = getFileIcon(podData.contentType);
+                 renderIcon(icon);
+             };
+             preview.innerHTML = "";
+             preview.appendChild(img);
+             return;
+        }
+
+        // 3. System Icon (for .exe, video, pdf, etc.)
+        if (podData.targetPath && isSystemIconFile(podData.filename, podData.contentType)) {
+            const fileUrl = "file:///" + podData.targetPath.replace(/\\/g, "/");
+            const iconUrl = `moz-icon://${fileUrl}?size=32`;
+            
+            const img = document.createElement("img");
+            img.src = iconUrl;
+            img.style.cssText = `
+              width: 100%;
+              height: 100%;
+              object-fit: cover; /* Make it fill the container like images */
+            `;
+            
+            // If system icon fails, fallback to generic
+            img.onerror = () => {
+                const icon = getFileIcon(podData.contentType);
+                renderIcon(icon);
+            };
+            
+            preview.innerHTML = "";
+            preview.appendChild(img);
+            return;
+        }
+
+        // 4. Fallback to Generic Icon
+        const icon = getFileIcon(podData.contentType);
+        renderIcon(icon);
+    };
+    
+    const renderIcon = (iconChar) => {
+        const iconSpan = document.createElement("span");
+        iconSpan.style.fontSize = "24px";
+        iconSpan.textContent = iconChar;
+        preview.innerHTML = "";
+        preview.appendChild(iconSpan);
+    };
+
+    renderPreview();
 
     pod.appendChild(preview);
+    row.appendChild(pod);
+
+    // Create text container (right side)
+    const textContainer = document.createElement("div");
+    textContainer.className = "dismissed-pod-text";
+    textContainer.style.cssText = `
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      height: 100%;
+    `;
+
+    // Create filename element (editable inline)
+    const filename = document.createElement("div");
+    filename.className = "dismissed-pod-filename";
+    
+    // Ensure filename matches the actual file on disk if possible, handling OS auto-renaming (e.g., "file(1).jpg")
+    let displayFilename = podData.filename || "Untitled";
+    if (podData.targetPath) {
+      try {
+        // Extract the filename from the full path to ensure it matches the actual file on disk
+        // This catches cases where the OS renamed the file (e.g. adding (1)) but podData.filename was stale
+        const pathSeparator = podData.targetPath.includes('\\') ? '\\' : '/';
+        const actualFilename = podData.targetPath.split(pathSeparator).pop();
+        if (actualFilename && actualFilename !== displayFilename) {
+            displayFilename = actualFilename;
+        }
+      } catch (e) {
+        // Fallback to existing filename if parsing fails
+      }
+    }
+    
+    filename.textContent = displayFilename;
+    filename.style.cssText = `
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--zen-text-color, #e0e0e0);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 2px;
+      cursor: pointer;
+      user-select: text;
+    `;
+    
+    // Store reference to filename element for inline editing via context menu
+    // Inline editing is only triggered from context menu, not double-click
+
+    // Create file size element
+    const fileSize = document.createElement("div");
+    fileSize.className = "dismissed-pod-filesize";
+    const sizeBytes = podData.fileSize || 0;
+    fileSize.textContent = formatBytes(sizeBytes);
+    fileSize.style.cssText = `
+      font-size: 10px;
+      color: var(--zen-text-color-deemphasized, #a0a0a0);
+      white-space: nowrap;
+    `;
+
+    textContainer.appendChild(filename);
+    textContainer.appendChild(fileSize);
+    row.appendChild(textContainer);
 
     // Add click handler for opening in file explorer
-    pod.addEventListener('click', (e) => {
+    row.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       debugLog(`Attempting to open file: ${podData.key}`);
@@ -760,7 +1374,7 @@
     });
 
     // Add middle-click handler for showing in file explorer
-    pod.addEventListener('mousedown', (e) => {
+    row.addEventListener('mousedown', (e) => {
       if (e.button === 1) { // Middle mouse button
         e.preventDefault();
         e.stopPropagation();
@@ -770,8 +1384,9 @@
     });
 
     // Add right-click handler - use native menupopup
-    pod.addEventListener('contextmenu', (e) => {
+    row.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      state.pileContextMenuActive = true;
       ensurePodContextMenu();
       podContextMenuPodData = podData;
       // Open at mouse position
@@ -779,15 +1394,19 @@
         podContextMenu.openPopupAtScreen(e.screenX, e.screenY, true);
       } else {
         // fallback: open at pod
-        podContextMenu.openPopup(pod, 'after_start', 0, 0, true, false, e);
+        podContextMenu.openPopup(row, 'after_start', 0, 0, true, false, e);
       }
     });
 
     // Add drag-and-drop support for dragging to web pages
-    pod.setAttribute('draggable', 'true');
-    pod.addEventListener('dragstart', async (e) => {
+    row.setAttribute('draggable', 'true');
+    row.addEventListener('dragstart', async (e) => {
       // Only allow drag if we have a file path
-      if (!podData.targetPath) return;
+      if (!podData.targetPath) {
+        e.preventDefault();
+        return;
+      }
+      
       // Ensure image (if present) is loaded before allowing drag
       const img = pod.querySelector('img');
       if (img && !img.complete) {
@@ -796,14 +1415,25 @@
         debugLog('[DragDrop] Image not loaded, preventing drag for:', podData.filename);
         return;
       }
+      
       // Try to get the file instance
       try {
         const file = await FileSystem.createFileInstance(podData.targetPath);
-        if (!file.exists()) return;
-        // Set the native file flavor for Firefox
-        if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === 'function') {
-          e.dataTransfer.mozSetDataAt('application/x-moz-file', file, 0);
+        if (!file.exists()) {
+          e.preventDefault();
+          return;
         }
+        
+        // Set the native file flavor for Firefox - use try/catch to handle potential DOMException
+        try {
+          if (e.dataTransfer && typeof e.dataTransfer.mozSetDataAt === 'function') {
+            e.dataTransfer.mozSetDataAt('application/x-moz-file', file, 0);
+          }
+        } catch (mozError) {
+          debugLog('[DragDrop] mozSetDataAt failed, continuing with other formats:', mozError);
+          // Continue with other data formats even if mozSetDataAt fails
+        }
+        
         // Set URI flavors for web pages
         const fileUrl = file && file.path ?
           (file.path.startsWith('\\') ? 'file:' + file.path.replace(/\\/g, '/') : 'file:///' + file.path.replace(/\\/g, '/'))
@@ -812,25 +1442,28 @@
           e.dataTransfer.setData('text/uri-list', fileUrl);
           e.dataTransfer.setData('text/plain', fileUrl);
         }
+        
         // Optionally, set a download URL for HTML5 drop targets
         if (podData.sourceUrl) {
           e.dataTransfer.setData('DownloadURL', `${podData.contentType || 'application/octet-stream'}:${podData.filename}:${podData.sourceUrl}`);
         }
+        
         // Force reflow to ensure the pod is painted
         pod.offsetWidth;
         e.dataTransfer.setDragImage(pod, 22, 22);
       } catch (err) {
         debugLog('[DragDrop] Error during dragstart:', err);
+        e.preventDefault();
       }
     });
 
-    return pod;
+    return row;
   }
 
   // Get file icon based on content type
   function getFileIcon(contentType) {
     if (!contentType) return "📄";
-    
+
     if (contentType.includes("image/")) return "🖼️";
     if (contentType.includes("video/")) return "🎬";
     if (contentType.includes("audio/")) return "🎵";
@@ -838,7 +1471,7 @@
     if (contentType.includes("application/pdf")) return "📕";
     if (contentType.includes("application/zip") || contentType.includes("application/x-rar")) return "🗜️";
     if (contentType.includes("application/")) return "📦";
-    
+
     return "📄";
   }
 
@@ -847,7 +1480,7 @@
     const angle = (Math.random() - 0.5) * CONFIG.pileRotationRange * 2;
     const offsetX = (Math.random() - 0.5) * CONFIG.pileOffsetRange * 2;
     const offsetY = (Math.random() - 0.5) * CONFIG.pileOffsetRange * 2;
-    
+
     // Newer pods should have higher z-index to appear on top
     // Get the order of this pod in the dismissedPods map (newer = higher index)
     const pods = Array.from(state.dismissedPods.keys());
@@ -860,7 +1493,7 @@
       rotation: angle,
       zIndex: zIndex
     });
-    
+
     debugLog(`Generated pile position for ${podKey}:`, {
       index: podIndex,
       zIndex,
@@ -870,55 +1503,31 @@
     });
   }
 
-  // Generate grid position for a pod
+  // Generate position for a pod (single column layout, bottom-up, 4 most recent)
   function generateGridPosition(podKey) {
-    const pods = Array.from(state.dismissedPods.keys());
-    const index = pods.indexOf(podKey);
-    if (index === -1) return;
+    // Get the 4 most recent pods (newest last in the map)
+    const allPods = Array.from(state.dismissedPods.keys());
+    const recentPods = allPods.slice(-4); // Get last 4 pods (most recent)
+    const index = recentPods.indexOf(podKey);
 
-    // Calculate available width for grid
-    const sidebarWidth = parseFloat(state.currentZenSidebarWidthForPile) || 300;
-    const availableWidth = sidebarWidth - (CONFIG.minSidePadding * 2);
-    
-    // Calculate how many pods can fit in a row
-    const podAndSpacingWidth = CONFIG.minPodSize + CONFIG.gridPadding;
-    const maxCols = Math.floor((availableWidth + CONFIG.gridPadding) / podAndSpacingWidth);
-    const cols = Math.max(1, maxCols); // Ensure at least 1 column
-    
-    const maxRows = 2; // Keep maximum 2 rows
-    const col = index % cols;
-    const logicalRow = Math.floor(index / cols);
-    const visualRow = logicalRow % maxRows;
-    
-    // Calculate total grid width
-    const gridWidth = (cols * CONFIG.minPodSize) + ((cols - 1) * CONFIG.gridPadding);
-    
-    // Center the grid by calculating left offset
-    const leftOffset = (sidebarWidth - gridWidth) / 2;
-    
-    let x, y;
-    if (index === 0) {
-      x = leftOffset;
-      y = 0;
-    } else {
-      x = leftOffset + (col * (CONFIG.minPodSize + CONFIG.gridPadding));
-      y = visualRow * -(CONFIG.minPodSize + CONFIG.gridPadding);
+    if (index === -1) {
+      // This pod is not in the 4 most recent, don't position it
+      return;
     }
 
-    state.gridPositions.set(podKey, { x, y, row: logicalRow, col });
-    
-    debugLog(`Dynamic Grid position for ${podKey}:`, {
+    // Single column layout - newest at bottom (row 0), older pods stack upward.
+    // Invert the index: newest (last in recentPods array) gets row 0 (bottom),
+    // oldest (first in recentPods array) gets the highest row.
+    const x = 0;
+    const rowIndex = (recentPods.length - 1) - index; // 0 = bottom (newest)
+
+    state.gridPositions.set(podKey, { x, y: 0, row: rowIndex, col: 0 });
+
+    debugLog(`Single column position (bottom-up) for ${podKey}:`, {
       index,
-      sidebarWidth,
-      availableWidth,
-      maxCols,
-      cols,
-      leftOffset,
-      col,
-      logicalRow,
-      visualRow,
+      rowIndex,
       x,
-      y
+      totalRecent: recentPods.length
     });
   }
 
@@ -929,14 +1538,14 @@
     if (!podElement || !position) return;
 
     const transform = `translate3d(${position.x}px, ${position.y}px, 0) rotate(${position.rotation}deg)`;
-    
+
     if (!animate) {
       podElement.style.transition = 'none';
     }
-    
+
     podElement.style.transform = transform;
     podElement.style.zIndex = position.zIndex;
-    
+
     if (!animate) {
       // Re-enable transitions after position is set
       requestAnimationFrame(() => {
@@ -945,32 +1554,85 @@
     }
   }
 
-  // Apply grid position to a pod
-  function applyGridPosition(podKey, delay = 0) {
+  // Apply position to a pod (simple single column, no rotation)
+  // preserveTransition: when true, don't overwrite transition (caller set transition-delay for stagger)
+  function applyGridPosition(podKey, delay = 0, shouldAnimate = false, preserveTransition = false) {
     const podElement = state.podElements.get(podKey);
     const position = state.gridPositions.get(podKey);
-    if (!podElement || !position) return;
+    if (!podElement || !position) {
+      // If no position, hide the pod (it's not in the 4 most recent)
+      if (podElement) {
+        podElement.style.display = 'none';
+      }
+      return;
+    }
 
-    setTimeout(() => {
-      const transform = `translate3d(${position.x}px, ${position.y}px, 0) rotate(0deg)`;
-      podElement.style.transform = transform;
-      // z-index is now set before animation starts in transitionToGrid()
-    }, delay);
+    const update = () => {
+      // Set transition if animation is needed (skip when caller uses transition-delay for stagger)
+      if (shouldAnimate && !preserveTransition) {
+        podElement.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
+      }
+      // Use bottom positioning for bottom-up layout
+      const rowHeight = 48;
+      const rowSpacing = 6;
+      const baseBottomOffset = 8; // Small base offset for first row
+      const bottomOffset = baseBottomOffset + (position.row * (rowHeight + rowSpacing));
+      
+      podElement.style.bottom = '0px';
+      podElement.style.left = '0';
+      podElement.style.right = '0';
+      podElement.style.top = 'auto';
+      // Use translateY to move up (negative value)
+      podElement.style.transform = `translate3d(0, -${bottomOffset}px, 0)`;
+      podElement.style.display = 'flex'; // Ensure flex layout is maintained
+      podElement.style.zIndex = '1';
+      podElement.style.opacity = '1';
+    };
+
+    if (preserveTransition) {
+      // Caller batches updates in single frame; apply immediately
+      update();
+    } else if (delay > 0) {
+      setTimeout(() => requestAnimationFrame(update), delay);
+    } else {
+      requestAnimationFrame(update);
+    }
   }
 
   // Remove a pod from the pile
   function removePodFromPile(podKey) {
     const podElement = state.podElements.get(podKey);
+    const wasVisible = state.dynamicSizer && state.dynamicSizer.style.height !== '0px';
+    
     if (podElement) {
-      podElement.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
-      podElement.style.opacity = '0';
-      podElement.style.transform += ' scale(0.8)';
+      // Set lower z-index and disable pointer events to prevent overlap during animation
+      podElement.style.zIndex = '0';
+      podElement.style.pointerEvents = 'none';
       
+      // Animate out using transform and opacity only
+      requestAnimationFrame(() => {
+        podElement.style.transition = `opacity ${CONFIG.animationDuration}ms ease, transform ${CONFIG.animationDuration}ms ease`;
+        
+        // Preserve current position but scale down
+        const position = state.gridPositions.get(podKey);
+        if (position) {
+             const rowHeight = 48;
+             const rowSpacing = 6;
+             const baseBottomOffset = 8;
+             const bottomOffset = baseBottomOffset + (position.row * (rowHeight + rowSpacing));
+             podElement.style.transform = `translate3d(0, -${bottomOffset}px, 0) scale(0.8)`;
+        } else {
+             podElement.style.transform = 'scale(0.8)';
+        }
+        
+        podElement.style.opacity = '0';
+      });
+
       setTimeout(() => {
         if (podElement.parentNode) {
           podElement.parentNode.removeChild(podElement);
         }
-      }, 300);
+      }, CONFIG.animationDuration);
     }
 
     state.dismissedPods.delete(podKey);
@@ -978,89 +1640,124 @@
     state.pilePositions.delete(podKey);
     state.gridPositions.delete(podKey);
 
+    // Remove from SessionStore
+    removeDismissedPodFromSession(podKey);
+
+    // Update the list of pod keys in SessionStore
+    updatePodKeysInSession();
+
+    // Clear any pending hide timeout to prevent pile from hiding too quickly after removal
+    if (state.hoverTimeout) {
+      clearTimeout(state.hoverTimeout);
+      state.hoverTimeout = null;
+    }
+
+    // Set flag to prevent pile from hiding immediately after removal
+    state.recentlyRemoved = true;
+
     // Recalculate grid positions for remaining pods
     state.dismissedPods.forEach((_, key) => generateGridPosition(key));
-    
-    // updatePileVisibility will handle sizer height if needed
-    updatePileVisibility(); // This will now call showPile/hidePile which adjust sizer
 
-    // Update downloads button visibility
-    updateDownloadsButtonVisibility();
+    // If pile was visible, animate remaining pods to new positions
+    // Wait for removal animation to fully complete before repositioning to avoid overlap
+    if (wasVisible && state.dismissedPods.size > 0) {
+      // Ensure pile stays visible during and after removal animation
+      showPile();
+      
+      const removalDelay = CONFIG.animationDuration + 50;
+      setTimeout(() => {
+        updatePileVisibility(true); // Pass true to indicate we should animate
+        // Update downloads button visibility
+        updateDownloadsButtonVisibility();
+        
+        // Clear the flag after repositioning animation completes + grace period
+        setTimeout(() => {
+          state.recentlyRemoved = false;
+          debugLog("[RemovePod] Cleared recentlyRemoved flag - pile can now hide normally");
+          
+          // After clearing the flag, check if we should hide the pile
+          // (if user is not hovering and not in always-show mode)
+          if (!getAlwaysShowPile() && !shouldDisableHover()) {
+            const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
+            const isHoveringPile = isHoveringPileArea();
+
+            if (!isHoveringDownloadArea && !isHoveringPile) {
+              // Start the hide timeout
+              clearTimeout(state.hoverTimeout);
+              state.hoverTimeout = setTimeout(() => {
+                hidePile();
+              }, CONFIG.hoverDebounceMs);
+            }
+          }
+        }, removalDelay); // Wait for repositioning animation
+      }, removalDelay); // Wait for full fade-out
+    } else {
+      // updatePileVisibility will handle sizer height if needed
+      updatePileVisibility(); // This will now call showPile/hidePile which adjust sizer
+      // Update downloads button visibility
+      updateDownloadsButtonVisibility();
+      // Clear the flag since pile is now empty
+      state.recentlyRemoved = false;
+    }
   }
 
   // Update pile visibility based on pod count
-  function updatePileVisibility() {
+  function updatePileVisibility(shouldAnimate = false) {
     if (state.dismissedPods.size === 0) {
       // If pile becomes empty, hide it (will set sizer height to 0)
-      if (state.dynamicSizer.style.height !== '0px') { // only if not already hidden
-          hidePile(); 
+      if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
+        hidePile();
       }
     } else {
-      // If pile has items, ensure it's "shown" (height will be set)
-      // showPile() will be called on hover, this just ensures initial state if pods loaded
-      // updatePilePosition(); // This function will be revised/removed
-      
+      // Show only the 4 most recent pods
+      const allPods = Array.from(state.dismissedPods.keys());
+      const recentPods = allPods.slice(-4); // Get last 4 pods (most recent)
+
+      // Regenerate positions for all pods
+      allPods.forEach(podKey => {
+        generateGridPosition(podKey);
+        // If animating (e.g., after removal), animate remaining pods to new positions
+        applyGridPosition(podKey, 0, shouldAnimate);
+      });
+
       // If pile is currently visible, recalculate height dynamically
       if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
         updatePileHeight();
       }
-      
-      // Show only the top few pods in pile mode
-      let visibleCount = 0;
-      const sortedPods = Array.from(state.dismissedPods.keys()).reverse(); // Newest first
-      
-      sortedPods.forEach(podKey => {
-        const podElement = state.podElements.get(podKey);
-        if (!podElement) return;
-        
-        if (visibleCount < CONFIG.pileDisplayCount) {
-          podElement.style.display = 'block';
-          visibleCount++;
-        } else if (!state.isGridMode) {
-          podElement.style.display = 'none';
-        } else {
-          podElement.style.display = 'block'; // Show all in grid mode
-        }
-      });
-      // If it's not already visible (e.g. initial load with pods), and it's supposed to be hovered to show,
-      // this function shouldn't force it open. showPile handles that.
-      // However, if it *is* already open (sizer height > 0) and a pod is added/removed,
-      // we might need to re-evaluate the sizer height if it's dynamic.
-      // For now, showPile/hidePile will manage sizer height.
     }
   }
 
-  // Update pile height dynamically based on current pod count
+  // Update pile height dynamically based on current pod count (max 4)
   function updatePileHeight() {
     if (!state.dynamicSizer || state.dismissedPods.size === 0) return;
-    
-    const cols = 3;
-    const podSize = CONFIG.minPodSize;
-    const spacing = CONFIG.gridPadding;
-    
-    // Calculate dynamic height based on number of rows needed
-    const totalPods = state.dismissedPods.size;
-    const maxPodsToShow = 6; // Show last 6 pods in grid
-    const podsToShow = Math.min(totalPods, maxPodsToShow);
-    const rowsNeeded = Math.ceil(podsToShow / cols); // How many rows we actually need
-    const maxRows = 2; // Maximum rows we support
-    const actualRows = Math.min(rowsNeeded, maxRows);
-    
-    // Calculate height: base height + (rows * pod size) + spacing between rows + extra padding
-    const baseHeight = 80; // Base padding
-    const rowHeight = podSize + spacing;
-    const gridHeight = baseHeight + (actualRows * rowHeight);
-    
+
+    const rowHeight = 48; // Height of each row (pod + text)
+    const rowSpacing = 6; // Spacing between rows
+
+    // Always show max 4 pods
+    const podsToShow = Math.min(state.dismissedPods.size, 4);
+
+    // Calculate height: (rows * row height) + spacing between rows + space below first pod
+    // The baseBottomOffset in positioning creates the space, so we add it to height to accommodate it
+    const baseBottomOffset = 8; // Space under first pod row (matches applyGridPosition)
+    const totalRowHeight = (podsToShow * rowHeight) + ((podsToShow - 1) * rowSpacing);
+    const gridHeight = totalRowHeight + baseBottomOffset;
+
     debugLog("Updating pile height dynamically", {
-      totalPods,
+      totalPods: state.dismissedPods.size,
       podsToShow,
-      rowsNeeded,
-      actualRows,
       oldHeight: state.dynamicSizer.style.height,
       newHeight: `${gridHeight}px`
     });
-    
+
     state.dynamicSizer.style.height = `${gridHeight}px`;
+
+    // Update the mask height variable on document root for #zen-tabs-wrapper mask
+    // Subtract media toolbar height when visible so the mask accounts for its space
+    const mediaToolbar = document.getElementById('zen-media-controls-toolbar');
+    const mediaToolbarHeight = mediaToolbar?.getBoundingClientRect().height ?? 0;
+    const pileMaskHeight = Math.max(0, gridHeight - (mediaToolbarHeight > 0 ? mediaToolbarHeight : 0));
+    document.documentElement.style.setProperty('--zen-pile-height', `${pileMaskHeight}px`);
   }
 
   // Update pile position relative to download button
@@ -1071,7 +1768,7 @@
     debugLog("updatePilePosition called, but largely obsolete now.");
     // If dynamicSizer exists and we need to ensure its width is up-to-date:
     if (typeof updatePileContainerWidth === 'function') {
-        // updatePileContainerWidth(); // Call this if needed, but it's called on showPile
+      // updatePileContainerWidth(); // Call this if needed, but it's called on showPile
     }
   }
 
@@ -1082,15 +1779,15 @@
       shouldDisableHover: shouldDisableHover(),
       alwaysShowMode: getAlwaysShowPile()
     });
-    
+
     if (state.dismissedPods.size === 0) return;
-    
+
     // In always-show mode, don't handle hover events
     if (getAlwaysShowPile()) {
       debugLog("[DownloadHover] Always-show mode enabled - ignoring hover");
       return;
     }
-    
+
     // Check if main download script has active pods and disable hover if so
     if (shouldDisableHover()) {
       debugLog("[HoverDisabled] Pile hover disabled - main download script has active pods");
@@ -1101,38 +1798,49 @@
     state.hoverTimeout = setTimeout(() => {
       debugLog("[DownloadHover] Timeout triggered - calling showPile()");
       showPile();
+      schedulePileLayoutRepair("download-hover", 50);
     }, CONFIG.hoverDebounceMs);
   }
 
   // Download button leave handler
   function handleDownloadButtonLeave() {
     debugLog("[DownloadHover] handleDownloadButtonLeave called");
-    
+
     // In always-show mode, don't handle hover events
     if (getAlwaysShowPile()) {
       debugLog("[DownloadHover] Always-show mode enabled - ignoring leave");
       return;
     }
-    
+
     if (shouldDisableHover()) {
       return; // Don't process leave events if hover is disabled
     }
-    
+
+    if (isContextMenuVisible()) {
+      debugLog("[DownloadHover] Context menu visible - deferring pile close");
+      state.pendingPileClose = true;
+      return;
+    }
+
     clearTimeout(state.hoverTimeout);
     state.hoverTimeout = setTimeout(() => {
-      const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-      const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
-      
+      const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
+
       debugLog("[DownloadHover] Leave timeout - checking hover states", {
         isHoveringDownloadArea,
-        pileContainerHover: state.pileContainer.matches(':hover'),
-        dynamicSizerHover: state.dynamicSizer.matches(':hover')
+        pileContainerHover: state.pileContainer?.matches(':hover'),
+        dynamicSizerHover: state.dynamicSizer?.matches(':hover')
       });
-      
-      // Only hide if cursor is not over download area AND not over pile components
-      if (!isHoveringDownloadArea && !state.pileContainer.matches(':hover') && !state.dynamicSizer.matches(':hover')) {
-        debugLog("[DownloadHover] Calling hidePile()");
-        hidePile();
+
+      // Only hide if cursor is not over download button AND not over pile/bridge
+      if (!isHoveringDownloadArea && !isHoveringPileArea()) {
+        if (isContextMenuVisible()) {
+          debugLog("[DownloadHover] Context menu visible at timeout - deferring pile close");
+          state.pendingPileClose = true;
+        } else {
+          debugLog("[DownloadHover] Calling hidePile()");
+          hidePile();
+        }
       }
     }, CONFIG.hoverDebounceMs);
   }
@@ -1140,60 +1848,58 @@
   // Dynamic sizer hover handler  
   function handleDynamicSizerHover() {
     debugLog("[SizerHover] handleDynamicSizerHover called");
+
     if (getAlwaysShowPile()) return;
+    
     clearTimeout(state.hoverTimeout);
+    
+    // Keep pile visible while hovering over sizer and maintain mask
     if (state.dismissedPods.size > 0) {
-      showPile(); // Ensure pile stays open when hovering the sizer
-      if (state.isGridMode) {
-        showPileBackground();
-      }
+      showPile();
+      showPileBackground();
+      schedulePileLayoutRepair("sizer-hover", 40);
+      debugLog("[SizerHover] Maintaining pile visibility and mask during sizer hover");
     }
   }
 
   // Dynamic sizer leave handler
-  function handleDynamicSizerLeave() {
+  function handleDynamicSizerLeave(event) {
     debugLog("[SizerHover] handleDynamicSizerLeave called");
-    
+
     clearTimeout(state.hoverTimeout);
-    
+
+    // If moving into pile content (e.g. from sizer edge to a row), don't schedule hide
+    if (event?.relatedTarget && state.pileContainer?.contains(event.relatedTarget)) {
+      debugLog("[SizerHover] Moving into pile - not scheduling hide");
+      return;
+    }
+
     // Don't do anything if context menu is visible
     if (isContextMenuVisible()) {
       debugLog("[SizerHover] Context menu visible - deferring pile close");
       state.pendingPileClose = true;
       return;
     }
-    
-    // Always handle grid-to-pile transition when leaving the container
-    // regardless of always-show mode
-    if (state.isGridMode) {
-      setTimeout(() => {
-        // Double-check we're not hovering over pile or sizer and context menu isn't visible
-        if (!state.pileContainer.matches(':hover') && !state.dynamicSizer.matches(':hover') && !isContextMenuVisible()) {
-          debugLog("[SizerHover] Transitioning back to pile mode from grid");
-          transitionToPile();
-        }
-      }, CONFIG.hoverDebounceMs);
-    }
-    
-    // In always-show mode, don't handle pile visibility, just transitions
+
+    // In always-show mode, don't handle pile visibility
     if (getAlwaysShowPile()) {
       debugLog("[SizerHover] Always-show mode - only handling grid transition");
       return;
     }
-    
+
     // Normal mode: handle pile hiding
     state.hoverTimeout = setTimeout(() => {
-      const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-      const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
-      
+      const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
+      const isHoveringPile = isHoveringPileArea();
+
       debugLog("[SizerHover] Leave timeout - checking hover states", {
         isHoveringDownloadArea,
-        pileContainerHover: state.pileContainer.matches(':hover'),
+        pileAreaHover: isHoveringPile,
         contextMenuVisible: isContextMenuVisible()
       });
-      
-      // Only hide if not hovering download area AND not hovering pile container AND context menu not visible
-      if (!isHoveringDownloadArea && !state.pileContainer.matches(':hover')) {
+
+      // Only hide if not hovering download button AND not hovering pile/bridge AND context menu not visible
+      if (!isHoveringDownloadArea && !isHoveringPile) {
         if (isContextMenuVisible()) {
           debugLog("[SizerHover] Context menu visible at timeout - deferring pile close");
           state.pendingPileClose = true;
@@ -1205,76 +1911,52 @@
     }, CONFIG.hoverDebounceMs);
   }
 
-  // Pile hover handler
+  // Pile hover handler (simplified - no mode transitions)
   function handlePileHover() {
-    debugLog("[PileHover] handlePileHover called", {
-      isGridMode: state.isGridMode,
-      alwaysShowMode: getAlwaysShowPile()
-    });
-    
+    debugLog("[PileHover] handlePileHover called");
+
     clearTimeout(state.hoverTimeout);
     
-    // In pile mode, show background immediately when hovering pile (works in both modes)
-    if (!state.isGridMode) {
-      debugLog("[PileHover] In pile mode - showing background immediately");
-      showPileBackground();
-    }
+    // Ensure pile background and mask remain active during hover
+    showPileBackground();
     
-    if (!state.isGridMode) {
-      debugLog("[PileHover] Not in grid mode - transitioning to grid");
-      transitionToGrid();
+    // If pile is visible, ensure it stays visible during hover
+    if (state.dismissedPods.size > 0 && state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
+      schedulePileLayoutRepair("pile-hover", 40);
+      debugLog("[PileHover] Maintaining pile visibility and mask during hover");
     }
   }
 
-  // Pile leave handler
-  function handlePileLeave() {
-    debugLog("[PileHover] handlePileLeave called", {
-      alwaysShowMode: getAlwaysShowPile(),
-      isGridMode: state.isGridMode,
-      contextMenuVisible: isContextMenuVisible()
-    });
-    
+  // Pile leave handler (simplified)
+  function handlePileLeave(event) {
+    debugLog("[PileHover] handlePileLeave called");
+
     clearTimeout(state.hoverTimeout);
-    
+
+    // If moving within pile area (e.g. between rows), don't schedule hide
+    if (event?.relatedTarget && state.dynamicSizer?.contains(event.relatedTarget)) {
+      debugLog("[PileHover] Moving within pile area - not scheduling hide");
+      return;
+    }
+
     // Don't do anything if context menu is visible
     if (isContextMenuVisible()) {
       debugLog("[PileHover] Context menu visible - deferring pile close");
       state.pendingPileClose = true;
       return;
     }
-    
-    // Always handle grid-to-pile transition when leaving the pile
-    if (state.isGridMode) {
-      setTimeout(() => {
-        // Only transition back if we're not hovering over the sizer and context menu isn't visible
-        if (!state.dynamicSizer.matches(':hover') && !isContextMenuVisible()) {
-          debugLog("[PileHover] Transitioning back to pile mode from grid");
-          transitionToPile();
-        }
-      }, CONFIG.hoverDebounceMs);
-    }
-    
-    // In always-show mode, don't hide the pile itself, transitions are handled above
+
+    // In always-show mode, don't hide the pile
     if (getAlwaysShowPile()) {
-      debugLog("[PileHover] Always-show mode - only handling grid transition");
       return;
     }
-    
+
     // Normal mode: handle pile hiding
     state.hoverTimeout = setTimeout(() => {
-      const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-      const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
-      
-      debugLog("[PileHover] Leave timeout - checking hover states", {
-        isHoveringDownloadArea,
-        dynamicSizerHover: state.dynamicSizer.matches(':hover'),
-        contextMenuVisible: isContextMenuVisible()
-      });
-      
-      // Only hide if not hovering download area AND not hovering dynamic sizer AND context menu not visible
-      if (!isHoveringDownloadArea && !state.dynamicSizer.matches(':hover')) {
+      const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
+
+      if (!isHoveringDownloadArea && !isHoveringPileArea()) {
         if (isContextMenuVisible()) {
-          debugLog("[PileHover] Context menu visible at timeout - deferring pile close");
           state.pendingPileClose = true;
         } else {
           debugLog("[PileHover] Calling hidePile()");
@@ -1289,359 +1971,338 @@
     debugLog("[ShowPile] showPile called", {
       dismissedPodsSize: state.dismissedPods.size,
       currentHeight: state.dynamicSizer?.style.height,
-      isGridMode: state.isGridMode,
+      // Removed isGridMode
       alwaysShowMode: getAlwaysShowPile()
     });
-    
+
     if (state.dismissedPods.size === 0 || !state.dynamicSizer) return;
-    
-    // Ensure width is set before calculating positions
-    if (typeof updatePileContainerWidth === 'function') {
-        updatePileContainerWidth();
+
+    // Check if pile is currently visible to prevent double animation
+    const wasVisible = state.dynamicSizer.style.height !== '0px';
+
+    // Check compact mode state - hide pile if sidebar is collapsed (similar to media controls)
+    const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
+    const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
+
+    if (isCompactMode && !isSidebarExpanded) {
+      // In compact mode with collapsed sidebar, hide the pile (like media controls)
+      debugLog("[ShowPile] Compact mode with collapsed sidebar - hiding pile");
+      state.dynamicSizer.style.display = 'none';
+      return;
     }
 
-    // Calculate exact position based on sidebar location
-    const navigatorToolbox = document.getElementById('navigator-toolbox');
-    if (navigatorToolbox) {
-      const rect = navigatorToolbox.getBoundingClientRect();
-      const isRightSide = document.documentElement.getAttribute('zen-right-side') === 'true';
-      
-      if (isRightSide) {
-        // Position on the right side
-        const containerWidth = parseFloat(state.currentZenSidebarWidthForPile) || 300;
-        state.dynamicSizer.style.left = `${rect.right - containerWidth}px`;
-      } else {
-        // Position on the left side
-        state.dynamicSizer.style.left = `${rect.left}px`;
-      }
-      
-      debugLog("Positioned pile based on sidebar location", {
-        sidebarRect: rect,
-        isRightSide,
-        finalLeft: state.dynamicSizer.style.left
+    // Show the pile
+    state.dynamicSizer.style.display = 'flex';
+
+    // Ensure width is set before calculating positions
+    if (typeof updatePileContainerWidth === 'function') {
+      updatePileContainerWidth();
+    }
+
+    // Parent container spans full toolbar width
+    state.dynamicSizer.style.left = '0px';
+    state.dynamicSizer.style.right = '0px';
+    // Remove width when using left/right - it's automatically calculated
+
+    debugLog("Positioned pile for full-width container", {
+      position: state.dynamicSizer.style.position,
+      left: state.dynamicSizer.style.left,
+      right: state.dynamicSizer.style.right
+    });
+
+    // Set pointer-events based on mode and state
+    updatePointerEvents();
+
+    state.dynamicSizer.style.paddingBottom = '0px'; // No padding - space comes from baseBottomOffset
+    state.dynamicSizer.style.paddingLeft = `0px`; // No left padding for full-width rows
+
+    // Calculate dynamic height for 4 most recent pods
+    const totalPods = state.dismissedPods.size;
+    const podsToShow = Math.min(totalPods, 4); // Always max 4 pods
+
+    const rowHeight = 48; // Height of each row (pod + text)
+    const rowSpacing = 6; // Spacing between rows
+
+    // Calculate height: (rows * row height) + spacing between rows + space below first pod
+    // The baseBottomOffset in positioning creates the space, so we add it to height to accommodate it
+    const baseBottomOffset = 8; // Space under first pod row (matches applyGridPosition)
+    const totalRowHeight = (podsToShow * rowHeight) + ((podsToShow - 1) * rowSpacing);
+    const gridHeight = totalRowHeight + baseBottomOffset;
+
+    debugLog("Dynamic height calculation (4 most recent)", {
+      totalPods,
+      podsToShow,
+      calculatedHeight: gridHeight
+    });
+
+    state.dynamicSizer.style.height = `${gridHeight}px`;
+
+    // Show hover bridge to cover gap between download button and pile
+    if (state.hoverBridge) {
+      state.hoverBridge.style.display = 'block';
+    }
+
+    // Update mask height variable for #zen-tabs-wrapper mask
+    // Subtract media toolbar height when visible so the mask accounts for its space
+    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+    const mediaToolbarHeight = mediaControlsToolbar?.getBoundingClientRect().height ?? 0;
+    const pileMaskHeight = Math.max(0, gridHeight - (mediaToolbarHeight > 0 ? mediaToolbarHeight : 0));
+    document.documentElement.style.setProperty('--zen-pile-height', `${pileMaskHeight}px`);
+
+    // Apply mask on media controls toolbar for seamless blend when pile expands
+    if (mediaControlsToolbar) {
+      mediaControlsToolbar.classList.add('zen-pile-expanded');
+    }
+
+    // Set background to ensure backdrop-filter is properly rendered
+    showPileBackground();
+
+    // Mask is applied in hover handlers, not here
+
+    // Hide workspace-arrowscrollbox::after when pile is showing
+    hideWorkspaceScrollboxAfter();
+
+    // Update positions for all pods (show only 4 most recent)
+    const recentPods = Array.from(state.dismissedPods.keys()).slice(-4);
+
+    if (!wasVisible) {
+      // Reset pods to hidden state
+      recentPods.forEach(podKey => {
+        const el = state.podElements.get(podKey);
+        if (el) {
+          el.style.transition = 'none';
+          el.style.opacity = '0';
+          el.style.transform = 'translateY(20px)';
+        }
+      });
+
+      // Force reflow so reset state is applied before we set transitions
+      if (state.dynamicSizer) state.dynamicSizer.offsetHeight;
+
+      // Use CSS transition-delay for stagger (all transitions start same frame, predictable order)
+      // Order: oldest (index 0) first, newest (index 3) last
+      recentPods.forEach((podKey, index) => {
+        const el = state.podElements.get(podKey);
+        if (el) {
+          const delayMs = index * CONFIG.gridAnimationDelay;
+          el.style.transition = `opacity ${CONFIG.animationDuration}ms ease ${delayMs}ms, transform ${CONFIG.animationDuration}ms ease ${delayMs}ms`;
+        }
+      });
+
+      // Batch all position updates in single frame for consistent animation start
+      recentPods.forEach(podKey => generateGridPosition(podKey));
+      requestAnimationFrame(() => {
+        recentPods.forEach(podKey => applyGridPosition(podKey, 0, false, true));
+      });
+    } else {
+      // Already visible: update positions without stagger
+      recentPods.forEach((podKey) => {
+        generateGridPosition(podKey);
+        applyGridPosition(podKey, 0);
       });
     }
 
-    // Calculate smart left padding so the GRID will be centered when it forms
-    const containerWidth = parseFloat(state.currentZenSidebarWidthForPile) || 300;
-    const cols = 3;
-    const podSize = CONFIG.minPodSize;
-    const spacing = CONFIG.gridPadding;
-    
-    // Calculate total grid dimensions
-    const gridWidth = (cols * podSize) + ((cols - 1) * spacing);
-    
-    // Calculate where the grid should be positioned to be centered
-    const gridCenterX = containerWidth / 2;
-    const gridLeftEdge = gridCenterX - (gridWidth / 2);
-    
-    // The first pod (index 0) will be at the bottom-left of the grid
-    // So position the pile so the first pod ends up at the grid's left edge
-    // Divide by 4 to correct for excessive padding
-    
-    // Set pointer-events based on mode and state
-    updatePointerEvents();
-    
-    state.dynamicSizer.style.paddingBottom = '60px';
-    state.dynamicSizer.style.paddingLeft = `5px`;
-    
-    // Calculate dynamic height based on number of rows needed
-    const totalPods = state.dismissedPods.size;
-    const maxPodsToShow = 6; // Show last 6 pods in grid
-    const podsToShow = Math.min(totalPods, maxPodsToShow);
-    const rowsNeeded = Math.ceil(podsToShow / cols); // How many rows we actually need
-    const maxRows = 2; // Maximum rows we support
-    const actualRows = Math.min(rowsNeeded, maxRows);
-    
-    // Calculate height: base height + (rows * pod size) + spacing between rows + extra padding
-    const baseHeight = 80; // Base padding
-    const rowHeight = podSize + spacing;
-    const gridHeight = baseHeight + (actualRows * rowHeight);
-    
-    debugLog("Dynamic height calculation", {
-      totalPods,
-      podsToShow,
-      rowsNeeded,
-      actualRows,
-      podSize,
-      spacing,
-      calculatedHeight: gridHeight
-    });
-    
-    state.dynamicSizer.style.height = `${gridHeight}px`; 
-    
     // Ensure hover events are properly set up for the current mode
     // This is important after the pile was hidden and is being shown again
     setTimeout(() => {
       setupPileBackgroundHoverEvents();
       debugLog("[ShowPile] Hover events re-setup after pile shown");
     }, 50); // Small delay to ensure DOM is updated
-    
-    debugLog("Showing pile positioned for centered grid", {
-      containerWidth,
-      gridWidth,
-      gridCenterX,
-      gridLeftEdge,
-      dynamicHeight: gridHeight,
-      note: "First pod will be at grid's left edge, height adjusts to content"
+
+    // Notify tidy-downloads that the pile is showing so it can remove sticky pods from the pods row
+    document.dispatchEvent(new CustomEvent('pile-shown', { bubbles: true }));
+
+    debugLog("Showing pile with single column layout", {
+      totalPods,
+      podsToShow,
+      dynamicHeight: gridHeight
     });
+
+    schedulePileLayoutRepair("show-pile", 30);
   }
 
   // Hide the pile
   function hidePile() {
     debugLog("[HidePile] hidePile called", {
       currentHeight: state.dynamicSizer?.style.height,
-      isGridMode: state.isGridMode
+      isEditing: state.isEditing,
+      recentlyRemoved: state.recentlyRemoved
     });
-    
+
+    // Don't hide pile if user is editing a filename
+    if (state.isEditing) {
+      debugLog("[HidePile] Pile kept visible - editing in progress");
+      return;
+    }
+
+    // Don't hide pile if a pod was recently removed (give user time to see the result)
+    if (state.recentlyRemoved) {
+      debugLog("[HidePile] Pile kept visible - recent removal in progress");
+      return;
+    }
+
+    // Don't hide while pile row context menu is open (or opening); matches sizer/pile leave behavior
+    if (isContextMenuVisible()) {
+      debugLog("[HidePile] Pile kept visible - context menu active");
+      state.pendingPileClose = true;
+      return;
+    }
+
     if (!state.dynamicSizer) return;
 
     state.dynamicSizer.style.pointerEvents = 'none';
     state.dynamicSizer.style.height = '0px';
+
+    if (state.hoverBridge) {
+      state.hoverBridge.style.display = 'none';
+    }
     state.dynamicSizer.style.paddingBottom = '0px'; // Remove padding when hiding
     state.dynamicSizer.style.paddingLeft = '0px'; // Remove left padding when hiding
-    
+
+    // Don't hide display in compact mode - let the observer handle it
+    // Only hide display if not in compact mode with collapsed sidebar
+    const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
+    const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
+    if (!(isCompactMode && !isSidebarExpanded)) {
+      state.dynamicSizer.style.display = 'flex'; // Keep flex but collapsed
+    }
+
     // Hide background and buttons when hiding pile
     hidePileBackground();
-    
-    if (state.isGridMode) {
-      transitionToPile(); // Transition back to pile state if in grid
-    }
-    
-    debugLog("Hiding dismissed downloads pile by collapsing sizer");
-  }
 
-  // Transition from pile to grid
-  function transitionToGrid() {
-    if (state.isGridMode) return;
-    
-    state.isGridMode = true;
-    debugLog("Transitioning to grid mode");
-    
-    // --- Initialize visibleGridOrder as a carousel ---
-    const allPods = Array.from(state.dismissedPods.keys()).reverse(); // Most recent first
-    state.carouselStartIndex = 0;
-    if (allPods.length <= 6) {
-      state.visibleGridOrder = allPods.slice();
-    } else {
-      state.visibleGridOrder = [];
-      for (let i = 0; i < 6; i++) {
-        state.visibleGridOrder.push(allPods[(state.carouselStartIndex + i) % allPods.length]);
-      }
-    }
-    state.gridScrollIndex = 0;
-    state.isGridAnimating = false;
-    
-    // Show buttons immediately when transitioning to grid mode
-    const buttonContainer = document.getElementById("zen-pile-button-container");
-    const downloadsButton = document.getElementById("zen-pile-downloads-button");
-    const clearAllButton = document.getElementById("zen-pile-clear-all-button");
-    if (downloadsButton) downloadsButton.style.opacity = '1';
-    if (clearAllButton) clearAllButton.style.opacity = '1';
-    if (buttonContainer) buttonContainer.style.pointerEvents = 'auto';
-    if (downloadsButton) downloadsButton.style.pointerEvents = 'auto';
-    if (clearAllButton) clearAllButton.style.pointerEvents = 'auto';
-    
-    // Update hover events for grid mode
-    setupPileBackgroundHoverEvents();
-    
-    // Update pointer events for grid mode
-    updatePointerEvents();
-
-    // --- Mouse wheel event for scrolling grid ---
-    if (state.pileContainer._zenGridScrollHandler) {
-      state.pileContainer.removeEventListener('wheel', state.pileContainer._zenGridScrollHandler);
-      delete state.pileContainer._zenGridScrollHandler;
-    }
-    if (allPods.length >= 6) {
-      state.pileContainer._zenGridScrollHandler = function(e) {
-        if (!state.isGridMode) return;
-        if (state.isGridAnimating) return;
-        e.preventDefault();
-        const allPods = Array.from(state.dismissedPods.keys()).reverse(); // Most recent first
-        if (allPods.length < 6) return;
-        let delta = e.deltaY || e.detail || e.wheelDelta;
-        state.isGridAnimating = true;
-        setTimeout(() => { state.isGridAnimating = false; }, 400);
-        if (allPods.length === 6) {
-          // Simple rotation for exactly 6
-          if (delta < 0) {
-            state.visibleGridOrder.push(state.visibleGridOrder.shift());
-            renderGridWindow('forward');
-          } else if (delta > 0) {
-            state.visibleGridOrder.unshift(state.visibleGridOrder.pop());
-            renderGridWindow('backward');
-          }
-        } else {
-          // Carousel window for more than 6
-          if (delta < 0) {
-            state.carouselStartIndex = (state.carouselStartIndex + 1) % allPods.length;
-          } else if (delta > 0) {
-            state.carouselStartIndex = (state.carouselStartIndex - 1 + allPods.length) % allPods.length;
-          }
-          // Update visibleGridOrder to next 6 pods
-          state.visibleGridOrder = [];
-          for (let i = 0; i < 6; i++) {
-            state.visibleGridOrder.push(allPods[(state.carouselStartIndex + i) % allPods.length]);
-          }
-          renderGridWindow(delta < 0 ? 'forward' : 'backward');
-        }
-      };
-      state.pileContainer.addEventListener('wheel', state.pileContainer._zenGridScrollHandler, { passive: false });
-    }
-
-    renderGridWindow();
-  }
-
-  // --- Helper to render the current grid window ---
-  function renderGridWindow(scrollDir = null) {
-    const allPods = Array.from(state.dismissedPods.keys()).reverse(); // Most recent first
-    const total = allPods.length;
-    if (total === 0) return;
-    // Use visibleGridOrder for carousel
-    if (!state.visibleGridOrder || state.visibleGridOrder.length !== Math.min(6, total)) {
-      if (total <= 6) {
-        state.visibleGridOrder = allPods.slice();
-      } else {
-        state.visibleGridOrder = [];
-        for (let i = 0; i < 6; i++) {
-          state.visibleGridOrder.push(allPods[(state.carouselStartIndex + i) % total]);
-        }
-      }
-    }
-    const gridPods = state.visibleGridOrder;
-    debugLog(`[GridScroll] Carousel order:`, gridPods);
-
-    // Track which pods are entering/leaving for animation
-    if (!state._lastGridPods) state._lastGridPods = [];
-    const lastSet = new Set(state._lastGridPods);
-    const currentSet = new Set(gridPods);
-    const entering = gridPods.filter(k => !lastSet.has(k));
-    const leaving = state._lastGridPods ? state._lastGridPods.filter(k => !currentSet.has(k)) : [];
-
-    // Calculate new grid positions
-    const newPositions = new Map();
-    gridPods.forEach((podKey, index) => {
-      const cols = 3;
-      const maxRows = 2;
-      const col = index % cols;
-      const logicalRow = Math.floor(index / cols);
-      const visualRow = logicalRow % maxRows;
-      const podSize = CONFIG.minPodSize;
-      const spacing = CONFIG.gridPadding;
-      let x, y;
-      if (index === 0) {
-        x = 0;
-        y = 0;
-      } else {
-        x = col * (podSize + spacing);
-        y = -visualRow * (podSize + spacing);
-      }
-      newPositions.set(podKey, { x, y });
-      state.gridPositions.set(podKey, { x, y, row: logicalRow, col });
-    });
-
-    // Animate pods to new positions
-    gridPods.forEach((podKey, idx) => {
-      const podElement = state.podElements.get(podKey);
-      if (!podElement) return;
-      podElement.style.display = 'block';
-      podElement.style.transition = 'transform 0.4s cubic-bezier(0.4,0,0.2,1)';
-      let prev = state._prevGridPositions.get(podKey);
-      let next = newPositions.get(podKey);
-      if (entering.includes(podKey)) {
-        // Animate from top left
-        podElement.style.transform = `translate3d(0px, 0px, 0) rotate(0deg)`;
-        // Force reflow
-        void podElement.offsetWidth;
-        podElement.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) rotate(0deg)`;
-      } else if (prev) {
-        // Animate from previous position
-        podElement.style.transform = `translate3d(${prev.x}px, ${prev.y}px, 0) rotate(0deg)`;
-        // Force reflow
-        void podElement.offsetWidth;
-        podElement.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) rotate(0deg)`;
-      } else {
-        // No previous, just set
-        podElement.style.transform = `translate3d(${next.x}px, ${next.y}px, 0) rotate(0deg)`;
-      }
-    });
-
-    // Hide all non-visible pods in grid mode
+    // Fade out pods when hiding
     state.dismissedPods.forEach((_, podKey) => {
-      if (!gridPods.includes(podKey)) {
-        const podElement = state.podElements.get(podKey);
-        if (podElement) podElement.style.display = 'none';
+      const el = state.podElements.get(podKey);
+      if (el) {
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(20px)';
       }
     });
 
-    // Animate out leaving pods
-    leaving.forEach((podKey) => {
-      const podElement = state.podElements.get(podKey);
-      if (!podElement) return;
-      podElement.style.transition = 'transform 0.4s cubic-bezier(0.4,0,0.2,1), opacity 0.4s cubic-bezier(0.4,0,0.2,1)';
-      // Move out to the right or left depending on scrollDir
-      let prev = state._prevGridPositions.get(podKey);
-      let outX = (scrollDir === 'forward') ? 60 : -60;
-      if (prev) {
-        podElement.style.transform = `translate3d(${prev.x}px, ${prev.y}px, 0) rotate(0deg)`;
-        // Force reflow
-        void podElement.offsetWidth;
-        podElement.style.transform = `translate3d(${prev.x + outX}px, ${prev.y}px, 0) rotate(0deg)`;
-      } else {
-        podElement.style.transform = `translate3d(${outX}px, 0px, 0) rotate(0deg)`;
-      }
-      podElement.style.opacity = '0';
+    // Reset mask height variable to -50px (completely hide mask)
+    document.documentElement.style.setProperty('--zen-pile-height', '-50px');
+
+    // Remove mask from media controls toolbar when pile collapses
+    const mediaControlsToolbar = document.getElementById('zen-media-controls-toolbar');
+    if (mediaControlsToolbar) {
       setTimeout(() => {
-        podElement.style.display = 'none';
-        podElement.style.opacity = '1';
-      }, 400);
-    });
+        mediaControlsToolbar.classList.remove('zen-pile-expanded');
+      }, CONFIG.containerAnimationDuration);
+    }
 
-    // Save new positions for next diff
-    state._prevGridPositions = newPositions;
-    // Save for next diff
-    state._lastGridPods = gridPods;
+    // Restore workspace-arrowscrollbox::after when pile is hidden
+    showWorkspaceScrollboxAfter();
+
+    debugLog("Hiding dismissed downloads pile by collapsing sizer");
+
+    document.dispatchEvent(
+      new CustomEvent("pile-hidden", { bubbles: true, detail: { reason: "collapsed" } })
+    );
   }
 
-  // Transition from grid to pile
-  function transitionToPile() {
-    if (!state.isGridMode) return;
-    state.isGridMode = false;
-    debugLog("Transitioning to pile mode");
-    
-    // Hide buttons when transitioning to pile mode
-    const buttonContainer = document.getElementById("zen-pile-button-container");
-    const downloadsButton = document.getElementById("zen-pile-downloads-button");
-    const clearAllButton = document.getElementById("zen-pile-clear-all-button");
-    if (downloadsButton) downloadsButton.style.opacity = '0';
-    if (clearAllButton) clearAllButton.style.opacity = '0';
-    if (buttonContainer) buttonContainer.style.pointerEvents = 'none';
-    if (downloadsButton) downloadsButton.style.pointerEvents = 'none';
-    if (clearAllButton) clearAllButton.style.pointerEvents = 'none';
-    
-    // Remove wheel event
-    if (state.pileContainer._zenGridScrollHandler) {
-      state.pileContainer.removeEventListener('wheel', state.pileContainer._zenGridScrollHandler);
-      delete state.pileContainer._zenGridScrollHandler;
+  /*
+   * Pile visibility state machine (informal invariants):
+   * - collapsed: dynamicSizer height 0, --zen-pile-height typically -50px, bridge hidden
+   * - expanded:  sizer has row height, mask >= 0 (or 0 when geometry is tiny), pointer-events per always-show
+   * - always_visible: getAlwaysShowPile() && dismissedPods.size > 0 ⇒ should not stay collapsed (except compact+sidebar collapsed)
+   * - pending_close: pendingPileClose until popuphidden / leave timeout resolves
+   * Repair re-syncs mask to sizer and re-applies pointer-events when these drift (e.g. after sticky + pile-shown).
+   */
+
+  /**
+   * @returns {number}
+   */
+  function getPileMaskHeightPx() {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue("--zen-pile-height").trim();
+    const n = parseFloat(raw);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  /**
+   * @returns {number}
+   */
+  function readSizerContentHeightPx() {
+    const h = state.dynamicSizer?.style?.height;
+    if (!h || h === "0px") {
+      return 0;
     }
-    // Update hover events for pile mode
-    setupPileBackgroundHoverEvents();
-    
-    // Update pointer events for pile mode
-    updatePointerEvents();
+    const n = parseFloat(h);
+    return Number.isFinite(n) ? n : 0;
+  }
 
-    // No need to change justify-content - positioning handled by padding
+  /**
+   * Fix desynced mask / sizer / pointer-events. Idempotent; logs when it changes something.
+   * @param {string} source
+   */
+  function enforcePileLayoutInvariants(source = "") {
+    if (!state.dynamicSizer) {
+      return;
+    }
 
-    // Animate pods back to pile positions
-    state.dismissedPods.forEach((_, podKey) => {
-      applyPilePosition(podKey, true);
-    });
+    const podCount = state.dismissedPods.size;
+    const sizerOpen = state.dynamicSizer.style.height !== "0px";
+    const maskH = getPileMaskHeightPx();
+    const sizerH = readSizerContentHeightPx();
 
-    // Hide excess pods after animation
-    setTimeout(() => {
-      updatePileVisibility();
-    }, CONFIG.animationDuration);
+    if (podCount === 0) {
+      if (
+        sizerOpen &&
+        !state.recentlyRemoved &&
+        !state.isEditing &&
+        !isContextMenuVisible()
+      ) {
+        debugLog("[PileRepair] empty pile but sizer open → hidePile", { source });
+        hidePile();
+      }
+      return;
+    }
+
+    const isCompactMode = document.documentElement.getAttribute("zen-compact-mode") === "true";
+    const isSidebarExpanded = document.documentElement.getAttribute("zen-sidebar-expanded") === "true";
+    const compactBlocksPile = isCompactMode && !isSidebarExpanded;
+
+    if (getAlwaysShowPile() && !sizerOpen && !compactBlocksPile) {
+      debugLog("[PileRepair] always-show + pods but sizer collapsed → showPile", { source });
+      showPile();
+      updatePointerEvents();
+      return;
+    }
+
+    if (sizerOpen && !compactBlocksPile) {
+      const maskBadNegative = Number.isFinite(maskH) && maskH < 0;
+      const maskZeroButSizerTall = maskH === 0 && sizerH > 16;
+      if (maskBadNegative || maskZeroButSizerTall) {
+        debugLog("[PileRepair] sizer open but mask out of sync → updatePileHeight", {
+          source,
+          maskH,
+          sizerH
+        });
+        updatePileHeight();
+        updatePointerEvents();
+      }
+    }
+  }
+
+  /**
+   * Coalesce rapid calls; throttle how often we run a full enforce pass.
+   * @param {string} source
+   * @param {number} delayMs
+   */
+  function schedulePileLayoutRepair(source, delayMs = 80) {
+    clearTimeout(state.pileRepairDebounceId);
+    state.pileRepairDebounceId = setTimeout(() => {
+      state.pileRepairDebounceId = null;
+      const now = Date.now();
+      if (now - state.lastPileRepairAt < 350) {
+        return;
+      }
+      state.lastPileRepairAt = now;
+      try {
+        enforcePileLayoutInvariants(source);
+      } catch (e) {
+        debugLog("[PileRepair] enforce error:", e);
+      }
+    }, delayMs);
   }
 
   // Recalculate layout on window resize
@@ -1653,32 +2314,23 @@
       generateGridPosition(podKey);
     });
 
-    // Recalculate fixed position if pile is currently shown
+    // Recalculate position if pile is currently shown - parent container spans full width
     if (state.dynamicSizer && state.dynamicSizer.style.height !== '0px') {
-      const navigatorToolbox = document.getElementById('navigator-toolbox');
-      if (navigatorToolbox) {
-        const rect = navigatorToolbox.getBoundingClientRect();
-        const isRightSide = document.documentElement.getAttribute('zen-right-side') === 'true';
-        
-        if (isRightSide) {
-          const containerWidth = parseFloat(state.currentZenSidebarWidthForPile) || 300;
-          state.dynamicSizer.style.left = `${rect.right - containerWidth}px`;
-        } else {
-          state.dynamicSizer.style.left = `${rect.left}px`;
-        }
-        
-        debugLog("Recalculated pile position on resize", {
-          newLeft: state.dynamicSizer.style.left
-        });
-      }
+      // Parent container spans full toolbar width
+      state.dynamicSizer.style.left = '0px';
+      state.dynamicSizer.style.right = '0px';
+      // Remove width when using left/right - it's automatically calculated
+
+      debugLog("Recalculated pile position on resize - full width container");
     }
 
-    // Apply current mode positions
-    if (state.isGridMode) {
-      state.dismissedPods.forEach((_, podKey) => {
-        applyGridPosition(podKey, 0);
-      });
-    }
+    // Apply positions for all pods (always single column mode now)
+    state.dismissedPods.forEach((_, podKey) => {
+      generateGridPosition(podKey);
+      applyGridPosition(podKey, 0);
+    });
+
+    schedulePileLayoutRepair("resize", 0);
   }
 
   // Utility: Debounce function
@@ -1723,14 +2375,9 @@
       }
     }
 
-    // Update the global variable and set the width (not max-width since we're fixed positioned)
+    // Update the global variable (store raw width, we'll subtract padding when applying)
     state.currentZenSidebarWidthForPile = newWidth;
-    
-    // Subtract 5px to prevent protruding beyond sidebar
-    const numericWidth = parseFloat(newWidth);
-    const adjustedWidth = `${numericWidth + 5}px`;
-    state.dynamicSizer.style.width = adjustedWidth;
-    debugLog('[PileWidthSync] Set dynamicSizer width to:', adjustedWidth, '(original:', newWidth, ')');
+    debugLog('[PileWidthSync] Stored sidebar width:', newWidth);
   }
 
   function initPileSidebarWidthSync() {
@@ -1738,59 +2385,6 @@
     debugLog('[PileWidthSync] initPileSidebarWidthSync called but automatic sync is disabled to prevent feedback loops.');
   }
   // --- End Pile Container Width Synchronization Logic ---
-
-  // Helper function to capture pod data for dismissal
-  function capturePodDataForDismissal(downloadKey) {
-    const cardData = activeDownloadCards.get(downloadKey);
-    if (!cardData || !cardData.download) {
-      debugLog(`[Dismiss] No card data found for capturing: ${downloadKey}`);
-      return null;
-    }
-    
-    const download = cardData.download;
-    const podElement = cardData.podElement;
-    
-    // Capture essential data for pile reconstruction
-    const dismissedData = {
-      key: downloadKey,
-      filename: download.aiName || cardData.originalFilename || getSafeFilename(download),
-      originalFilename: cardData.originalFilename,
-      fileSize: download.currentBytes || download.totalBytes || 0,
-      contentType: download.contentType,
-      targetPath: download.target?.path,
-      sourceUrl: download.source?.url,
-      startTime: download.startTime,
-      endTime: download.endTime,
-      dismissTime: Date.now(),
-      wasRenamed: !!download.aiName,
-      // Capture preview data
-      previewData: null,
-      dominantColor: podElement?.dataset?.dominantColor || null
-    };
-    
-    // Try to capture preview image data
-    if (podElement) {
-      const previewContainer = podElement.querySelector('.card-preview-container');
-      if (previewContainer) {
-        const img = previewContainer.querySelector('img');
-        if (img && img.src) {
-          dismissedData.previewData = {
-            type: 'image',
-            src: img.src
-          };
-        } else {
-          // Capture icon/text preview
-          dismissedData.previewData = {
-            type: 'icon',
-            html: previewContainer.innerHTML
-          };
-        }
-      }
-    }
-    
-    debugLog(`[Dismiss] Captured pod data for pile:`, dismissedData);
-    return dismissedData;
-  }
 
   // Update downloads button visibility - now handled by hover events
   function updateDownloadsButtonVisibility() {
@@ -1800,50 +2394,56 @@
   }
 
   // Function to remove a specific download from Firefox downloads list
-  async function removeDownloadFromFirefoxList(podData) {
+  async function removeDownloadFromFirefoxList(podData, resolvedDownload = null) {
     try {
       debugLog(`[DeleteDownload] Attempting to remove download from Firefox list: ${podData.filename}`);
-      
-      // Get the downloads list
+
+      if (
+        window.zenTidyDownloads &&
+        typeof window.zenTidyDownloads.removeDownloadFromListForPodData === 'function'
+      ) {
+        const ok = await window.zenTidyDownloads.removeDownloadFromListForPodData(
+          podData,
+          resolvedDownload
+        );
+        if (ok) {
+          return true;
+        }
+        debugLog(`[DeleteDownload] API matcher did not remove; falling back to legacy path/URL scan`);
+      }
+
       const list = await window.Downloads.getList(window.Downloads.ALL);
       const downloads = await list.getAll();
-      
-      // Find the download that matches our pod data
+
       let targetDownload = null;
-      
+
       for (const download of downloads) {
-        // Try to match by target path (most reliable)
         if (podData.targetPath && download.target?.path === podData.targetPath) {
           targetDownload = download;
           debugLog(`[DeleteDownload] Found download by target path: ${download.target.path}`);
           break;
         }
-        
-        // Fallback: try to match by source URL and filename
+
         if (podData.sourceUrl && download.source?.url === podData.sourceUrl) {
-          // Additional check for filename if available
-          const downloadFilename = download.target?.path ? 
+          const downloadFilename = download.target?.path ?
             download.target.path.split(/[/\\]/).pop() : null;
-          
-          if (!downloadFilename || downloadFilename === podData.filename || 
-              downloadFilename === podData.originalFilename) {
+
+          if (!downloadFilename || downloadFilename === podData.filename ||
+            downloadFilename === podData.originalFilename) {
             targetDownload = download;
             debugLog(`[DeleteDownload] Found download by source URL: ${download.source.url}`);
             break;
           }
         }
       }
-      
+
       if (targetDownload) {
-        // Remove the download from Firefox's list
         await list.remove(targetDownload);
         debugLog(`[DeleteDownload] Successfully removed download from Firefox list: ${podData.filename}`);
         return true;
-      } else {
-        debugLog(`[DeleteDownload] Download not found in Firefox list: ${podData.filename}`);
-        return false;
       }
-      
+      debugLog(`[DeleteDownload] Download not found in Firefox list: ${podData.filename}`);
+      return false;
     } catch (error) {
       debugLog(`[DeleteDownload] Error removing download from Firefox list:`, error);
       throw error;
@@ -1854,13 +2454,13 @@
   async function clearAllDownloads() {
     try {
       debugLog("[ClearAll] Starting to clear all downloads from Firefox");
-      
+
       // Get the downloads list
       const list = await window.Downloads.getList(window.Downloads.ALL);
       const downloads = await list.getAll();
-      
+
       debugLog(`[ClearAll] Found ${downloads.length} downloads to clear`);
-      
+
       // Remove all downloads from the list
       for (const download of downloads) {
         try {
@@ -1870,14 +2470,14 @@
           debugLog(`[ClearAll] Error removing individual download:`, error);
         }
       }
-      
+
       // Clear the dismissed pile as well since all downloads are gone
       state.dismissedPods.clear();
       updatePileVisibility();
       updateDownloadsButtonVisibility();
-      
+
       debugLog("[ClearAll] Successfully cleared all downloads and pile");
-      
+
     } catch (error) {
       debugLog("[ClearAll] Error clearing downloads:", error);
       throw error;
@@ -1887,17 +2487,18 @@
   // Check if main download script has active pods to disable hover
   function shouldDisableHover() {
     try {
-      // Check for visible download pods within the dedicated container
+      // Check for visible download pods within the dedicated container.
+      // Sticky pods (.zen-tidy-sticky-pod) are already in the pile and should NOT disable hover -
+      // we want the pile to open so the sticky pod can animate out.
       const podsRowContainer = document.getElementById('userchrome-pods-row-container');
       if (podsRowContainer) {
-        // Check if there are any child elements that are download pods
-        const activePods = podsRowContainer.querySelectorAll('.download-pod');
+        const activePods = podsRowContainer.querySelectorAll('.download-pod:not(.zen-tidy-sticky-pod)');
         if (activePods.length > 0) {
-          debugLog(`[HoverCheck] Found ${activePods.length} active pods in #userchrome-pods-row-container - disabling pile hover`);
+          debugLog(`[HoverCheck] Found ${activePods.length} active (non-sticky) pods - disabling pile hover`);
           return true;
         }
       }
-      
+
       return false;
     } catch (error) {
       debugLog(`[HoverCheck] Error checking main script state:`, error);
@@ -1905,31 +2506,216 @@
     }
   }
 
-  // Show pile background and buttons on hover
-  function showPileBackground() {
-    if (!state.dynamicSizer) {
-      return;
+  // Parse RGB/RGBA from CSS color string - returns { r, g, b, a } or null
+  function parseRGB(colorStr) {
+    if (!colorStr || typeof colorStr !== 'string') return null;
+    if (colorStr.startsWith('rgba(')) {
+      const match = colorStr.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/);
+      if (match) {
+        return {
+          r: parseInt(match[1]),
+          g: parseInt(match[2]),
+          b: parseInt(match[3]),
+          a: parseFloat(match[4])
+        };
+      }
+    } else if (colorStr.startsWith('rgb(')) {
+      const match = colorStr.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (match) {
+        return {
+          r: parseInt(match[1]),
+          g: parseInt(match[2]),
+          b: parseInt(match[3]),
+          a: 1
+        };
+      }
     }
-    state.dynamicSizer.style.background = 'color-mix(in srgb, var(--zen-primary-color) 10%, transparent)';
-    const buttonContainer = document.getElementById("zen-pile-button-container");
-    const downloadsButton = document.getElementById("zen-pile-downloads-button");
-    const clearAllButton = document.getElementById("zen-pile-clear-all-button");
-    if (state.isGridMode) {
-      if (downloadsButton) downloadsButton.style.opacity = '1';
-      if (clearAllButton) clearAllButton.style.opacity = '1';
-      if (buttonContainer) buttonContainer.style.pointerEvents = 'auto';
-      if (downloadsButton) downloadsButton.style.pointerEvents = 'auto';
-      if (clearAllButton) clearAllButton.style.pointerEvents = 'auto';
+    return null;
+  }
+
+  // Compute the blended background color that matches Zen's lightening effect
+  function computeBlendedBackgroundColor() {
+    // Check if we're in compact mode - use toolbar background color directly
+    const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
+    const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
+
+    if (isCompactMode && isSidebarExpanded) {
+      // In compact mode with expanded sidebar, use toolbar background color (includes light tint)
+      const navigatorToolbox = document.getElementById('navigator-toolbox');
+      if (navigatorToolbox) {
+        const toolbarBg = window.getComputedStyle(navigatorToolbox).getPropertyValue('--zen-main-browser-background-toolbar').trim();
+        if (toolbarBg) {
+          // Try to get the computed color value
+          const testEl = document.createElement('div');
+          testEl.style.backgroundColor = toolbarBg || 'var(--zen-main-browser-background-toolbar)';
+          testEl.style.position = 'absolute';
+          testEl.style.visibility = 'hidden';
+          document.body.appendChild(testEl);
+          const computedColor = window.getComputedStyle(testEl).backgroundColor;
+          document.body.removeChild(testEl);
+
+          if (computedColor && computedColor !== 'transparent' && computedColor !== 'rgba(0, 0, 0, 0)') {
+            debugLog('[BackgroundColor] Using toolbar background color for compact mode:', computedColor);
+            // Ensure fully opaque - convert rgba to rgb if needed
+            if (computedColor.startsWith('rgba(')) {
+              const match = computedColor.match(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*[\d.]+\)/);
+              if (match) {
+                return `rgb(${match[1]}, ${match[2]}, ${match[3]})`;
+              }
+            }
+            return computedColor;
+          }
+
+          // If computed color isn't available, return the CSS variable
+          return toolbarBg || 'var(--zen-main-browser-background-toolbar)';
+        }
+      }
+    }
+
+    // For non-compact mode or collapsed sidebar, use the blended color calculation
+    // Get base background color
+    const navigatorToolbox = document.getElementById('navigator-toolbox');
+    let baseColor = null;
+    if (navigatorToolbox) {
+      const baseComputed = window.getComputedStyle(navigatorToolbox);
+      const baseResolved = baseComputed.getPropertyValue('--zen-main-browser-background').trim();
+
+      // If it's a gradient, we can't easily blend, so return the variable
+      if (baseResolved.includes('gradient') || baseResolved.includes('linear') || baseResolved.includes('radial')) {
+        return 'var(--zen-main-browser-background)';
+      }
+
+      // Try to get the actual computed color
+      const testEl = document.createElement('div');
+      testEl.style.backgroundColor = 'var(--zen-main-browser-background)';
+      testEl.style.position = 'absolute';
+      testEl.style.visibility = 'hidden';
+      document.body.appendChild(testEl);
+      const computedBase = window.getComputedStyle(testEl).backgroundColor;
+      document.body.removeChild(testEl);
+
+      if (computedBase && computedBase !== 'transparent' && computedBase !== 'rgba(0, 0, 0, 0)') {
+        baseColor = computedBase;
+      }
+    }
+
+    // Get wrapper background color
+    const appWrapper = document.getElementById('zen-main-app-wrapper');
+    let wrapperColor = null;
+    if (appWrapper) {
+      const wrapperComputed = window.getComputedStyle(appWrapper);
+      wrapperColor = wrapperComputed.backgroundColor;
+    }
+
+    // If we don't have both colors, fallback to base
+    if (!baseColor || !wrapperColor || baseColor === 'transparent' || wrapperColor === 'transparent') {
+      return 'var(--zen-main-browser-background)';
+    }
+
+    const baseRGB = parseRGB(baseColor);
+    const wrapperRGB = parseRGB(wrapperColor);
+
+    if (!baseRGB || !wrapperRGB) {
+      return 'var(--zen-main-browser-background)';
+    }
+
+    // Blend the colors to achieve the target: rgb(49, 32, 42)
+    // Formula: blended = base * (1 - ratio) + wrapper * ratio
+    // Solving for ratio to match target rgb(49, 32, 42):
+    // If base is rgb(34, 17, 31) and wrapper is rgb(255, 233, 198):
+    // - R: 34 + (255-34) * ratio = 49 => ratio ≈ 0.068
+    // - G: 17 + (233-17) * ratio = 32 => ratio ≈ 0.069  
+    // - B: 31 + (198-31) * ratio = 42 => ratio ≈ 0.066
+    // Average ratio ≈ 0.067 (about 6.7%)
+    const wrapperRatio = 0.067; // Adjusted to match target rgb(49, 32, 42)
+
+    const blendedR = Math.round(baseRGB.r * (1 - wrapperRatio) + wrapperRGB.r * wrapperRatio);
+    const blendedG = Math.round(baseRGB.g * (1 - wrapperRatio) + wrapperRGB.g * wrapperRatio);
+    const blendedB = Math.round(baseRGB.b * (1 - wrapperRatio) + wrapperRGB.b * wrapperRatio);
+
+    // Always return fully opaque color (no transparency)
+    return `rgb(${blendedR}, ${blendedG}, ${blendedB})`;
+  }
+
+  // Calculate text color based on background color (using Zen's luminance/contrast logic)
+  function calculateTextColorForBackground(backgroundColor) {
+    const parsed = parseRGB(backgroundColor);
+    const bgRGB = parsed ? [parsed.r, parsed.g, parsed.b] : null;
+    if (!bgRGB) {
+      // Fallback to CSS variable if we can't parse
+      return 'var(--zen-text-color, #e0e0e0)';
+    }
+
+    // Calculate relative luminance (from Zen's luminance function)
+    function luminance([r, g, b]) {
+      const a = [r, g, b].map((v) => {
+        v /= 255;
+        return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      });
+      return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+    }
+
+    // Calculate contrast ratio (from Zen's contrastRatio function)
+    function contrastRatio(rgb1, rgb2) {
+      const lum1 = luminance(rgb1);
+      const lum2 = luminance(rgb2);
+      const brightest = Math.max(lum1, lum2);
+      const darkest = Math.min(lum1, lum2);
+      return (brightest + 0.05) / (darkest + 0.05);
+    }
+
+    // Test dark text (black) and light text (white)
+    const darkText = [0, 0, 0];
+    const lightText = [255, 255, 255];
+
+    const darkContrast = contrastRatio(bgRGB, darkText);
+    const lightContrast = contrastRatio(bgRGB, lightText);
+
+    // Use whichever has better contrast
+    // Also consider: if background is very light, use dark text; if very dark, use light text
+    const bgLuminance = luminance(bgRGB);
+    const useDarkText = darkContrast > lightContrast || bgLuminance > 0.5;
+
+    if (useDarkText) {
+      return 'rgba(0, 0, 0, 0.8)'; // Dark text with some transparency
     } else {
-      if (downloadsButton) downloadsButton.style.opacity = '0';
-      if (clearAllButton) clearAllButton.style.opacity = '0';
-      if (buttonContainer) buttonContainer.style.pointerEvents = 'none';
-      if (downloadsButton) downloadsButton.style.pointerEvents = 'none';
-      if (clearAllButton) clearAllButton.style.pointerEvents = 'none';
+      return 'rgba(255, 255, 255, 0.8)'; // Light text with some transparency
     }
   }
 
-  // Hide pile background and buttons when not hovering
+  // Update text colors for all pod rows based on current background
+  function updatePodTextColors() {
+    if (!state.dynamicSizer) {
+      return;
+    }
+
+    const blendedColor = computeBlendedBackgroundColor();
+    const textColor = calculateTextColorForBackground(blendedColor);
+
+    // Update all pod text elements
+    const textElements = state.pileContainer.querySelectorAll('.dismissed-pod-filename, .dismissed-pod-filesize');
+    textElements.forEach(el => {
+      el.style.color = textColor;
+    });
+
+    console.log('[ShowPile] Updated text colors to:', textColor, 'for background:', blendedColor);
+  }
+
+  // applyTabsWrapperMask and removeTabsWrapperMask function removed - logic replaced by CSS mask-image with --zen-pile-height variable
+
+  // Show pile background on hover
+  // dynamicSizer stays transparent in all modes so the mask on #zen-tabs-wrapper reveals the titlebar underneath
+  function showPileBackground() {
+    if (!state.dynamicSizer) return;
+
+    state.dynamicSizer.style.backgroundColor = 'transparent';
+    state.dynamicSizer.style.background = 'transparent';
+    state.dynamicSizer.style.backdropFilter = 'none';
+    state.dynamicSizer.style.webkitBackdropFilter = 'none';
+    updatePodTextColors();
+  }
+
+  // Hide pile background when not hovering
   function hidePileBackground() {
     if (!state.dynamicSizer) {
       return;
@@ -1937,84 +2723,110 @@
     if (state.isTransitioning) {
       return;
     }
-    state.dynamicSizer.style.background = 'transparent';
-    const buttonContainer = document.getElementById("zen-pile-button-container");
-    const downloadsButton = document.getElementById("zen-pile-downloads-button");
-    const clearAllButton = document.getElementById("zen-pile-clear-all-button");
     
-    // In grid mode, keep buttons visible even when not hovering
-    if (state.isGridMode) {
-      if (downloadsButton) downloadsButton.style.opacity = '1';
-      if (clearAllButton) clearAllButton.style.opacity = '1';
-      if (buttonContainer) buttonContainer.style.pointerEvents = 'auto';
-      if (downloadsButton) downloadsButton.style.pointerEvents = 'auto';
-      if (clearAllButton) clearAllButton.style.pointerEvents = 'auto';
-    } else {
-      // In pile mode, hide buttons when not hovering
-      if (downloadsButton) downloadsButton.style.opacity = '0';
-      if (clearAllButton) clearAllButton.style.opacity = '0';
-      if (buttonContainer) buttonContainer.style.pointerEvents = 'none';
-      if (downloadsButton) downloadsButton.style.pointerEvents = 'none';
-      if (clearAllButton) clearAllButton.style.pointerEvents = 'none';
-    }
-  }
-
-  // Setup hover events for background/buttons based on current mode
-  function setupPileBackgroundHoverEvents() {
-    if (!state.dynamicSizer || !state.pileContainer) {
-      // debugLog("[PileHover] setupPileBackgroundHoverEvents: Missing elements", {
-      //   dynamicSizer: !!state.dynamicSizer,
-      //   pileContainer: !!state.pileContainer
-      // });
+    // Don't hide background if pile is currently visible - keep mask persistent
+    const isPileVisible = state.dynamicSizer.style.height !== '0px' && state.dismissedPods.size > 0;
+    if (isPileVisible) {
+      // Keep the background and mask active while pile is visible
+      debugLog("[HidePileBackground] Pile is visible - keeping mask persistent");
       return;
     }
     
-    // debugLog("[PileHover] setupPileBackgroundHoverEvents called", {
-    //   isGridMode: state.isGridMode,
-    //   containerHoverEventsAttached: state.containerHoverEventsAttached,
-    //   pileHoverEventsAttached: state.pileHoverEventsAttached
-    // });
+    // Don't hide background if user is currently hovering over pile area
+    if (state.downloadButton?.matches(':hover') || isHoveringPileArea()) {
+      debugLog("[HidePileBackground] User hovering over pile area - keeping mask active");
+      return;
+    }
     
-    // Set transition flag to prevent hiding during event switching
-    state.isTransitioning = true;
-    
+    // Only hide background when pile is actually hidden and no hover
+    state.dynamicSizer.style.background = 'transparent';
+    state.dynamicSizer.style.backgroundColor = 'transparent';
+    debugLog("[HidePileBackground] Background hidden - pile not visible and no hover");
+  }
+
+  // Hide arrowscrollbox.workspace-arrowscrollbox::after when pile is showing
+  function hideWorkspaceScrollboxAfter() {
+    if (state.workspaceScrollboxStyle) {
+      document.documentElement.style.setProperty('--zen-stuff-scrollbox-after-opacity', '0');
+      debugLog("Hidden arrowscrollbox.workspace-arrowscrollbox::after");
+    }
+  }
+
+  // Show arrowscrollbox.workspace-arrowscrollbox::after when pile is hidden
+  function showWorkspaceScrollboxAfter() {
+    if (state.workspaceScrollboxStyle) {
+      document.documentElement.style.setProperty('--zen-stuff-scrollbox-after-opacity', '1');
+      debugLog("Shown arrowscrollbox.workspace-arrowscrollbox::after");
+    }
+  }
+
+  // Helper: is cursor over pile area (including bridge between button and pile)
+  function isHoveringPileArea() {
+    return state.pileContainer?.matches(':hover') ||
+           state.dynamicSizer?.matches(':hover') ||
+           state.hoverBridge?.matches(':hover');
+  }
+
+  // Hover bridge enter - keeps pile visible when moving from download button to pile
+  function handleHoverBridgeEnter() {
+    debugLog("[HoverBridge] Entered - keeping pile visible");
+    clearTimeout(state.hoverTimeout);
+    if (state.dismissedPods.size > 0) {
+      showPile();
+      showPileBackground();
+    }
+  }
+
+  // Hover bridge leave - same logic as dynamicSizer leave
+  // Use a short delay so pile's mouseenter can fire first when moving bridge→pile (avoids premature hide)
+  function handleHoverBridgeLeave(event) {
+    debugLog("[HoverBridge] Left");
+    if (event?.relatedTarget && (state.pileContainer?.contains(event.relatedTarget) || state.dynamicSizer?.contains(event.relatedTarget))) {
+      debugLog("[HoverBridge] Moving into pile - not scheduling hide");
+      return;
+    }
+    // Delay before delegating so pile's mouseenter has time to fire when moving upward
+    const bridgeLeaveGraceMs = 120;
+    setTimeout(() => {
+      if (isHoveringPileArea() || state.downloadButton?.matches(':hover')) return;
+      handleDynamicSizerLeave(event);
+    }, bridgeLeaveGraceMs);
+  }
+
+  // Setup hover events for background/buttons (simplified - always single column mode)
+  function setupPileBackgroundHoverEvents() {
+    if (!state.dynamicSizer || !state.pileContainer) {
+      return;
+    }
+
     // Remove existing hover events first
     if (state.containerHoverEventsAttached) {
-      state.dynamicSizer.removeEventListener('mouseenter', showPileBackground); // REMOVE THIS
-      state.dynamicSizer.removeEventListener('mouseleave', hidePileBackground); // REMOVE THIS
+      state.dynamicSizer.removeEventListener('mouseenter', handleDynamicSizerHover);
+      state.dynamicSizer.removeEventListener('mouseleave', handleDynamicSizerLeave);
       state.containerHoverEventsAttached = false;
-      // debugLog("[PileHover] Removed container hover events");
     }
-    
+
     if (state.pileHoverEventsAttached) {
-      state.pileContainer.removeEventListener('mouseenter', showPileBackground); // REMOVE THIS
-      state.pileContainer.removeEventListener('mouseleave', hidePileBackground); // REMOVE THIS
+      state.pileContainer.removeEventListener('mouseenter', handlePileHover);
+      state.pileContainer.removeEventListener('mouseleave', handlePileLeave);
       state.pileHoverEventsAttached = false;
-      // debugLog("[PileHover] Removed pile hover events");
     }
-    
-    // Add appropriate hover events based on mode
-    if (state.isGridMode) {
-      // In grid mode: hover over entire container should trigger show/hide pile
-      // The actual showing/hiding of background/buttons is handled by showPile/hidePile
-      state.dynamicSizer.addEventListener('mouseenter', handleDynamicSizerHover); // Changed to handleDynamicSizerHover
-      state.dynamicSizer.addEventListener('mouseleave', handleDynamicSizerLeave); // Changed to handleDynamicSizerLeave
-      state.containerHoverEventsAttached = true;
-      // debugLog("[PileHover] Grid mode: Added hover events to container");
-    } else {
-      // In pile mode: only hover over actual pile should trigger show/hide pile
-      // The actual showing/hiding of background/buttons is handled by showPile/hidePile
-      state.pileContainer.addEventListener('mouseenter', handlePileHover); // Changed to handlePileHover
-      state.pileContainer.addEventListener('mouseleave', handlePileLeave); // Changed to handlePileLeave
-      state.pileHoverEventsAttached = true;
-      // debugLog("[PileHover] Pile mode: Added hover events to pile only");
+
+    if (state.hoverBridge) {
+      state.hoverBridge.removeEventListener('mouseenter', handleHoverBridgeEnter);
+      state.hoverBridge.removeEventListener('mouseleave', handleHoverBridgeLeave);
+      state.hoverBridge.addEventListener('mouseenter', handleHoverBridgeEnter);
+      state.hoverBridge.addEventListener('mouseleave', handleHoverBridgeLeave);
     }
-    
-    // Clear transition flag after a brief delay to allow events to settle
-    setTimeout(() => {
-      state.isTransitioning = false;
-      // debugLog("[PileHover] Transition flag cleared - hover events stable");
-    }, 100);
+
+    // Attach both: dynamicSizer (overall area) and pileContainer (pile rows) so mask stays when hovering rows
+    state.dynamicSizer.addEventListener('mouseenter', handleDynamicSizerHover);
+    state.dynamicSizer.addEventListener('mouseleave', handleDynamicSizerLeave);
+    state.containerHoverEventsAttached = true;
+
+    state.pileContainer.addEventListener('mouseenter', handlePileHover);
+    state.pileContainer.addEventListener('mouseleave', handlePileLeave);
+    state.pileHoverEventsAttached = true;
   }
 
   // Alt key handlers for always-show mode
@@ -2022,7 +2834,7 @@
     if (event.key === 'Alt' && !state.isAltPressed) {
       state.isAltPressed = true;
       debugLog("[AlwaysShow] Alt key pressed");
-      
+
       if (getAlwaysShowPile() && state.dismissedPods.size > 0) {
         // Hide pile when Alt is pressed in always-show mode
         hidePile();
@@ -2034,7 +2846,7 @@
     if (event.key === 'Alt' && state.isAltPressed) {
       state.isAltPressed = false;
       debugLog("[AlwaysShow] Alt key released");
-      
+
       if (getAlwaysShowPile() && state.dismissedPods.size > 0) {
         // Show pile again when Alt is released in always-show mode
         showPile();
@@ -2045,7 +2857,7 @@
   // Check if pile should be visible based on always-show mode and Alt key state
   function shouldPileBeVisible() {
     if (state.dismissedPods.size === 0) return false;
-    
+
     if (getAlwaysShowPile()) {
       // In always-show mode: visible unless Alt is pressed
       return !state.isAltPressed;
@@ -2058,6 +2870,7 @@
   // Get preference values with defaults
   function getAlwaysShowPile() {
     try {
+      // Changed default to false as requested
       return Services.prefs.getBoolPref(PREFS.alwaysShowPile, false);
     } catch (e) {
       debugLog("Error reading always-show-pile preference, using default (false):", e);
@@ -2065,21 +2878,103 @@
     }
   }
 
+  // Get library button preference
+  function getUseLibraryButton() {
+    try {
+      const value = Services.prefs.getBoolPref(PREFS.useLibraryButton, false);
+      console.log(`[Zen Stuff] getUseLibraryButton() returning: ${value}`);
+      console.log(`[Zen Stuff] Preference name: ${PREFS.useLibraryButton}`);
+      
+      // Debug: Check what buttons are available
+      const libraryBtn = document.getElementById('zen-library-button');
+      const downloadsBtn = document.getElementById('downloads-button');
+      console.log(`[Zen Stuff] Available buttons - Library: ${!!libraryBtn}, Downloads: ${!!downloadsBtn}`);
+      
+      return value;
+    } catch (e) {
+      console.log(`[Zen Stuff] Error reading use-library-button preference, using default (false):`, e);
+      debugLog("Error reading use-library-button preference, using default (false):", e);
+      return false;
+    }
+  }
+
+  // Setup compact mode observer to handle visibility changes
+  function setupCompactModeObserver() {
+    const mainWindow = document.getElementById('main-window');
+    const zenMainAppWrapper = document.getElementById('zen-main-app-wrapper');
+    const targetElement = zenMainAppWrapper || document.documentElement;
+
+    if (!targetElement) {
+      debugLog("[CompactModeObserver] Target element not found, cannot set up observer");
+      return;
+    }
+
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes') {
+          const attributeName = mutation.attributeName;
+          if (attributeName === 'zen-compact-mode' || attributeName === 'zen-sidebar-expanded') {
+            debugLog(`[CompactModeObserver] ${attributeName} changed, updating pile visibility`);
+            // Update pile visibility based on compact mode state
+            if (state.dynamicSizer && state.dismissedPods.size > 0) {
+              const isCompactMode = document.documentElement.getAttribute('zen-compact-mode') === 'true';
+              const isSidebarExpanded = document.documentElement.getAttribute('zen-sidebar-expanded') === 'true';
+
+              if (isCompactMode && !isSidebarExpanded) {
+                // Hide pile when sidebar is collapsed in compact mode
+                state.dynamicSizer.style.display = 'none';
+              } else if (shouldPileBeVisible()) {
+                // Show pile if it should be visible
+                showPile();
+              }
+            }
+          }
+        }
+      }
+    });
+
+    observer.observe(targetElement, {
+      attributes: true,
+      attributeFilter: ['zen-compact-mode', 'zen-sidebar-expanded']
+    });
+
+    // Also observe documentElement for zen-sidebar-expanded
+    if (targetElement !== document.documentElement) {
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['zen-sidebar-expanded']
+      });
+    }
+
+    debugLog("[CompactModeObserver] Set up observer for compact mode changes");
+  }
+
   // Setup preference change listener
   function setupPreferenceListener() {
     try {
       const prefObserver = {
-        observe: function(subject, topic, data) {
-          if (topic === 'nsPref:changed' && data === PREFS.alwaysShowPile) {
-            const newValue = getAlwaysShowPile();
-            debugLog(`[Preferences] Always-show-pile preference changed to: ${newValue}`);
-            handleAlwaysShowPileChange(newValue);
+        observe: function (subject, topic, data) {
+          if (topic === 'nsPref:changed') {
+            if (data === PREFS.alwaysShowPile) {
+              const newValue = getAlwaysShowPile();
+              debugLog(`[Preferences] Always-show-pile preference changed to: ${newValue}`);
+              handleAlwaysShowPileChange(newValue);
+            } else if (data === PREFS.useLibraryButton) {
+              const newValue = getUseLibraryButton();
+              console.log(`[Zen Stuff] Use-library-button preference changed to: ${newValue}`);
+              debugLog(`[Preferences] Use-library-button preference changed to: ${newValue}`);
+              // Re-find the download button with new preference (with retry for custom buttons)
+              findDownloadButton().catch(error => {
+                console.error('[Preferences] Error re-finding download button:', error);
+              });
+            }
           }
         }
       };
 
       Services.prefs.addObserver(PREFS.alwaysShowPile, prefObserver, false);
-      debugLog("[Preferences] Added observer for always-show-pile preference");
+      Services.prefs.addObserver(PREFS.useLibraryButton, prefObserver, false);
+      debugLog("[Preferences] Added observers for preferences");
 
       // Store observer for cleanup
       state.prefObserver = prefObserver;
@@ -2091,7 +2986,7 @@
   // Handle preference change
   function handleAlwaysShowPileChange(newValue) {
     debugLog(`[Preferences] Handling always-show-pile change to: ${newValue}`);
-    
+
     if (state.dismissedPods.size === 0) {
       debugLog("[Preferences] No dismissed pods, nothing to do");
       return;
@@ -2113,24 +3008,11 @@
     }
   }
 
-  // Update pointer-events based on current state and mode
+  // Update pointer-events based on current state
   function updatePointerEvents() {
     if (!state.dynamicSizer || !state.pileContainer) return;
     const alwaysShow = getAlwaysShowPile();
-    const isPileVisible = state.dynamicSizer.style.height !== '0px';
-    const buttonContainer = document.getElementById("zen-pile-button-container");
-    const downloadsButton = document.getElementById("zen-pile-downloads-button");
-    const clearAllButton = document.getElementById("zen-pile-clear-all-button");
-    if (state.isGridMode && isPileVisible) {
-      if (buttonContainer) buttonContainer.style.pointerEvents = 'auto';
-      if (downloadsButton) downloadsButton.style.pointerEvents = 'auto';
-      if (clearAllButton) clearAllButton.style.pointerEvents = 'auto';
-    } else {
-      if (buttonContainer) buttonContainer.style.pointerEvents = 'none';
-      if (downloadsButton) downloadsButton.style.pointerEvents = 'none';
-      if (clearAllButton) clearAllButton.style.pointerEvents = 'none';
-    }
-    if (alwaysShow && !state.isGridMode) {
+    if (alwaysShow) {
       state.dynamicSizer.style.pointerEvents = 'none';
       state.pileContainer.style.pointerEvents = 'auto';
     } else {
@@ -2144,8 +3026,10 @@
     <menupopup id="zen-pile-pod-context-menu">
       <menuitem id="zenPilePodOpen" label="Open"/>
       <menuitem id="zenPilePodRename" label="Rename"/>
-      <menuitem id="zenPilePodRemove" label="Remove from Stuff"/>
       <menuitem id="zenPilePodCopy" label="Copy to Clipboard"/>
+      <menuseparator/>
+      <menuitem id="zenPilePodRemove" label="Remove from Stuff"/>
+      <menuitem id="zenPilePodDelete" label="Delete"/>
     </menupopup>
   `);
   let podContextMenu = null;
@@ -2160,19 +3044,32 @@
       podContextMenu.querySelector("#zenPilePodOpen").addEventListener("command", () => {
         if (podContextMenuPodData) openPodFile(podContextMenuPodData);
       });
-      // Rename
+      // Rename (trigger inline editing)
       podContextMenu.querySelector("#zenPilePodRename").addEventListener("command", () => {
-        if (podContextMenuPodData) showRenameDialog(podContextMenuPodData);
+        if (podContextMenuPodData) {
+          startInlineRename(podContextMenuPodData);
+        }
       });
       // Remove from Stuff
       podContextMenu.querySelector("#zenPilePodRemove").addEventListener("command", async () => {
         if (podContextMenuPodData) {
+          // Ask for confirmation (use Services.prompt with window so it works from context menu)
+          const confirmed = Services.prompt.confirm(
+            window,
+            'Remove from Stuff',
+            `Are you sure you want to remove "${podContextMenuPodData.filename}" from Stuff?\n\nThis will remove it from the pile but won't delete the file.`
+          );
+          if (!confirmed) {
+            return; // User cancelled
+          }
+          
           try {
             window.zenTidyDownloads.permanentDelete(podContextMenuPodData.key);
             removePodFromPile(podContextMenuPodData.key);
             // --- Update carousel/grid after removal ---
             const allPods = Array.from(state.dismissedPods.keys()).reverse(); // Most recent first
-            if (allPods.length < 6) {
+            const MAX_PODS_TO_SHOW = 10;
+            if (allPods.length < MAX_PODS_TO_SHOW) {
               state.carouselStartIndex = 0;
               state.visibleGridOrder = allPods.slice();
             } else {
@@ -2181,11 +3078,18 @@
                 state.carouselStartIndex = 0;
               }
               state.visibleGridOrder = [];
-              for (let i = 0; i < 6; i++) {
-                state.visibleGridOrder.push(allPods[(state.carouselStartIndex + i) % allPods.length]);
+              for (let i = 0; i < MAX_PODS_TO_SHOW; i++) {
+                const podIndex = state.carouselStartIndex + i;
+                if (podIndex < allPods.length) {
+                  state.visibleGridOrder.push(allPods[podIndex]);
+                }
               }
             }
-            renderGridWindow();
+            // Update positions for all pods
+            state.dismissedPods.forEach((_, podKey) => {
+              generateGridPosition(podKey);
+              applyGridPosition(podKey, 0);
+            });
             // Immediately hide all non-visible pods after removal
             state.dismissedPods.forEach((_, podKey) => {
               if (!state.visibleGridOrder.includes(podKey)) {
@@ -2201,15 +3105,14 @@
 
       // Add the popuphidden event listener here, after podContextMenu is created
       podContextMenu.addEventListener("popuphidden", () => {
+        state.pileContextMenuActive = false;
         setTimeout(() => {
-          const isHoveringPile = state.pileContainer?.matches(':hover');
-          const isHoveringSizer = state.dynamicSizer?.matches(':hover');
-          const mainDownloadContainer = document.getElementById('userchrome-download-cards-container');
-          const isHoveringDownloadArea = state.downloadButton?.matches(':hover') || mainDownloadContainer?.matches(':hover');
-          if (!isHoveringPile && !isHoveringSizer && !isHoveringDownloadArea) {
-            if (state.isGridMode) {
-              transitionToPile();
-            }
+          const isHoveringPile = isHoveringPileArea();
+          const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
+          const isPileVisible = state.dynamicSizer && state.dynamicSizer.style.height !== '0px';
+
+          if (!isHoveringPile && !isHoveringDownloadArea) {
+            // No mode transitions needed
             if (!getAlwaysShowPile()) {
               // --- handle pending pile close ---
               if (state.pendingPileClose) {
@@ -2224,6 +3127,7 @@
             // If still hovering, just clear the flag
             state.pendingPileClose = false;
           }
+          schedulePileLayoutRepair("contextmenu-popuphidden", 150);
         }, 100);
       });
 
@@ -2237,47 +3141,72 @@
           }
         }
       });
+
+      // Delete File
+      podContextMenu.querySelector("#zenPilePodDelete").addEventListener("command", async () => {
+        if (podContextMenuPodData) {
+          try {
+            await deletePodFile(podContextMenuPodData);
+          } catch (err) {
+            showUserNotification(`Error deleting file: ${err.message}`);
+          }
+        }
+      });
     }
   }
 
   // Cleanup function to prevent memory leaks
   function cleanup() {
     debugLog("Cleaning up dismissed downloads pile system");
-    
+
     try {
       // Clear all timeouts
       if (state.hoverTimeout) {
         clearTimeout(state.hoverTimeout);
         state.hoverTimeout = null;
       }
-      
+      if (state.pileRepairDebounceId) {
+        clearTimeout(state.pileRepairDebounceId);
+        state.pileRepairDebounceId = null;
+      }
+      if (state.pileLayoutRepairIntervalId) {
+        clearInterval(state.pileLayoutRepairIntervalId);
+        state.pileLayoutRepairIntervalId = null;
+      }
+
       // Remove all event listeners
       EventManager.cleanupAll();
-      
+
       // Remove preference observer
       if (state.prefObserver) {
         try {
           Services.prefs.removeObserver(PREFS.alwaysShowPile, state.prefObserver);
+          Services.prefs.removeObserver(PREFS.useLibraryButton, state.prefObserver);
         } catch (error) {
-          console.warn('[Cleanup] Error removing preference observer:', error);
+          console.warn('[Cleanup] Error removing preference observers:', error);
         }
         state.prefObserver = null;
       }
-      
-      // Remove DOM elements
+
+      // Remove DOM elements (bridge is not inside dynamicSizer — remove both)
+      if (state.hoverBridge && state.hoverBridge.parentNode) {
+        state.hoverBridge.parentNode.removeChild(state.hoverBridge);
+      }
+      state.hoverBridge = null;
       if (state.dynamicSizer && state.dynamicSizer.parentNode) {
         state.dynamicSizer.parentNode.removeChild(state.dynamicSizer);
       }
-      
+      state.dynamicSizer = null;
+
       // Clear all state
       state.clearAll();
       state.isInitialized = false;
-      
+
       // Remove global references
       if (window.zenPileContextMenu) {
         window.zenPileContextMenu = null;
       }
-      
+
       debugLog("Cleanup completed successfully");
     } catch (error) {
       ErrorHandler.handleError(error, 'cleanup');
@@ -2287,14 +3216,14 @@
   // Enhanced file operations with proper error handling
   async function openPodFile(podData) {
     debugLog(`Attempting to open file: ${podData.key}`);
-    
+
     try {
-      ErrorHandler.validatePodData(podData);
-      
+      validatePodData(podData);
+
       if (!podData.targetPath) {
         throw new Error('No file path available');
       }
-      
+
       const fileExists = await FileSystem.fileExists(podData.targetPath);
       if (fileExists) {
         const file = await FileSystem.createFileInstance(podData.targetPath);
@@ -2319,53 +3248,53 @@
   // Enhanced file explorer function
   async function showPodFileInExplorer(podData) {
     debugLog(`Attempting to show file in file explorer: ${podData.key}`);
-    
+
     try {
-      ErrorHandler.validatePodData(podData);
-      
+      validatePodData(podData);
+
       if (!podData.targetPath) {
         throw new Error('No file path available');
       }
-      
+
       const fileExists = await FileSystem.fileExists(podData.targetPath);
       if (fileExists) {
         const file = await FileSystem.createFileInstance(podData.targetPath);
-        
-          try {
-            // Try to reveal the file in the file manager
-            file.reveal();
-            debugLog(`Successfully showed file in explorer: ${podData.filename}`);
-          } catch (revealError) {
-            // If reveal() doesn't work, fall back to opening the containing folder
-            debugLog(`Reveal failed, trying to open containing folder: ${revealError}`);
+
+        try {
+          // Try to reveal the file in the file manager
+          file.reveal();
+          debugLog(`Successfully showed file in explorer: ${podData.filename}`);
+        } catch (revealError) {
+          // If reveal() doesn't work, fall back to opening the containing folder
+          debugLog(`Reveal failed, trying to open containing folder: ${revealError}`);
           const parentDir = await FileSystem.getParentDirectory(podData.targetPath);
-            if (parentDir && parentDir.exists()) {
-              parentDir.launch();
-              debugLog(`Opened containing folder: ${podData.filename}`);
-            } else {
-            throw new Error('Containing folder not found');
-            }
-          }
-        } else {
-          // File doesn't exist, try to open the containing folder
-        const parentDir = await FileSystem.getParentDirectory(podData.targetPath);
           if (parentDir && parentDir.exists()) {
             parentDir.launch();
-            debugLog(`File not found, opened containing folder: ${podData.filename}`);
+            debugLog(`Opened containing folder: ${podData.filename}`);
           } else {
-          throw new Error('File and folder not found');
+            throw new Error('Containing folder not found');
           }
         }
-      } catch (error) {
-      ErrorHandler.handleError(error, 'showPodFileInExplorer');
-        debugLog(`Error showing file in explorer: ${podData.filename}`, error);
+      } else {
+        // File doesn't exist, try to open the containing folder
+        const parentDir = await FileSystem.getParentDirectory(podData.targetPath);
+        if (parentDir && parentDir.exists()) {
+          parentDir.launch();
+          debugLog(`File not found, opened containing folder: ${podData.filename}`);
+        } else {
+          throw new Error('File and folder not found');
+        }
       }
+    } catch (error) {
+      ErrorHandler.handleError(error, 'showPodFileInExplorer');
+      debugLog(`Error showing file in explorer: ${podData.filename}`, error);
+    }
   }
 
   // Initialize when DOM is ready
   if (document.readyState === "complete") {
     init();
-    } else {
+  } else {
     window.addEventListener("load", init, { once: true });
   }
 
@@ -2374,188 +3303,124 @@
 
   debugLog("Dismissed downloads pile script loaded");
 
-  // --- Global rename dialog for pods ---
-  function showRenameDialog(podData) {
-    debugLog(`[Rename] Showing rename dialog for: ${podData.filename}`);
-    // Remove any existing rename dialog
-    const existingDialog = document.getElementById('zen-pile-rename-dialog');
-    if (existingDialog) {
-      existingDialog.remove();
+
+  // --- Start inline rename editing ---
+  function startInlineRename(podData) {
+    const podElement = state.getPodElement(podData.key);
+    if (!podElement) {
+      debugLog(`[Rename] Cannot start inline rename - pod element not found: ${podData.key}`);
+      return;
     }
-    // Create dialog overlay
-    const overlay = document.createElement('div');
-    overlay.id = 'zen-pile-rename-dialog';
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10001;
-      backdrop-filter: blur(2px);
-    `;
-    // Create dialog box
-    const dialog = document.createElement('div');
-    dialog.style.cssText = `
-      background: var(--zen-primary-color);
-      border: 1px solid var(--panel-border-color);
-      border-radius: 8px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-      padding: 20px;
-      width: 400px;
-      max-width: 90vw;
-      color: inherit;
-    `;
-    // Create title
-    const title = document.createElement('h3');
-    title.textContent = 'Rename File';
-    title.style.cssText = `
-      margin: 0 0 15px 0;
-      font-size: 16px;
-      font-weight: 600;
-    `;
-    // Create current filename display
-    const currentName = document.createElement('div');
-    currentName.textContent = `Current: ${podData.filename}`;
-    currentName.style.cssText = `
-      margin-bottom: 10px;
-      font-size: 13px;
-      color: var(--text-color-deemphasized);
-      word-break: break-all;
-    `;
-    // Create input field
+    
+    const filenameElement = podElement.querySelector('.dismissed-pod-filename');
+    if (!filenameElement) {
+      debugLog(`[Rename] Cannot start inline rename - filename element not found`);
+      return;
+    }
+    
+    // Check if already editing
+    if (state.isEditing) {
+      debugLog(`[Rename] Already editing a filename`);
+      return;
+    }
+    
+    state.isEditing = true; // Prevent pile from hiding during editing
+    
+    // Ensure pile is visible during editing
+    if (state.dynamicSizer && state.dismissedPods.size > 0) {
+      showPile();
+    }
+    
+    const originalText = filenameElement.textContent;
     const input = document.createElement('input');
     input.type = 'text';
-    input.value = podData.filename;
+    input.value = originalText;
     input.style.cssText = `
       width: 100%;
-      padding: 8px 12px;
-      border: 1px solid var(--panel-border-color);
-      border-radius: 4px;
-      background: var(--toolbar-field-background-color);
-      color: var(--toolbar-field-color);
-      font-size: 14px;
-      margin-bottom: 15px;
-      box-sizing: border-box;
-    `;
-    // Select filename without extension
-    const lastDotIndex = podData.filename.lastIndexOf('.');
-    if (lastDotIndex > 0) {
-      setTimeout(() => {
-        input.setSelectionRange(0, lastDotIndex);
-        input.focus();
-      }, 100);
-    } else {
-      setTimeout(() => {
-        input.select();
-        input.focus();
-      }, 100);
-    }
-    // Create button container
-    const buttonContainer = document.createElement('div');
-    buttonContainer.style.cssText = `
-      display: flex;
-      gap: 10px;
-      justify-content: flex-end;
-    `;
-    // Create cancel button
-    const cancelButton = document.createElement('button');
-    cancelButton.textContent = 'Cancel';
-    cancelButton.style.cssText = `
-      padding: 8px 16px;
-      border: 1px solid var(--panel-border-color);
-      border-radius: 4px;
+      padding: 0;
+      border: none;
+      border-radius: 0;
       background: transparent;
-      color: inherit;
-      cursor: pointer;
-      font-size: 13px;
+      color: var(--zen-text-color, #e0e0e0);
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      margin-bottom: 2px;
+      box-sizing: border-box;
+      outline: none;
     `;
-    cancelButton.addEventListener('mouseenter', () => {
-      cancelButton.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
-    });
-    cancelButton.addEventListener('mouseleave', () => {
-      cancelButton.style.backgroundColor = 'transparent';
-    });
-    // Create rename button
-    const renameButton = document.createElement('button');
-    renameButton.textContent = 'Rename';
-    renameButton.style.cssText = `
-      padding: 8px 16px;
-      border: 1px solid var(--zen-primary-color);
-      border-radius: 4px;
-      background: var(--zen-primary-color);
-      color: white;
-      cursor: pointer;
-      font-size: 13px;
-    `;
-    renameButton.addEventListener('mouseenter', () => {
-      renameButton.style.opacity = '0.8';
-    });
-    renameButton.addEventListener('mouseleave', () => {
-      renameButton.style.opacity = '1';
-    });
-    // Handle cancel
-    const closeDialog = () => {
-      overlay.remove();
-    };
-    cancelButton.addEventListener('click', closeDialog);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        closeDialog();
-      }
-    });
-    // Handle rename
-    const handleRename = async () => {
+    
+    // Select filename without extension
+    const lastDotIndex = originalText.lastIndexOf('.');
+    if (lastDotIndex > 0) {
+      input.setSelectionRange(0, lastDotIndex);
+    } else {
+      input.select();
+    }
+    
+    // Replace filename with input
+    const parent = filenameElement.parentNode;
+    parent.replaceChild(input, filenameElement);
+    input.focus();
+    
+    const finishEditing = async (save = false) => {
+      if (!state.isEditing) return;
+      state.isEditing = false; // Allow pile to hide again after editing
+      
       const newName = input.value.trim();
-      if (!newName) {
-        alert('Please enter a valid filename.');
-        input.focus();
-        return;
+      if (save && newName && newName !== originalText) {
+        try {
+          debugLog(`[Rename] Inline rename: ${originalText} -> ${newName}`);
+          await renamePodFile(podData, newName);
+        } catch (error) {
+          debugLog(`[Rename] Error renaming file:`, error);
+          showUserNotification(`Error renaming file: ${error.message}`);
+          // Restore original text on error
+          input.value = originalText;
+        }
       }
-      if (newName === podData.filename) {
-        closeDialog();
-        return;
-      }
-      try {
-        debugLog(`[Rename] Attempting to rename ${podData.filename} to ${newName}`);
-        await renamePodFile(podData, newName);
-        closeDialog();
-      } catch (error) {
-        debugLog(`[Rename] Error renaming file:`, error);
-        alert(`Error renaming file: ${error.message}`);
+      
+      // Restore filename element
+      filenameElement.textContent = podData.filename || originalText;
+      parent.replaceChild(filenameElement, input);
+      
+      // Check if we should hide the pile after editing (if not hovering)
+      if (!getAlwaysShowPile() && !shouldDisableHover()) {
+        // Small delay to allow DOM to update
+        setTimeout(() => {
+          const isHoveringDownloadArea = state.downloadButton?.matches(':hover');
+          const isHoveringPile = isHoveringPileArea();
+          
+          // Only hide if not hovering over download button or pile
+          if (!isHoveringDownloadArea && !isHoveringPile) {
+            debugLog("[Rename] Editing finished, hiding pile (not hovering)");
+            clearTimeout(state.hoverTimeout);
+            state.hoverTimeout = setTimeout(() => {
+              hidePile();
+            }, CONFIG.hoverDebounceMs);
+          }
+        }, 50);
       }
     };
-    renameButton.addEventListener('click', handleRename);
-    // Handle Enter key
+    
+    input.addEventListener('blur', () => finishEditing(true));
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        handleRename();
+        e.stopPropagation();
+        finishEditing(true);
       } else if (e.key === 'Escape') {
         e.preventDefault();
-        closeDialog();
+        e.stopPropagation();
+        finishEditing(false);
       }
     });
-    // Assemble dialog
-    buttonContainer.appendChild(cancelButton);
-    buttonContainer.appendChild(renameButton);
-    dialog.appendChild(title);
-    dialog.appendChild(currentName);
-    dialog.appendChild(input);
-    dialog.appendChild(buttonContainer);
-    overlay.appendChild(dialog);
-    document.body.appendChild(overlay);
-    debugLog(`[Rename] Rename dialog created for: ${podData.filename}`);
   }
 
   // --- Global pod file rename logic ---
   async function renamePodFile(podData, newFilename) {
     try {
-      ErrorHandler.validatePodData(podData);
+      validatePodData(podData);
       if (!newFilename || typeof newFilename !== 'string') {
         throw new Error('Invalid new filename');
       }
@@ -2572,10 +3437,20 @@
       podData.targetPath = newPath;
       // Update the pod in our local storage
       state.setPodData(podData.key, podData);
+      // Save updated pod data to SessionStore for persistence
+      saveDismissedPodToSession(podData);
       // Update the pod element
       const podElement = state.getPodElement(podData.key);
       if (podElement) {
         podElement.title = `${newName}\nClick: Open file\nMiddle-click: Show in file explorer\nRight-click: Context menu`;
+
+        // Update the displayed filename in the DOM
+        const filenameElement = podElement.querySelector('.dismissed-pod-filename');
+        if (filenameElement) {
+          filenameElement.textContent = newName;
+          debugLog(`[Rename] Updated displayed filename in DOM: ${newName}`);
+        }
+
         // Force UI refresh if needed (e.g., update label/icon)
         if (podElement.querySelector('.dismissed-pod-preview')) {
           // Optionally update preview/icon if needed
@@ -2601,10 +3476,10 @@
         const list = await window.Downloads.getList(window.Downloads.ALL);
         const downloads = await list.getAll();
         // Find the download that matches our pod
-        const targetDownload = downloads.find(download => 
+        const targetDownload = downloads.find(download =>
           download.target?.path === podData.targetPath.replace(newName, oldFilename) ||
-          (download.source?.url === podData.sourceUrl && 
-           download.target?.path?.endsWith(oldFilename))
+          (download.source?.url === podData.sourceUrl &&
+            download.target?.path?.endsWith(oldFilename))
         );
         if (targetDownload && targetDownload.target) {
           targetDownload.target.path = newPath;
@@ -2641,7 +3516,7 @@
   async function copyPodFileToClipboard(podData) {
     debugLog(`[Clipboard] Attempting to copy file to clipboard: ${podData.filename}`);
     try {
-      ErrorHandler.validatePodData(podData);
+      validatePodData(podData);
       if (!podData.targetPath) {
         throw new Error('No file path available');
       }
@@ -2667,10 +3542,106 @@
     }
   }
 
-  // Utility to check if the pod context menu is visible
+  // --- Delete file from system ---
+  async function deletePodFile(podData) {
+    debugLog(`[DeleteFile] Attempting to delete file from system: ${podData.filename}`);
+    try {
+      validatePodData(podData);
+
+      const confirmed = Services.prompt.confirm(
+        window,
+        'Delete File',
+        `Are you sure you want to permanently delete "${podData.filename}"?\n\nThis action cannot be undone.`
+      );
+
+      if (!confirmed) {
+        debugLog(`[DeleteFile] User cancelled deletion`);
+        return;
+      }
+
+      let resolvedDownload = null;
+      if (
+        window.zenTidyDownloads &&
+        typeof window.zenTidyDownloads.resolveDownloadFromPodData === 'function'
+      ) {
+        try {
+          resolvedDownload = await window.zenTidyDownloads.resolveDownloadFromPodData(podData);
+        } catch (resolveErr) {
+          debugLog(`[DeleteFile] resolveDownloadFromPodData failed:`, resolveErr);
+        }
+      }
+
+      const pathCandidates = [];
+      if (resolvedDownload?.target?.path) {
+        pathCandidates.push(resolvedDownload.target.path);
+      }
+      if (podData.targetPath) {
+        pathCandidates.push(podData.targetPath);
+      }
+      const uniquePaths = [...new Set(pathCandidates.filter(Boolean))];
+
+      let pathToDelete = null;
+      for (const p of uniquePaths) {
+        if (await FileSystem.fileExists(p)) {
+          pathToDelete = p;
+          break;
+        }
+      }
+
+      if (!pathToDelete) {
+        debugLog(
+          `[DeleteFile] No file at Firefox-reported or saved path; clearing pile and downloads entry only: ${podData.filename}`
+        );
+        try {
+          await removeDownloadFromFirefoxList(podData, resolvedDownload);
+        } catch (error) {
+          debugLog(`[DeleteFile] Could not remove from Firefox downloads list:`, error);
+        }
+        removePodFromPile(podData.key);
+        if (window.zenTidyDownloads && window.zenTidyDownloads.dismissedPods) {
+          try {
+            window.zenTidyDownloads.dismissedPods.delete(podData.key);
+          } catch (error) {
+            debugLog(`[DeleteFile] Could not remove from main script dismissed pods:`, error);
+          }
+        }
+        return;
+      }
+
+      const deleted = await FileSystem.deleteFile(pathToDelete);
+      if (!deleted) {
+        throw new Error('File deletion failed');
+      }
+
+      debugLog(`[DeleteFile] Successfully deleted file at ${pathToDelete}: ${podData.filename}`);
+
+      try {
+        await removeDownloadFromFirefoxList(podData, resolvedDownload);
+      } catch (error) {
+        debugLog(`[DeleteFile] Could not remove from Firefox downloads list:`, error);
+      }
+
+      removePodFromPile(podData.key);
+
+      if (window.zenTidyDownloads && window.zenTidyDownloads.dismissedPods) {
+        try {
+          window.zenTidyDownloads.dismissedPods.delete(podData.key);
+          debugLog(`[DeleteFile] Removed from main script dismissed pods`);
+        } catch (error) {
+          debugLog(`[DeleteFile] Could not remove from main script dismissed pods:`, error);
+        }
+      }
+    } catch (error) {
+      ErrorHandler.handleError(error, 'deletePodFile');
+      throw error;
+    }
+  }
+
+  // Utility to check if the pod context menu is visible (or opening)
   function isContextMenuVisible() {
+    if (state.pileContextMenuActive) return true;
     const menu = document.getElementById('zen-pile-pod-context-menu');
-    return menu && typeof menu.state === 'string' && menu.state === 'open';
+    return Boolean(menu && typeof menu.state === 'string' && menu.state === 'open');
   }
 
   /* Add CSS for flyout/flyin animations */
