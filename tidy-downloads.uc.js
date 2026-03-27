@@ -2496,18 +2496,88 @@
   // Update pod glow color based on dominant color
   function updatePodGlowColor(podElement, color) {
     if (!podElement) return;
+    const fallbackShadow = '0 2px 8px rgba(60,60,60,0.18), 0 3px 10px rgba(0,0,0,0.10)';
+    const parsedColor = parseColorToRGB(color);
     try {
-      // Always use a subtle grey shadow, ignore color extraction
-      const subtleGreyShadow = '0 2px 8px rgba(60,60,60,0.18), 0 3px 10px rgba(0,0,0,0.10)';
-      podElement.style.boxShadow = subtleGreyShadow;
-      debugLog('[GlowUpdate] Applied subtle grey shadow under pod', {
+      if (!parsedColor) {
+        podElement.style.boxShadow = fallbackShadow;
+        debugLog('[GlowUpdate] Applied fallback shadow (color invalid or missing)', {
+          podKey: podElement.dataset.downloadKey,
+          colorProvided: color
+        });
+        return;
+      }
+
+      const glowColor = `rgba(${parsedColor.r}, ${parsedColor.g}, ${parsedColor.b}, 0.45)`;
+      const softColor = `rgba(${parsedColor.r}, ${parsedColor.g}, ${parsedColor.b}, 0.25)`;
+      const depthShadow = '0 3px 10px rgba(0,0,0,0.18)';
+
+      podElement.style.boxShadow = `0 0 12px ${glowColor}, 0 2px 6px ${softColor}, ${depthShadow}`;
+      debugLog('[GlowUpdate] Applied color-driven shadow under pod', {
         podKey: podElement.dataset.downloadKey,
-        shadow: subtleGreyShadow
+        colorProvided: color,
+        parsedColor,
+        boxShadow: podElement.style.boxShadow
       });
     } catch (e) {
       debugLog('[GlowUpdate] Error updating pod shadow:', e);
       // Fallback to a basic grey shadow
-      podElement.style.boxShadow = '0 2px 8px rgba(60,60,60,0.18)';
+      podElement.style.boxShadow = fallbackShadow;
+    }
+  }
+
+  // Parse a CSS color string into numeric RGBA components
+  function parseColorToRGB(color) {
+    try {
+      if (!color) return null;
+
+      if (!parseColorToRGB._ctx) {
+        const canvas = document.createElement('canvas');
+        parseColorToRGB._ctx = canvas.getContext('2d');
+      }
+
+      const ctx = parseColorToRGB._ctx;
+      if (!ctx) return null;
+
+      ctx.fillStyle = '#000';
+      ctx.fillStyle = color;
+      const normalized = ctx.fillStyle;
+
+      if (!normalized) return null;
+
+      // Handle hex formats
+      if (normalized.startsWith('#')) {
+        const hex = normalized.slice(1);
+        if (hex.length === 3) {
+          const r = parseInt(hex[0] + hex[0], 16);
+          const g = parseInt(hex[1] + hex[1], 16);
+          const b = parseInt(hex[2] + hex[2], 16);
+          return { r, g, b, a: 1 };
+        }
+        if (hex.length === 6) {
+          const r = parseInt(hex.slice(0, 2), 16);
+          const g = parseInt(hex.slice(2, 4), 16);
+          const b = parseInt(hex.slice(4, 6), 16);
+          return { r, g, b, a: 1 };
+        }
+      }
+
+      // Handle rgb/rgba formats
+      const rgbaMatch = normalized.match(/rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\)/i);
+      if (rgbaMatch) {
+        const [, r, g, b, a] = rgbaMatch;
+        return {
+          r: Number(r),
+          g: Number(g),
+          b: Number(b),
+          a: a !== undefined ? Number(a) : 1
+        };
+      }
+
+      return null;
+    } catch (e) {
+      debugLog('[ColorParse] Failed to parse color', { color, error: e });
+      return null;
     }
   }
 
