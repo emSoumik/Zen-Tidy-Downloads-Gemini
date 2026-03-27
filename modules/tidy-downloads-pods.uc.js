@@ -505,7 +505,7 @@
           debugLog(`[Throttle] Pod element created/updated for ${key}.`);
           const shouldRequestUIUpdate = isNewCardOnInit || key === focusedKeyRef.current;
           if (shouldRequestUIUpdate) {
-            updateUIForFocusedDownload(focusedKeyRef.current || key, isNewCardOnInit || true);
+            updateUIForFocusedDownload(focusedKeyRef.current || key, isNewCardOnInit);
           }
         } else {
           debugLog(`[Throttle] No pod element returned for ${key}. Download state:`, {
