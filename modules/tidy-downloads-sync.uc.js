@@ -16,7 +16,7 @@
      * Initialize sync module. Called by tidy-downloads.uc.js with context.
      * @param {Object} ctx - Context from main script
      * @param {function} ctx.getMasterTooltip - () => masterTooltipDOMElement
-     * @param {function} ctx.getPodsContainer - () => podsRowContainerElement
+     * @param {function} ctx.getPodsRowContainer - () => podsRowContainerElement (preferred; falls back to ctx.getPodsContainer)
      * @param {function} ctx.getActiveCards - () => activeDownloadCards
      * @param {{ current: string|null }} ctx.focusedKeyRef - focused download key ref
      * @param {function} ctx.updateUI - updateUIForFocusedDownload
@@ -25,7 +25,8 @@
      * @returns {{ initZenAnimationObserver, initSidebarWidthSync, triggerCardEntrance }}
      */
     init(ctx) {
-      const { getMasterTooltip, getPodsContainer, getActiveCards, focusedKeyRef, updateUI, sidebarWidthRef, debugLog } = ctx;
+      const { getMasterTooltip, getPodsRowContainer, getPodsContainer, getActiveCards, focusedKeyRef, updateUI, sidebarWidthRef, debugLog } = ctx;
+      const resolvePodsRowContainer = getPodsRowContainer || getPodsContainer;
 
       function updateCurrentZenSidebarWidth() {
         const mainWindow = document.getElementById("main-window");
@@ -96,7 +97,7 @@
         updateCurrentZenSidebarWidth();
       }
 
-      function triggerCardEntrance(downloadKeyToTrigger) {
+      function triggerCardEntrance(downloadKeyToTrigger, podElementToAppend) {
         const activeCards = getActiveCards();
         const cardData = activeCards.get(downloadKeyToTrigger);
         if (!cardData) {
@@ -104,15 +105,22 @@
           return;
         }
 
+        const podElement = podElementToAppend || cardData.podElement;
+        if (podElement && !cardData.podElement) {
+          cardData.podElement = podElement;
+        }
+
         if (cardData.isWaitingForZenAnimation) {
           debugLog(`[ZenSync] triggerCardEntrance: Zen animation completed for ${downloadKeyToTrigger}.`);
           cardData.isWaitingForZenAnimation = false;
 
-          const podsContainer = getPodsContainer();
-          if (!cardData.domAppended && podsContainer && cardData.podElement) {
-            podsContainer.appendChild(cardData.podElement);
+          const podsContainer = resolvePodsRowContainer && resolvePodsRowContainer();
+          if (!cardData.domAppended && podsContainer && podElement) {
+            podsContainer.appendChild(podElement);
             cardData.domAppended = true;
             debugLog(`[ZenSync] Appended pod ${downloadKeyToTrigger} to DOM.`);
+          } else if (!podElement) {
+            debugLog(`[ZenSync] triggerCardEntrance: No podElement available to append for ${downloadKeyToTrigger}.`);
           }
 
           updateUI(focusedKeyRef.current || downloadKeyToTrigger, false);
@@ -153,11 +161,11 @@
               observer.disconnect();
               observer = null;
             }
-            triggerCardEntrance(downloadKey);
+            triggerCardEntrance(downloadKey, podElementToMonitor);
           }, 3000);
         } else {
           debugLog("[ZenSync] zen-download-animation not found. Triggering immediately.", { key: downloadKey });
-          triggerCardEntrance(downloadKey);
+          triggerCardEntrance(downloadKey, podElementToMonitor);
         }
       }
 
