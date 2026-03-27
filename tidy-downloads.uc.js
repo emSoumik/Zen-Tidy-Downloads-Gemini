@@ -3762,11 +3762,16 @@ function applyGlobalWidthToAllTooltips() {
 }
 
 // --- Zen Animation Synchronization Logic ---
-function triggerCardEntrance(downloadKeyToTrigger) {
+function triggerCardEntrance(downloadKeyToTrigger, podElementToAppend) {
   const cardData = activeDownloadCards.get(downloadKeyToTrigger);
   if (!cardData) {
     debugLog(`[ZenSync] triggerCardEntrance: No cardData for key ${downloadKeyToTrigger}`);
     return;
+  }
+
+  const podElement = podElementToAppend || cardData.podElement;
+  if (podElement && !cardData.podElement) {
+    cardData.podElement = podElement;
   }
 
   // This function is now primarily a signal that Zen animation (if any) is complete.
@@ -3778,10 +3783,12 @@ function triggerCardEntrance(downloadKeyToTrigger) {
     cardData.isWaitingForZenAnimation = false;
     
     // Ensure the pod is appended to DOM if it hasn't been already
-    if (!cardData.domAppended && podsRowContainerElement && cardData.podElement) {
-        podsRowContainerElement.appendChild(cardData.podElement);
+    if (!cardData.domAppended && podsRowContainerElement && podElement) {
+        podsRowContainerElement.appendChild(podElement);
         cardData.domAppended = true;
         debugLog(`[ZenSync] Appended pod ${downloadKeyToTrigger} to DOM after Zen animation.`);
+    } else if (!podElement) {
+        debugLog(`[ZenSync] triggerCardEntrance: No podElement available to append for ${downloadKeyToTrigger}.`);
     }
     
     // Call updateUI which will call managePodVisibilityAndAnimations
@@ -3830,13 +3837,13 @@ function initZenAnimationObserver(downloadKey, podElementToMonitor) { // podElem
         observer.disconnect();
         observer = null;
       }
-      triggerCardEntrance(downloadKey); 
+      triggerCardEntrance(downloadKey, podElementToMonitor); 
       // CardData fallbackTriggered is not strictly needed now as triggerCardEntrance is just a signal
     }, 3000); // 3-second fallback
 
   } else {
     debugLog("[ZenSync] zen-download-animation host or shadowRoot not found. Triggering card entrance signal immediately.", { key: downloadKey });
-    triggerCardEntrance(downloadKey);
+    triggerCardEntrance(downloadKey, podElementToMonitor);
     // CardData fallbackTriggered not strictly needed
   }
 }
