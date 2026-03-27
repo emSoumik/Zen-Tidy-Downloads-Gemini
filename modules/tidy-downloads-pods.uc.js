@@ -483,6 +483,10 @@
 
       function throttledCreateOrUpdateCard(download, isNewCardOnInit = false) {
         const key = getDownloadKey(download);
+        if (!key || typeof key !== "string") {
+          debugLog("Skipping throttled update for download object without usable key", download);
+          return;
+        }
         const now = Date.now();
         const lastUpdate = cardUpdateThrottle.get(key) || 0;
         const throttleDelay = 200;
